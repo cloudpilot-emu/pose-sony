@@ -1,0 +1,914 @@
+//Microsoft Developer Studio generated resource script.
+//
+#include "resource.h"
+
+#define APSTUDIO_READONLY_SYMBOLS
+/////////////////////////////////////////////////////////////////////////////
+//
+// Generated from the TEXTINCLUDE 2 resource.
+//
+#include "winres.h"
+/////////////////////////////////////////////////////////////////////////////
+#undef APSTUDIO_READONLY_SYMBOLS
+
+/////////////////////////////////////////////////////////////////////////////
+// âpåÍ (±“ÿ∂) resources
+
+#if !defined(AFX_RESOURCE_DLL) || defined(AFX_TARG_ENU)
+#ifdef _WIN32
+LANGUAGE LANG_ENGLISH, SUBLANG_ENGLISH_US
+#pragma code_page(1252)
+#endif //_WIN32
+
+#ifdef APSTUDIO_INVOKED
+/////////////////////////////////////////////////////////////////////////////
+//
+// TEXTINCLUDE
+//
+
+1 TEXTINCLUDE DISCARDABLE 
+BEGIN
+    "resource.h\0"
+END
+
+2 TEXTINCLUDE DISCARDABLE 
+BEGIN
+    "#include ""winres.h""\0"
+END
+
+3 TEXTINCLUDE DISCARDABLE 
+BEGIN
+    "#include ""Strings.rc""\0"
+END
+
+#endif    // APSTUDIO_INVOKED
+
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// DESIGNINFO
+//
+
+#ifdef APSTUDIO_INVOKED
+GUIDELINES DESIGNINFO DISCARDABLE 
+BEGIN
+    IDD_ABOUT_WINDOWS, DIALOG
+    BEGIN
+        LEFTMARGIN, 7
+        RIGHTMARGIN, 210
+        TOPMARGIN, 7
+        BOTTOMMARGIN, 64
+    END
+
+    IDD_ABOUT_UAE, DIALOG
+    BEGIN
+        LEFTMARGIN, 7
+        RIGHTMARGIN, 210
+        TOPMARGIN, 7
+        BOTTOMMARGIN, 64
+    END
+
+    IDD_ABOUT_MAC, DIALOG
+    BEGIN
+        LEFTMARGIN, 7
+        RIGHTMARGIN, 210
+        TOPMARGIN, 7
+        BOTTOMMARGIN, 64
+    END
+
+    IDD_ABOUT_PALM, DIALOG
+    BEGIN
+        LEFTMARGIN, 7
+        RIGHTMARGIN, 236
+        TOPMARGIN, 7
+        BOTTOMMARGIN, 99
+    END
+
+    IDD_SESSION_NEW, DIALOG
+    BEGIN
+        LEFTMARGIN, 7
+        RIGHTMARGIN, 260
+        TOPMARGIN, 7
+    END
+
+    IDD_EDIT_PREFERENCES, DIALOG
+    BEGIN
+        LEFTMARGIN, 7
+        RIGHTMARGIN, 235
+        TOPMARGIN, 7
+        BOTTOMMARGIN, 187
+    END
+
+    IDD_EDIT_DEBUGGING, DIALOG
+    BEGIN
+        LEFTMARGIN, 7
+        RIGHTMARGIN, 272
+        TOPMARGIN, 7
+        BOTTOMMARGIN, 77
+    END
+
+    IDD_STARTUP, DIALOG
+    BEGIN
+        LEFTMARGIN, 7
+        RIGHTMARGIN, 225
+        TOPMARGIN, 7
+        BOTTOMMARGIN, 88
+    END
+
+    IDD_GREMLIN_CONTROL, DIALOG
+    BEGIN
+        LEFTMARGIN, 7
+        RIGHTMARGIN, 181
+        TOPMARGIN, 7
+        BOTTOMMARGIN, 48
+    END
+
+    IDD_EDIT_LOGGING, DIALOG
+    BEGIN
+        LEFTMARGIN, 7
+        RIGHTMARGIN, 229
+        TOPMARGIN, 7
+        BOTTOMMARGIN, 163
+    END
+
+    IDD_GET_SHORTCUT_NAME, DIALOG
+    BEGIN
+        LEFTMARGIN, 7
+        RIGHTMARGIN, 201
+        TOPMARGIN, 7
+        BOTTOMMARGIN, 38
+    END
+
+    IDD_STARTMENU, DIALOG
+    BEGIN
+        LEFTMARGIN, 7
+        RIGHTMARGIN, 210
+        TOPMARGIN, 7
+        BOTTOMMARGIN, 59
+    END
+
+    IDD_ROM_TRANSFER_QUERY, DIALOG
+    BEGIN
+        LEFTMARGIN, 7
+        RIGHTMARGIN, 289
+        TOPMARGIN, 7
+        BOTTOMMARGIN, 194
+    END
+
+    IDD_ROM_TRANSFER_PROGRESS, DIALOG
+    BEGIN
+        LEFTMARGIN, 7
+        RIGHTMARGIN, 203
+        TOPMARGIN, 7
+        BOTTOMMARGIN, 56
+    END
+
+    IDD_EDIT_TRACING, DIALOG
+    BEGIN
+        LEFTMARGIN, 7
+        RIGHTMARGIN, 212
+        TOPMARGIN, 7
+        BOTTOMMARGIN, 61
+    END
+
+    IDD_EDIT_SKINS, DIALOG
+    BEGIN
+        LEFTMARGIN, 7
+        RIGHTMARGIN, 161
+        TOPMARGIN, 7
+        BOTTOMMARGIN, 144
+    END
+
+    IDD_HORDE_NEW, DIALOG
+    BEGIN
+        LEFTMARGIN, 7
+        RIGHTMARGIN, 280
+        TOPMARGIN, 7
+        BOTTOMMARGIN, 173
+    END
+
+    IDD_SAVE_BOUND, DIALOG
+    BEGIN
+        LEFTMARGIN, 7
+        RIGHTMARGIN, 248
+        TOPMARGIN, 7
+        BOTTOMMARGIN, 112
+    END
+
+    IDD_EDIT_PREFERENCES_FULLY_BOUND, DIALOG
+    BEGIN
+        LEFTMARGIN, 7
+        RIGHTMARGIN, 235
+        TOPMARGIN, 7
+        BOTTOMMARGIN, 139
+    END
+
+    IDD_EDIT_CARDS, DIALOG
+    BEGIN
+        LEFTMARGIN, 7
+        RIGHTMARGIN, 307
+        TOPMARGIN, 7
+        BOTTOMMARGIN, 92
+    END
+
+    IDD_DATABASE_IMPORT, DIALOG
+    BEGIN
+        LEFTMARGIN, 7
+        RIGHTMARGIN, 156
+        TOPMARGIN, 7
+        BOTTOMMARGIN, 38
+    END
+
+    IDD_COMMON_DIALOG, DIALOG
+    BEGIN
+        LEFTMARGIN, 7
+        RIGHTMARGIN, 293
+        TOPMARGIN, 7
+        BOTTOMMARGIN, 55
+    END
+
+    IDD_EDIT_BREAKPOINTS, DIALOG
+    BEGIN
+        LEFTMARGIN, 7
+        RIGHTMARGIN, 246
+        TOPMARGIN, 7
+        BOTTOMMARGIN, 196
+    END
+
+    IDD_EDIT_CODEBREAKPOINT, DIALOG
+    BEGIN
+        LEFTMARGIN, 7
+        RIGHTMARGIN, 190
+        TOPMARGIN, 7
+        BOTTOMMARGIN, 39
+    END
+
+    IDD_DATABASE_EXPORT, DIALOG
+    BEGIN
+        LEFTMARGIN, 7
+        RIGHTMARGIN, 147
+        TOPMARGIN, 7
+        BOTTOMMARGIN, 184
+    END
+
+    IDD_RESET, DIALOG
+    BEGIN
+        LEFTMARGIN, 7
+        RIGHTMARGIN, 308
+        TOPMARGIN, 7
+        BOTTOMMARGIN, 152
+    END
+END
+#endif    // APSTUDIO_INVOKED
+
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// Dialog
+//
+
+IDD_ABOUT_WINDOWS DIALOG DISCARDABLE  0, 0, 217, 71
+STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Windows"
+FONT 8, "MS Sans Serif"
+BEGIN
+    LTEXT           "Portions copyright 1996-1997 by Greg Hewgill",
+                    IDC_STATIC,45,30,150,8
+    LTEXT           "<mailto:greg@hewgill.com>",IDC_MAILTO,45,50,90,8
+    LTEXT           "<http://www.hewgill.com>",IDC_HTTP,45,40,90,8
+    LTEXT           "Original Windows Copilot by Greg Hewgill",IDC_STATIC,45,
+                    15,140,8
+    ICON            IDI_EMULATOR,IDC_STATIC,10,15,20,20
+END
+
+IDD_ABOUT_UAE DIALOG DISCARDABLE  0, 0, 217, 71
+STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "UAE"
+FONT 8, "MS Sans Serif"
+BEGIN
+    LTEXT           "Portions copyright 1995-1997 by Bernd Schmidt",
+                    IDC_STATIC,45,30,155,8
+    LTEXT           "<http://www.freiburg.linux.de/~uae/>",IDC_HTTP,45,40,
+                    120,8
+    LTEXT           "<mailto:crux@pool.informatik.rwth-aachen.de>",
+                    IDC_MAILTO,45,50,145,8
+    LTEXT           "UAE Amiga Emulator by Bernd Schmidt",IDC_STATIC,45,15,
+                    131,8
+    ICON            IDI_EMULATOR,IDC_STATIC,10,15,20,20
+END
+
+IDD_ABOUT_MAC DIALOG DISCARDABLE  0, 0, 217, 71
+STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Mac"
+FONT 8, "MS Sans Serif"
+BEGIN
+    LTEXT           "Portions copyright 1995-1997 by Craig Schofield",
+                    IDC_STATIC,45,30,157,8
+    LTEXT           "<http://members.aol.com/illumesoft/illume.html>",
+                    IDC_HTTP,45,40,155,8
+    LTEXT           "<mailto:ILLUMESoft@aol.com>",IDC_MAILTO,45,50,100,8
+    LTEXT           "Original Mac port by Craig Schofield",IDC_STATIC,45,15,
+                    119,8
+    ICON            IDI_EMULATOR,IDC_STATIC,10,15,20,20
+END
+
+IDD_ABOUT_PALM DIALOG DISCARDABLE  0, 0, 243, 106
+STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "About"
+FONT 8, "MS Sans Serif"
+BEGIN
+    ICON            IDI_EMULATOR,IDC_STATIC,10,15,21,23
+    LTEXT           "Palm OS(R) Emulator 2.1b99",IDC_ABOUT,45,15,100,8
+    LTEXT           "Copyright (c) 2000-2001 Sony Corporation",IDC_STATIC,45,
+                    30,150,8
+    LTEXT           "Portions copyright (c) 1998-2000 Palm, Inc. or its subsidiaries",
+                    IDC_STATIC,45,42,191,9
+    LTEXT           "<mailto:infoPda@ita.sel.sony.com>",IDC_MAILTO,45,61,108,
+                    8
+    LTEXT           "<mailto:info-sonypdadev@sony.co.jp>",IDC_HTTP,45,52,144,
+                    8
+END
+
+IDD_SESSION_NEW DIALOG DISCARDABLE  0, 0, 267, 107
+STYLE DS_MODALFRAME | DS_SETFOREGROUND | DS_CENTER | WS_POPUP | WS_CAPTION | 
+    WS_SYSMENU
+CAPTION "New Session"
+FONT 8, "MS Sans Serif"
+BEGIN
+    DEFPUSHBUTTON   "OK",IDOK,210,7,50,14
+    PUSHBUTTON      "Cancel",IDCANCEL,210,24,50,14
+    RTEXT           "&Device",IDC_STATIC,15,30,32,8
+    CONTROL         "Device",IDC_DEVICE,"Button",BS_OWNERDRAW | WS_TABSTOP,
+                    53,27,135,14
+    RTEXT           "&Skin",IDC_STATIC,15,50,32,8
+    CONTROL         "Skin",IDC_SKIN,"Button",BS_OWNERDRAW | WS_TABSTOP,53,47,
+                    135,14
+    RTEXT           "&RAM Size",IDC_STATIC,15,70,32,8
+    CONTROL         "RAM Size",IDC_RAMSIZE,"Button",BS_OWNERDRAW | 
+                    WS_TABSTOP,53,67,135,14
+    RTEXT           "ROM File",IDC_STATIC,15,10,32,8
+    CONTROL         "ROM File",IDC_ROMFILE,"Button",BS_OWNERDRAW | 
+                    WS_TABSTOP,53,7,135,14
+    RTEXT           "&MS Size",IDC_MSSIZE_LABEL,15,90,32,8
+    CONTROL         "MemoryStick Size",IDC_MSSIZE,"Button",BS_OWNERDRAW | 
+                    WS_TABSTOP,53,87,135,14
+END
+
+IDD_EDIT_PREFERENCES DIALOG DISCARDABLE  0, 0, 242, 194
+STYLE DS_MODALFRAME | DS_SETFOREGROUND | DS_CENTER | WS_POPUP | WS_CAPTION | 
+    WS_SYSMENU
+CAPTION "Properties"
+FONT 8, "MS Sans Serif"
+BEGIN
+    DEFPUSHBUTTON   "OK",IDOK,185,7,50,14
+    PUSHBUTTON      "Cancel",IDCANCEL,185,24,50,14
+    GROUPBOX        "Communications",IDC_STATIC,9,9,160,59
+    LTEXT           "Serial &Port:",IDC_STATIC,15,23,36,8
+    LTEXT           "&Connect to:",IDC_CONNECT_TO,15,37,39,8
+    EDITTEXT        IDC_PREF_TARGET,55,35,107,13,ES_AUTOHSCROLL
+    CONTROL         "Redirect &NetLib calls to host TCP/IP",
+                    IDC_PREF_REDIRECT,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,
+                    15,55,150,10
+    GROUPBOX        "Sounds",IDC_STATIC,9,73,160,27
+    CONTROL         "Enable &sounds",IDC_PREF_ENABLE_SOUND,"Button",
+                    BS_AUTOCHECKBOX | WS_TABSTOP,15,84,63,10
+    GROUPBOX        "Closing / Quitting",IDC_STATIC,10,106,160,45
+    CONTROL         "&Always save session",IDC_PREF_SAVE_ALWAYS,"Button",
+                    BS_AUTORADIOBUTTON | WS_GROUP | WS_TABSTOP,15,116,81,10
+    CONTROL         "As&k to save session",IDC_PREF_SAVE_ASK,"Button",
+                    BS_AUTORADIOBUTTON | WS_TABSTOP,15,126,79,10
+    CONTROL         "Ne&ver save session",IDC_PREF_SAVE_NEVER,"Button",
+                    BS_AUTORADIOBUTTON | WS_TABSTOP,15,136,78,10
+    GROUPBOX        "&HotSync User Name",IDC_STATIC,10,156,160,30
+    EDITTEXT        IDC_PREF_USER_NAME,15,167,150,14,ES_AUTOHSCROLL
+    PUSHBUTTON      "Port",IDC_PREF_PORT,55,19,107,12
+END
+
+IDD_EDIT_DEBUGGING DIALOG DISCARDABLE  0, 0, 279, 84
+STYLE DS_MODALFRAME | DS_SETFOREGROUND | DS_CENTER | WS_POPUP | WS_CAPTION | 
+    WS_SYSMENU
+CAPTION "Debug Options"
+FONT 8, "MS Sans Serif"
+BEGIN
+    DEFPUSHBUTTON   "OK",IDOK,222,7,50,14
+    PUSHBUTTON      "Cancel",IDCANCEL,222,24,50,14
+    CONTROL         "&Free Chunk Access",IDC_ReportFreeChunkAccess,"Button",
+                    BS_AUTOCHECKBOX | WS_TABSTOP,7,7,78,10
+    CONTROL         "&Hardware Register Access",
+                    IDC_ReportHardwareRegisterAccess,"Button",
+                    BS_AUTOCHECKBOX | WS_TABSTOP,7,17,100,10
+    CONTROL         "&Low Memory Access",IDC_ReportLowMemoryAccess,"Button",
+                    BS_AUTOCHECKBOX | WS_TABSTOP,7,27,81,10
+    CONTROL         "Lo&w Stack Access",IDC_ReportLowStackAccess,"Button",
+                    BS_AUTOCHECKBOX | WS_TABSTOP,7,37,75,10
+    CONTROL         "MemMgr &Data Access",IDC_ReportMemMgrDataAccess,"Button",
+                    BS_AUTOCHECKBOX | WS_TABSTOP,7,47,86,10
+    CONTROL         "&MemMgr Semaphore",IDC_ReportMemMgrSemaphore,"Button",
+                    BS_AUTOCHECKBOX | WS_TABSTOP,7,57,81,10
+    CONTROL         "&Offscreen Form Object",IDC_ReportOffscreenObject,
+                    "Button",BS_AUTOCHECKBOX | WS_TABSTOP,7,67,87,10
+    CONTROL         "&ROM Access",IDC_ReportROMAccess,"Button",
+                    BS_AUTOCHECKBOX | WS_TABSTOP,113,7,58,10
+    CONTROL         "&Screen Access",IDC_ReportScreenAccess,"Button",
+                    BS_AUTOCHECKBOX | WS_TABSTOP,113,17,64,10
+    CONTROL         "Si&zeless Form Object",IDC_ReportSizelessObject,"Button",
+                    BS_AUTOCHECKBOX | WS_TABSTOP,113,27,81,10
+    CONTROL         "Stack &Almost Full",IDC_ReportStackAlmostOverflow,
+                    "Button",BS_AUTOCHECKBOX | WS_TABSTOP,113,37,70,10
+    CONTROL         "System &Global Access",IDC_ReportSystemGlobalAccess,
+                    "Button",BS_AUTOCHECKBOX | WS_TABSTOP,113,47,86,10
+    CONTROL         "U&IMgr Data Access",IDC_ReportUIMgrDataAccess,"Button",
+                    BS_AUTOCHECKBOX | WS_TABSTOP,113,57,78,10
+    CONTROL         "&Unlocked Chunk Access",IDC_ReportUnlockedChunkAccess,
+                    "Button",BS_AUTOCHECKBOX | WS_TABSTOP,113,67,95,10
+END
+
+IDD_STARTUP DIALOG DISCARDABLE  0, 0, 232, 95
+STYLE DS_MODALFRAME | DS_SETFOREGROUND | DS_CENTER | WS_POPUP | WS_CAPTION | 
+    WS_SYSMENU
+CAPTION "Palm OS Emulator"
+FONT 8, "MS Sans Serif"
+BEGIN
+    PUSHBUTTON      "&New",IDC_NEW,10,10,50,14
+    PUSHBUTTON      "&Open",IDC_OPEN,10,30,50,14
+    PUSHBUTTON      "&Download",IDC_DOWNLOAD,10,50,50,14
+    PUSHBUTTON      "E&xit",IDC_EXIT,10,70,50,14
+    LTEXT           "Start a new emulator session",IDC_STATIC,70,15,91,8
+    LTEXT           "Load a previous emulator session from disk",IDC_STATIC,
+                    70,35,136,8
+    LTEXT           "Download a ROM image from a Palm OS device",IDC_STATIC,
+                    70,55,152,8
+    LTEXT           "Leave the Palm OS Emulator",IDC_STATIC,70,75,95,8
+END
+
+IDD_GREMLIN_CONTROL DIALOGEX 0, 0, 188, 55
+STYLE DS_MODALFRAME | DS_SETFOREGROUND | DS_CENTER | WS_POPUP | WS_CAPTION | 
+    WS_SYSMENU
+EXSTYLE WS_EX_TOOLWINDOW
+CAPTION "Gremlin Control"
+FONT 8, "MS Sans Serif", 0, 0, 0x1
+BEGIN
+    PUSHBUTTON      "Stop",IDC_STOP,7,34,50,14
+    PUSHBUTTON      "Resume",IDC_RESUME,70,34,50,14
+    PUSHBUTTON      "Step",IDC_STEP,131,34,50,14
+    LTEXT           "Gremlin #000",IDC_GREMLIN_NUMBER,134,7,47,8,0,
+                    WS_EX_RIGHT
+    LTEXT           "Event 0000000 of 0000000",IDC_EVENT_NUMBER,7,7,91,8
+    LTEXT           "Elapsed Time: 123,456.78 seconds",IDC_ELAPSED_TIME,7,17,
+                    121,8
+END
+
+IDD_EDIT_LOGGING DIALOG DISCARDABLE  0, 0, 236, 170
+STYLE DS_MODALFRAME | DS_SETFOREGROUND | DS_CENTER | WS_POPUP | WS_CAPTION | 
+    WS_SYSMENU
+CAPTION "Logging Options"
+FONT 8, "MS Sans Serif"
+BEGIN
+    CONTROL         "&Normal",IDC_LOG_NORMAL,"Button",BS_AUTORADIOBUTTON,139,
+                    7,38,10
+    CONTROL         "&Gremlins",IDC_LOG_GREMLINS,"Button",BS_AUTORADIOBUTTON,
+                    179,7,43,10
+    GROUPBOX        "Log:",IDC_STATIC,7,17,222,125
+    CONTROL         "Error Messages",IDC_LogErrorMessages,"Button",
+                    BS_AUTOCHECKBOX | WS_TABSTOP,15,29,65,10
+    CONTROL         "Warning Messages",IDC_LogWarningMessages,"Button",
+                    BS_AUTOCHECKBOX | WS_TABSTOP,15,39,77,10
+    CONTROL         "Misc Gremlin Info",IDC_LogGremlins,"Button",
+                    BS_AUTOCHECKBOX | WS_TABSTOP,15,49,70,10
+    CONTROL         "Assembly Opcodes",IDC_LogCPUOpcodes,"Button",
+                    BS_AUTOCHECKBOX | WS_TABSTOP,15,58,76,10
+    CONTROL         "Posted Events",IDC_LogEnqueuedEvents,"Button",
+                    BS_AUTOCHECKBOX | WS_TABSTOP,125,29,62,10
+    CONTROL         "Received Events",IDC_LogDequeuedEvents,"Button",
+                    BS_AUTOCHECKBOX | WS_TABSTOP,125,39,71,10
+    CONTROL         "System Calls",IDC_LogSystemCalls,"Button",
+                    BS_AUTOCHECKBOX | WS_TABSTOP,125,49,55,10
+    CONTROL         "Application Calls",IDC_LogApplicationCalls,"Button",
+                    BS_AUTOCHECKBOX | WS_TABSTOP,125,58,67,10
+    CONTROL         "Serial Activity",IDC_LogSerial,"Button",BS_AUTOCHECKBOX | 
+                    WS_TABSTOP,15,79,58,10
+    CONTROL         "NetLib Activity",IDC_LogNetLib,"Button",BS_AUTOCHECKBOX | 
+                    WS_TABSTOP,15,89,61,10
+    CONTROL         "ExgMgr Activity",IDC_LogExgMgr,"Button",BS_AUTOCHECKBOX | 
+                    WS_TABSTOP,15,98,65,10
+    CONTROL         "RPC Activity",IDC_LogRPC,"Button",BS_AUTOCHECKBOX | 
+                    WS_TABSTOP,15,109,55,10
+    CONTROL         "High-level Debugger Activity",IDC_LogHLDebugger,"Button",
+                    BS_AUTOCHECKBOX | WS_TABSTOP,15,119,105,10
+    CONTROL         "Low-level Debugger Activity",IDC_LogLLDebugger,"Button",
+                    BS_AUTOCHECKBOX | WS_TABSTOP,15,129,104,10
+    CONTROL         "Serial Data",IDC_LogSerialData,"Button",BS_AUTOCHECKBOX | 
+                    WS_TABSTOP,125,79,51,10
+    CONTROL         "NetLib Data",IDC_LogNetLibData,"Button",BS_AUTOCHECKBOX | 
+                    WS_TABSTOP,125,89,54,10
+    CONTROL         "ExgMgr Data",IDC_LogExgMgrData,"Button",BS_AUTOCHECKBOX | 
+                    WS_TABSTOP,125,98,57,10
+    CONTROL         "RPC Data",IDC_LogRPCData,"Button",BS_AUTOCHECKBOX | 
+                    WS_TABSTOP,125,109,48,10
+    CONTROL         "High-level Debugger Data",IDC_LogHLDebuggerData,"Button",
+                    BS_AUTOCHECKBOX | WS_TABSTOP,125,119,98,10
+    CONTROL         "Low-level Debugger Data",IDC_LogLLDebuggerData,"Button",
+                    BS_AUTOCHECKBOX | WS_TABSTOP,125,129,97,10
+    PUSHBUTTON      "OK",IDOK,120,149,50,14
+    PUSHBUTTON      "Cancel",IDCANCEL,179,149,50,14
+END
+
+IDD_GET_SHORTCUT_NAME DIALOG DISCARDABLE  0, 0, 208, 45
+STYLE DS_MODALFRAME | DS_SETFOREGROUND | DS_CENTER | WS_POPUP | WS_VISIBLE | 
+    WS_CAPTION | WS_SYSMENU
+CAPTION "Shortcut Name"
+FONT 8, "MS Sans Serif"
+BEGIN
+    LTEXT           "Enter a name for the shortcut:",IDC_STATIC_TEXT,7,7,115,
+                    8
+    EDITTEXT        IDC_TEXT,7,17,120,12,ES_AUTOHSCROLL
+    DEFPUSHBUTTON   "OK",IDOK,151,7,50,14
+    PUSHBUTTON      "Cancel",IDCANCEL,151,24,50,14
+END
+
+IDD_STARTMENU DIALOGEX 0, 0, 217, 66
+STYLE DS_MODALFRAME | DS_SETFOREGROUND | DS_CENTER | WS_POPUP | WS_VISIBLE | 
+    WS_CAPTION | WS_SYSMENU
+CAPTION "Start Menu Configuration"
+FONT 8, "MS Sans Serif", 0, 0, 0x1
+BEGIN
+    PUSHBUTTON      "&Yes",IDC_ADD_ITEM,101,41,50,15
+    PUSHBUTTON      "&No",IDNO,155,41,50,15
+    CONTROL         "&Ask me again next time, or if the shortcut is moved or deleted.",
+                    IDC_ASK_IN_FUTURE,"Button",BS_AUTOCHECKBOX | 
+                    BS_MULTILINE | NOT WS_VISIBLE | WS_DISABLED | WS_TABSTOP,
+                    40,41,167,16,WS_EX_TRANSPARENT
+    LTEXT           "Would you like to add an item to the Start Menu for Palm OS Emulator?",
+                    IDC_STATIC,39,11,164,21
+    ICON            IDI_EMULATOR,IDC_STATIC,9,9,20,20
+END
+
+IDD_ROM_TRANSFER_QUERY DIALOG DISCARDABLE  0, 0, 296, 201
+STYLE DS_MODALFRAME | DS_SETFOREGROUND | DS_CENTER | WS_POPUP | WS_CAPTION | 
+    WS_SYSMENU
+CAPTION "Transfer ROM"
+FONT 8, "MS Sans Serif"
+BEGIN
+    DEFPUSHBUTTON   "Begin",IDOK,239,7,50,14
+    PUSHBUTTON      "Cancel",IDCANCEL,239,24,50,14
+    LTEXT           "Instructions:",IDC_STATIC,7,7,39,8
+    EDITTEXT        IDC_INSTRUCTIONS,7,17,225,158,ES_MULTILINE | ES_READONLY | 
+                    WS_VSCROLL
+    LTEXT           "Port:",IDC_STATIC,7,184,18,8
+    PUSHBUTTON      "",IDC_PORT_LIST,27,181,80,12
+    LTEXT           "Speed:",IDC_STATIC,125,184,24,8
+    PUSHBUTTON      "",IDC_SPEED_LIST,152,181,80,12
+END
+
+IDD_ROM_TRANSFER_PROGRESS DIALOG DISCARDABLE  0, 0, 210, 63
+STYLE DS_MODALFRAME | DS_SETFOREGROUND | DS_CENTER | WS_POPUP | WS_CAPTION | 
+    WS_SYSMENU
+CAPTION "Progress"
+FONT 8, "MS Sans Serif"
+BEGIN
+    PUSHBUTTON      "Cancel",IDCANCEL,80,42,50,14
+    LTEXT           "",IDC_TRANSFER_MESSAGE,7,7,171,8
+    CONTROL         "Progress1",IDC_PROGRESS_DOWNLOAD,"msctls_progress32",
+                    PBS_SMOOTH | WS_BORDER,7,22,196,11
+END
+
+IDD_EDIT_TRACING DIALOG DISCARDABLE  0, 0, 219, 68
+STYLE DS_MODALFRAME | DS_SETFOREGROUND | DS_CENTER | WS_POPUP | WS_CAPTION | 
+    WS_SYSMENU
+CAPTION "Tracing options"
+FONT 8, "MS Sans Serif"
+BEGIN
+    LTEXT           "&Output:",IDC_STATIC,7,9,24,8
+    COMBOBOX        IDC_TRACER_TYPE,44,7,108,50,CBS_DROPDOWNLIST | 
+                    WS_VSCROLL | WS_TABSTOP
+    LTEXT           "",IDC_TRACER_PARAM_DESCR,7,24,34,8
+    EDITTEXT        IDC_TRACER_PARAM,44,23,108,12,ES_AUTOHSCROLL
+    CONTROL         "&Retry connecting on error condition",
+                    IDC_TRACER_AUTOCONNECT,"Button",BS_AUTOCHECKBOX | 
+                    WS_TABSTOP,7,38,124,10
+    DEFPUSHBUTTON   "OK",IDOK,162,7,50,14
+    PUSHBUTTON      "Cancel",IDCANCEL,162,24,50,14
+    RTEXT           "",IDC_TRACER_LIBSTATUS,7,52,205,9
+END
+
+IDD_EDIT_SKINS DIALOG DISCARDABLE  0, 0, 168, 151
+STYLE DS_MODALFRAME | DS_SETFOREGROUND | DS_CENTER | WS_POPUP | WS_CAPTION | 
+    WS_SYSMENU
+CAPTION "Skins"
+FONT 8, "MS Sans Serif"
+BEGIN
+    DEFPUSHBUTTON   "OK",IDOK,111,7,50,14
+    PUSHBUTTON      "Cancel",IDCANCEL,111,24,50,14
+    LTEXT           "&Skins for current device:",-1,7,7,78,8
+    LISTBOX         IDC_SKINLIST,7,18,95,90,WS_VSCROLL | WS_TABSTOP
+    GROUPBOX        "Other Options",-1,7,108,96,36
+    CONTROL         "D&ouble scale",IDC_SCALE,"Button",BS_AUTOCHECKBOX | 
+                    WS_TABSTOP,15,119,57,10
+    CONTROL         "&White Background",IDC_WHITEBACKGROUND,"Button",
+                    BS_AUTOCHECKBOX | WS_TABSTOP,15,129,75,10
+END
+
+IDD_HORDE_NEW DIALOG DISCARDABLE  0, 0, 287, 180
+STYLE DS_MODALFRAME | DS_SETFOREGROUND | DS_CENTER | WS_POPUP | WS_CAPTION | 
+    WS_SYSMENU
+CAPTION "New Gremlin Horde"
+FONT 8, "MS Sans Serif"
+BEGIN
+    DEFPUSHBUTTON   "OK",IDOK,175,159,50,14
+    PUSHBUTTON      "Cancel",IDCANCEL,230,159,50,14
+    GROUPBOX        "Gremlin Range",IDC_STATIC,7,7,150,33
+    LTEXT           "&From:",IDC_STATIC,15,20,18,8
+    EDITTEXT        IDC_HORDE_START_NUMBER,35,18,45,14,ES_AUTOHSCROLL
+    LTEXT           "&To:",IDC_STATIC,90,20,12,8
+    EDITTEXT        IDC_HORDE_STOP_NUMBER,104,18,45,14,ES_AUTOHSCROLL
+    CONTROL         "S&witch after",IDC_HORDE_SWITCH_CHECK,"Button",
+                    BS_AUTOCHECKBOX | WS_TABSTOP,10,50,50,10
+    EDITTEXT        IDC_HORDE_SWITCH_EVENTS,63,49,45,14,ES_AUTOHSCROLL
+    LTEXT           "events",IDC_STATIC,112,50,22,8
+    CONTROL         "S&ave after",IDC_HORDE_SAVE_CHECK,"Button",
+                    BS_AUTOCHECKBOX | WS_TABSTOP,10,70,49,10
+    EDITTEXT        IDC_HORDE_SAVE_EVENTS,63,69,45,14,ES_AUTOHSCROLL
+    LTEXT           "events",IDC_STATIC,112,70,22,8
+    CONTROL         "St&op after",IDC_HORDE_STOP_CHECK,"Button",
+                    BS_AUTOCHECKBOX | WS_TABSTOP,10,90,47,10
+    EDITTEXT        IDC_HORDE_STOP_EVENTS,63,89,45,14,ES_AUTOHSCROLL
+    LTEXT           "events",IDC_STATIC,112,90,22,8
+    LTEXT           "&Choose applications to launch:",IDC_STATIC,171,7,109,8
+    LISTBOX         IDC_HORDE_APP_LIST,170,20,110,138,LBS_EXTENDEDSEL | 
+                    WS_VSCROLL | WS_TABSTOP
+    PUSHBUTTON      "&Logging Options...",IDC_HORDE_LOGGING,7,159,68,14
+END
+
+IDD_SAVE_BOUND DIALOG DISCARDABLE  0, 0, 255, 119
+STYLE DS_MODALFRAME | DS_SETFOREGROUND | DS_CENTER | WS_POPUP | WS_CAPTION | 
+    WS_SYSMENU
+CAPTION "Bind Emulator"
+FONT 8, "MS Sans Serif"
+BEGIN
+    DEFPUSHBUTTON   "OK",IDOK,198,7,50,14
+    PUSHBUTTON      "Cancel",IDCANCEL,198,24,50,14
+    LTEXT           "This new version is self-contained: it doesn't need external ROM files, session files, or skin files. Bound emulators are good for demos, kiosk systems, or other instances where you need to ensure a specific configuration.",
+                    IDC_STATIC,7,31,187,35
+    CONTROL         "Create a version that always creates a new session based on the current emulator settings",
+                    IDC_BIND_ROM,"Button",BS_AUTORADIOBUTTON | BS_MULTILINE,
+                    7,73,194,17
+    CONTROL         "Create a version that restores the current session",
+                    IDC_BIND_RAM,"Button",BS_AUTORADIOBUTTON,7,97,169,10
+    LTEXT           "The ""bind"" feature allows you to create a device-specific version of the Palm OS Emulator.",
+                    IDC_STATIC,7,7,182,17
+END
+
+IDD_EDIT_PREFERENCES_FULLY_BOUND DIALOG DISCARDABLE  0, 0, 242, 146
+STYLE DS_MODALFRAME | DS_SETFOREGROUND | DS_CENTER | WS_POPUP | WS_CAPTION | 
+    WS_SYSMENU
+CAPTION "Properties"
+FONT 8, "MS Sans Serif"
+BEGIN
+    DEFPUSHBUTTON   "OK",IDOK,185,7,50,14
+    PUSHBUTTON      "Cancel",IDCANCEL,185,24,50,14
+    GROUPBOX        "Communications",IDC_STATIC,9,9,160,59
+    LTEXT           "Serial &Port:",IDC_STATIC,15,23,36,8
+    LTEXT           "&Connect to:",IDC_CONNECT_TO,15,37,38,8
+    EDITTEXT        IDC_PREF_TARGET,55,35,107,13,ES_AUTOHSCROLL
+    CONTROL         "Redirect &NetLib calls to host TCP/IP",
+                    IDC_PREF_REDIRECT,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,
+                    15,55,150,10
+    GROUPBOX        "Sounds",IDC_STATIC,9,73,161,27
+    CONTROL         "Enable &sounds",IDC_PREF_ENABLE_SOUND,"Button",
+                    BS_AUTOCHECKBOX | WS_TABSTOP,15,84,63,10
+    GROUPBOX        "&HotSync User Name",IDC_STATIC,10,108,160,30
+    EDITTEXT        IDC_PREF_USER_NAME,15,119,150,14,ES_AUTOHSCROLL
+    PUSHBUTTON      "Port",IDC_PREF_PORT,55,19,107,12
+END
+
+IDD_EDIT_CARDS DIALOG DISCARDABLE  0, 0, 314, 98
+STYLE DS_MODALFRAME | DS_SETFOREGROUND | DS_CENTER | WS_POPUP | WS_CAPTION | 
+    WS_SYSMENU
+CAPTION "Card Options"
+FONT 8, "MS Sans Serif"
+BEGIN
+    DEFPUSHBUTTON   "OK",IDOK,257,7,50,14
+    PUSHBUTTON      "Cancel",IDCANCEL,257,24,50,14
+    LISTBOX         IDC_CARD_LIST,13,18,46,67,LBS_SORT | 
+                    LBS_NOINTEGRALHEIGHT | WS_TABSTOP
+    GROUPBOX        "Root Path",IDC_STATIC,76,7,171,57
+    GROUPBOX        "Card",IDC_STATIC,7,7,58,85
+    EDITTEXT        IDC_CARD_PATH,82,17,159,42,ES_MULTILINE | ES_READONLY
+    CONTROL         "Mounted",IDC_CARD_MOUNTED,"Button",BS_AUTOCHECKBOX | 
+                    WS_TABSTOP,77,82,44,10
+    PUSHBUTTON      "Browse",IDC_CARD_BROWSE,196,78,50,14
+END
+
+IDD_DATABASE_IMPORT DIALOG DISCARDABLE  0, 0, 163, 45
+STYLE DS_MODALFRAME | DS_SETFOREGROUND | DS_CENTER | WS_POPUP | WS_CAPTION
+CAPTION "Installing"
+FONT 8, "MS Sans Serif"
+BEGIN
+    PUSHBUTTON      "Stop",IDCANCEL,106,24,50,14
+    LTEXT           "Items remaining to be installed:",IDC_STATIC,7,7,98,8
+    RTEXT           "999",IDC_NUM_FILES,127,7,29,8
+    CONTROL         "Progress1",IDC_PROGRESS_IMPORT,"msctls_progress32",
+                    PBS_SMOOTH | WS_BORDER,7,26,94,9
+END
+
+IDD_COMMON_DIALOG DIALOG DISCARDABLE  0, 0, 300, 62
+STYLE DS_MODALFRAME | DS_SETFOREGROUND | DS_CENTER | WS_POPUP | WS_CAPTION
+CAPTION "Palm OS Emulator"
+FONT 8, "MS Sans Serif"
+BEGIN
+    PUSHBUTTON      "1",IDC_BUTTON1,243,7,50,14
+    PUSHBUTTON      "2",IDC_BUTTON2,243,24,50,14
+    PUSHBUTTON      "3",IDC_BUTTON3,243,41,50,14
+    LTEXT           "Static",IDC_MESSAGE,7,7,224,48,SS_NOPREFIX
+END
+
+IDD_EDIT_BREAKPOINTS DIALOG DISCARDABLE  0, 0, 253, 201
+STYLE DS_MODALFRAME | DS_SETFOREGROUND | DS_CENTER | WS_POPUP | WS_CAPTION | 
+    WS_SYSMENU
+CAPTION "Breakpoints"
+FONT 8, "MS Sans Serif"
+BEGIN
+    GROUPBOX        "&Code breakpoints",IDC_STATIC,7,7,173,110
+    LISTBOX         IDC_BREAKPOINT_LIST,15,20,159,68,LBS_NOINTEGRALHEIGHT | 
+                    WS_VSCROLL | WS_TABSTOP
+    PUSHBUTTON      "&Edit",IDC_BREAKPOINT_EDIT,30,95,45,14
+    PUSHBUTTON      "Clea&r",IDC_BREAKPOINT_CLEAR,110,95,50,14
+    GROUPBOX        "&Data breakpoint",IDC_STATIC,7,121,174,75
+    CONTROL         "Ena&bled",IDC_BREAKPOINT_ENABLED,"Button",
+                    BS_AUTOCHECKBOX | WS_TABSTOP,17,137,43,8
+    LTEXT           "&Start address:",IDC_STATIC,15,153,53,11
+    EDITTEXT        IDC_BREAKPOINT_STARTADDRESS,81,151,61,13,ES_AUTOHSCROLL
+    LTEXT           "&Number of bytes:",IDC_STATIC,15,172,59,11
+    EDITTEXT        IDC_BREAKPOINT_NUMBEROFBYTES,81,172,62,12,ES_AUTOHSCROLL
+    DEFPUSHBUTTON   "OK",IDOK,196,7,50,14
+    PUSHBUTTON      "Cancel",IDCANCEL,196,24,50,14
+END
+
+IDD_EDIT_CODEBREAKPOINT DIALOG DISCARDABLE  0, 0, 197, 46
+STYLE DS_MODALFRAME | DS_SETFOREGROUND | DS_CENTER | WS_POPUP | WS_CAPTION | 
+    WS_SYSMENU
+CAPTION "Code Breakpoint"
+FONT 8, "MS Sans Serif"
+BEGIN
+    DEFPUSHBUTTON   "OK",IDOK,140,7,50,14
+    PUSHBUTTON      "Cancel",IDCANCEL,140,24,50,14
+    LTEXT           "&Address",IDC_STATIC,7,9,30,12
+    EDITTEXT        IDC_CODEBREAKPOINT_ADDRESS,45,7,89,12,ES_AUTOHSCROLL
+    LTEXT           "&Condition",IDC_STATIC,7,27,33,8
+    EDITTEXT        IDC_CODEBREAKPOINT_CONDITION,45,25,89,12,ES_AUTOHSCROLL
+END
+
+IDD_DATABASE_EXPORT DIALOG DISCARDABLE  0, 0, 154, 191
+STYLE DS_MODALFRAME | DS_SETFOREGROUND | DS_CENTER | WS_POPUP | WS_CAPTION | 
+    WS_SYSMENU
+CAPTION "Export Database"
+FONT 8, "MS Sans Serif"
+BEGIN
+    DEFPUSHBUTTON   "OK",IDOK,37,170,50,14
+    PUSHBUTTON      "Cancel",IDCANCEL,97,170,50,14
+    LISTBOX         IDC_DATABASE_LIST,7,20,140,140,WS_VSCROLL | WS_TABSTOP
+    LTEXT           "&Choose database to export:",-1,7,7,88,8
+END
+
+IDD_RESET DIALOG DISCARDABLE  0, 0, 315, 159
+STYLE DS_MODALFRAME | DS_SETFOREGROUND | DS_CENTER | WS_POPUP | WS_CAPTION | 
+    WS_SYSMENU
+CAPTION "Reset"
+FONT 8, "MS Sans Serif"
+BEGIN
+    DEFPUSHBUTTON   "Reset",IDOK,258,7,50,14
+    PUSHBUTTON      "Cancel",IDCANCEL,258,24,50,14
+    GROUPBOX        "Reset Type",IDC_STATIC,7,7,243,84
+    CONTROL         "&Soft Reset .........",IDC_RESET_SOFT,"Button",
+                    BS_AUTORADIOBUTTON | WS_TABSTOP,17,17,60,10
+    CONTROL         "&Hard Reset ..............",IDC_RESET_HARD,"Button",
+                    BS_AUTORADIOBUTTON,17,37,60,10
+    CONTROL         "&Debug Reset ...........",IDC_RESET_DEBUG,"Button",
+                    BS_AUTORADIOBUTTON,17,57,60,10
+    GROUPBOX        "Extensions",IDC_STATIC,7,97,243,54
+    LTEXT           "This is the same as inserting a pin in the reset hole on a device.  It performs a standard reset.",
+                    IDC_STATIC,80,18,168,16
+    LTEXT           "This is the same as a Soft Reset while holding down the Power key.  It erases the storage heap.",
+                    IDC_STATIC,80,38,168,16
+    LTEXT           "This is the same as a Soft Reset while holding down the Page Down key.  It causes the ROM to execute a DbgBreak early in the boot sequence.",
+                    IDC_STATIC,80,58,168,24
+    LTEXT           "This is the same as a Soft Reset while holding down the Page Up key.  It skips the loading of extensions, patches, and certain libraries, as well as inhibiting the sending of sysAppLaunchCmdSystemReset to applications.",
+                    IDC_STATIC,80,107,168,40
+    CONTROL         "&No Extensions",IDC_RESET_NO_EXTENSIONS,"Button",
+                    BS_AUTOCHECKBOX | WS_TABSTOP,17,107,60,10
+END
+
+
+#ifndef _MAC
+/////////////////////////////////////////////////////////////////////////////
+//
+// Version
+//
+
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION 3,0,2,0
+ PRODUCTVERSION 3,0,2,0
+ FILEFLAGSMASK 0x3fL
+#ifdef _DEBUG
+ FILEFLAGS 0x1L
+#else
+ FILEFLAGS 0x0L
+#endif
+ FILEOS 0x4L
+ FILETYPE 0x1L
+ FILESUBTYPE 0x0L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904b0"
+        BEGIN
+            VALUE "Comments", "\0"
+            VALUE "CompanyName", "Sony Corporation\0"
+            VALUE "FileDescription", "Palm OS Emulator\0"
+            VALUE "FileVersion", "3.2\0"
+            VALUE "InternalName", "Palm OS Emulator\0"
+            VALUE "LegalCopyright", "Copyright (c) 2000-2001 Sony Corporation. Portions copyright (c) 1998-2000 Palm, Inc.\0"
+            VALUE "LegalTrademarks", "\0"
+            VALUE "OriginalFilename", "Emulator.exe\0"
+            VALUE "PrivateBuild", "\0"
+            VALUE "ProductName", "Palm OS Emulator\0"
+            VALUE "ProductVersion", "3.2\0"
+            VALUE "SpecialBuild", "\0"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END
+
+#endif    // !_MAC
+
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// Icon
+//
+
+// Icon with lowest ID value placed first to ensure application icon
+// remains consistent on all systems.
+IDI_DOCUMENT            ICON    DISCARDABLE     "Document.ico"
+IDI_EMULATOR            ICON    DISCARDABLE     "Emulator.ico"
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// Cursor
+//
+
+IDC_FINGER              CURSOR  DISCARDABLE     "Finger.cur"
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// Bitmap
+//
+
+IDB_DEFAULT_LARGE       BITMAP  DISCARDABLE     "DefaultLarge.bmp"
+IDB_DEFAULT_SMALL       BITMAP  DISCARDABLE     "DefaultSmall.bmp"
+IDB_DOWN_PRESS          BITMAP  DISCARDABLE     "down_down.bmp"
+IDB_DOWN_RELEASE        BITMAP  DISCARDABLE     "down_release.bmp"
+IDB_ESC_PRESS           BITMAP  DISCARDABLE     "esc_rele.bmp"
+IDB_ESC_RELEASE         BITMAP  DISCARDABLE     "esc_pres.bmp"
+IDB_MS_DISABLE          BITMAP  DISCARDABLE     "ms_disab.bmp"
+IDB_MS_PRESS            BITMAP  DISCARDABLE     "ms_press.bmp"
+IDB_MS_RELEASE          BITMAP  DISCARDABLE     "ms_release.bmp"
+IDB_POWER_PRESS         BITMAP  DISCARDABLE     "power_press.bmp"
+IDB_POWER_RELEASE       BITMAP  DISCARDABLE     "power_release.bmp"
+IDB_PUSH_PRESS          BITMAP  DISCARDABLE     "push_down.bmp"
+IDB_PUSH_RELEASE        BITMAP  DISCARDABLE     "push_release.bmp"
+IDB_REPEAT_DISABLE      BITMAP  DISCARDABLE     "repeat_off.bmp"
+IDB_REPEAT_PRESS        BITMAP  DISCARDABLE     "repeat_down.bmp"
+IDB_REPEAT_RELEASE      BITMAP  DISCARDABLE     "repeat_release.bmp"
+IDB_UP_PRESS            BITMAP  DISCARDABLE     "up_down.bmp"
+IDB_UP_RELEASE          BITMAP  DISCARDABLE     "up_release.bmp"
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// String Table
+//
+
+STRINGTABLE DISCARDABLE 
+BEGIN
+    IDS_ABOUT               "About %s"
+    IDS_SAVECHANGES         "Save changes to ""%s""?"
+    IDS_SAVE_RAM_PROMPT     "Save session to:"
+END
+
+#endif    // âpåÍ (±“ÿ∂) resources
+/////////////////////////////////////////////////////////////////////////////
+
+
+
+#ifndef APSTUDIO_INVOKED
+/////////////////////////////////////////////////////////////////////////////
+//
+// Generated from the TEXTINCLUDE 3 resource.
+//
+#include "Strings.rc"
+/////////////////////////////////////////////////////////////////////////////
+#endif    // not APSTUDIO_INVOKED
+
