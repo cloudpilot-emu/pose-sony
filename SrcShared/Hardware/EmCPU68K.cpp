@@ -14,16 +14,20 @@
 #include "EmCommon.h"
 #include "EmCPU68K.h"
 
+#include "Byteswapping.h"		// Canonical
 #include "DebugMgr.h"			// gExceptionAddress, gExceptionSize, gExceptionForRead
 #include "EmBankROM.h"			// EmBankROM::GetMemoryStart
+#include "EmEventPlayback.h"	// EmEventPlayback::ReplayingEvents
 #include "EmHAL.h"				// EmHAL::GetInterruptLevel
 #include "EmMemory.h"			// CEnableFullAccess
+#include "EmMinimize.h"			// IsOn
 #include "EmSession.h"			// HandleInstructionBreak
 #include "Logging.h"			// LogAppendMsg
 #include "MetaMemory.h"			// IsCPUBreak
 #include "Platform.h"			// GetMilliseconds
 #include "SessionFile.h"		// WriteDBallRegs, etc.
 #include "StringData.h"			// kExceptionNames
+#include "UAE.h"				// cpuop_func, etc.
 
 #include <algorithm>			// find
 
@@ -234,6 +238,8 @@ void EmCPU68K::Reset (Bool hardwareReset)
 		regs.vbr = regs.sfc = regs.dfc = 0;
 		regs.fpcr = regs.fpsr = regs.fpiar = 0;
 	}
+
+	Memory::CheckNewPC (m68k_getpc ());
 }
 
 
@@ -356,7 +362,7 @@ void EmCPU68K::Execute (void)
 		// instructions we generate when calling the ROM as a subroutine.  We want
 		// those to be as transparent as possible.	In particular, we don't want
 		// any functions that we call as part of figuring out why a problem
-		// occured to knock the problem-causing registers off of our array.
+		// occurred to knock the problem-causing registers off of our array.
 		// -----------------------------------------------------------------------
 
 //		if (!session->IsNested ())
@@ -458,6 +464,10 @@ void EmCPU68K::Execute (void)
 		// -----------------------------------------------------------------------
 		EmOpcode68K	opcode;
 	//	opcode = get_iword (0);
+#if HAS_PROFILING
+		if (gProfilingEnabled)
+			get_word(regs.pc + ((char*) pc_p - (char*) pc_oldp));
+#endif
 		opcode = do_get_mem_word (pc_p);
 		fCycleCount += (functable[opcode]) (opcode);
 		// =======================================================================
@@ -687,12 +697,32 @@ Bool EmCPU68K::ExecuteStoppedLoop (void)
 	// If we're running Gremlins and the device goes to sleep (as opposed
 	// to just dozing), pretend the user clicked on the Power button).
 
-	if (Hordes::IsOn () && EmHAL::GetAsleep () && !session->HasButtonEvent ())
+	if (EmHAL::GetAsleep () && !session->HasButtonEvent ())
 	{
 		// Turns Hordes off for a moment, as pen events are rejected
 		// when it's running!
 
-		Hordes::TurnOn (false);
+		Bool	hordesWasOn = false;
+		Bool	playbackWasOn = false;
+		Bool	minimizationWasOn = false;
+
+		if (Hordes::IsOn ())
+		{
+			Hordes::TurnOn (false);
+			hordesWasOn = true;
+		}
+
+		if (EmEventPlayback::ReplayingEvents ())
+		{
+			EmEventPlayback::ReplayEvents (false);
+			playbackWasOn = true;
+		}
+
+		if (EmMinimize::IsOn ())
+		{
+			EmMinimize::TurnOn (false);
+			minimizationWasOn = true;
+		}
 
 		/*
 			When posting the button down event for the Power button, include
@@ -758,13 +788,29 @@ Bool EmCPU68K::ExecuteStoppedLoop (void)
 			state.
 		*/
 
-		EmButtonEvent	event (kElement_PowerButton, true);
-		session->PostButtonEvent (event, true);
+		if (hordesWasOn || playbackWasOn || minimizationWasOn)
+		{
+			EmButtonEvent	event (kElement_PowerButton, true);
+			session->PostButtonEvent (event, true);
 
-		event.fButtonIsDown = false;
-		session->PostButtonEvent (event);
+			event.fButtonIsDown = false;
+			session->PostButtonEvent (event);
+		}
 
-		Hordes::TurnOn (true);
+		if (hordesWasOn)
+		{
+			Hordes::TurnOn (true);
+		}
+
+		if (playbackWasOn)
+		{
+			EmEventPlayback::ReplayEvents (true);
+		}
+
+		if (minimizationWasOn)
+		{
+			EmMinimize::TurnOn (true);
+		}
 	}
 
 	int	counter = 0;
@@ -878,6 +924,139 @@ void EmCPU68K::CheckAfterCycle (void)
 
 
 // ---------------------------------------------------------------------------
+//		¥ EmCPU68K::GetPC
+// ---------------------------------------------------------------------------
+
+emuptr EmCPU68K::GetPC (void)
+{
+//	return this->GetRegister (e68KRegID_PC);
+	return m68k_getpc ();
+}
+
+
+// ---------------------------------------------------------------------------
+//		¥ EmCPU68K::GetSP
+// ---------------------------------------------------------------------------
+
+emuptr EmCPU68K::GetSP (void)
+{
+//	return this->GetRegister (e68KRegID_SSP);
+	return m68k_areg (regs, 7);
+}
+
+
+// ---------------------------------------------------------------------------
+//		¥ EmCPU68K::GetRegister
+// ---------------------------------------------------------------------------
+
+uint32 EmCPU68K::GetRegister (int index)
+{
+	uint32	result = 0;
+
+	switch (index)
+	{
+		case e68KRegID_D0:	result = m68k_dreg (regs, 0);	break;
+		case e68KRegID_D1:	result = m68k_dreg (regs, 1);	break;
+		case e68KRegID_D2:	result = m68k_dreg (regs, 2);	break;
+		case e68KRegID_D3:	result = m68k_dreg (regs, 3);	break;
+		case e68KRegID_D4:	result = m68k_dreg (regs, 4);	break;
+		case e68KRegID_D5:	result = m68k_dreg (regs, 5);	break;
+		case e68KRegID_D6:	result = m68k_dreg (regs, 6);	break;
+		case e68KRegID_D7:	result = m68k_dreg (regs, 7);	break;
+		case e68KRegID_A0:	result = m68k_areg (regs, 0);	break;
+		case e68KRegID_A1:	result = m68k_areg (regs, 1);	break;
+		case e68KRegID_A2:	result = m68k_areg (regs, 2);	break;
+		case e68KRegID_A3:	result = m68k_areg (regs, 3);	break;
+		case e68KRegID_A4:	result = m68k_areg (regs, 4);	break;
+		case e68KRegID_A5:	result = m68k_areg (regs, 5);	break;
+		case e68KRegID_A6:	result = m68k_areg (regs, 6);	break;
+		case e68KRegID_USP:	result = m68k_areg (regs, 7);	break;
+		case e68KRegID_SSP:	result = m68k_areg (regs, 7);	break;
+		case e68KRegID_PC:	result = m68k_getpc ();			break;
+		case e68KRegID_SR:
+			this->UpdateSRFromRegisters ();
+			result = regs.sr;
+			break;
+
+		default:
+			EmAssert (false);
+	}
+
+	return result;
+}
+
+
+// ---------------------------------------------------------------------------
+//		¥ EmCPU68K::SetPC
+// ---------------------------------------------------------------------------
+
+void EmCPU68K::SetPC (emuptr newPC)
+{
+	this->SetRegister (e68KRegID_PC, newPC);
+}
+
+
+// ---------------------------------------------------------------------------
+//		¥ EmCPU68K::SetSP
+// ---------------------------------------------------------------------------
+
+void EmCPU68K::SetSP (emuptr newPC)
+{
+	this->SetRegister (e68KRegID_SSP, newPC);
+}
+
+
+// ---------------------------------------------------------------------------
+//		¥ EmCPU68K::SetRegister
+// ---------------------------------------------------------------------------
+
+void EmCPU68K::SetRegister (int index, uint32 val)
+{
+	switch (index)
+	{
+		case e68KRegID_D0:	m68k_dreg (regs, 0) = val;	break;
+		case e68KRegID_D1:	m68k_dreg (regs, 1) = val;	break;
+		case e68KRegID_D2:	m68k_dreg (regs, 2) = val;	break;
+		case e68KRegID_D3:	m68k_dreg (regs, 3) = val;	break;
+		case e68KRegID_D4:	m68k_dreg (regs, 4) = val;	break;
+		case e68KRegID_D5:	m68k_dreg (regs, 5) = val;	break;
+		case e68KRegID_D6:	m68k_dreg (regs, 6) = val;	break;
+		case e68KRegID_D7:	m68k_dreg (regs, 7) = val;	break;
+		case e68KRegID_A0:	m68k_areg (regs, 0) = val;	break;
+		case e68KRegID_A1:	m68k_areg (regs, 1) = val;	break;
+		case e68KRegID_A2:	m68k_areg (regs, 2) = val;	break;
+		case e68KRegID_A3:	m68k_areg (regs, 3) = val;	break;
+		case e68KRegID_A4:	m68k_areg (regs, 4) = val;	break;
+		case e68KRegID_A5:	m68k_areg (regs, 5) = val;	break;
+		case e68KRegID_A6:	m68k_areg (regs, 6) = val;	break;
+		case e68KRegID_USP:	m68k_areg (regs, 7) = val;	break;
+		case e68KRegID_SSP:	m68k_areg (regs, 7) = val;	break;
+		case e68KRegID_PC:	m68k_setpc (val);			break;
+		case e68KRegID_SR:
+			regs.sr = val;
+			this->UpdateRegistersFromSR ();
+			break;
+
+		default:
+			EmAssert (false);
+	}
+}
+
+
+// ---------------------------------------------------------------------------
+//		¥ EmCPU68K::Stopped
+// ---------------------------------------------------------------------------
+// Return whether or not the CPU itself is halted.  This is seperate from
+// whether or not the session (that is, the thread emulating the CPU) is
+// halted.
+
+Bool EmCPU68K::Stopped (void)
+{
+	return regs.stopped;
+}
+
+
+// ---------------------------------------------------------------------------
 //		¥ EmCPU68K::CheckForBreak
 // ---------------------------------------------------------------------------
 // Check to see if the conditions tell us to break from the CPU Execute loop.
@@ -969,7 +1148,7 @@ void EmCPU68K::ProcessException (ExceptionNumber exception)
 	// trap dispatcher itself.  Therefore, only (1) is possible.
 
 	Bool							handled = false;
-	Hook68KExceptionList			fns = fExceptionHandlers[exception];
+	Hook68KExceptionList&			fns = fExceptionHandlers[exception];
 	Hook68KExceptionList::iterator	iter = fns.begin ();
 	while (iter != fns.end ())
 	{
@@ -1210,6 +1389,8 @@ void EmCPU68K::CheckNewPC (emuptr dest)
 
 		++iter;
 	}
+
+	EmMemory::CheckNewPC (dest);
 }
 
 

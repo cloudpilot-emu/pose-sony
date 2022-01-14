@@ -19,7 +19,7 @@ extern "C" {
 #endif
 
 
-extern void	StubAppEnqueuePt(PointType* pen);
+extern void	StubAppEnqueuePt(const PointType* pen);
 
 extern void StubAppEnqueueKey (UInt16 ascii, UInt16 keycode, UInt16 modifiers);
 

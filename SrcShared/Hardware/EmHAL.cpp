@@ -14,8 +14,18 @@
 #include "EmCommon.h"
 #include "EmHAL.h"
 
+#include "EmTransportSerial.h"	// EmTransportSerial
+#include "ErrorHandling.h"		// Errors::ReportErrCommPort
+#include "PreferenceMgr.h"		// gEmuPrefs
+
+#include "Logging.h"
+
+
 EmHALHandler*		EmHAL::fgRootHandler;
 
+#define PRINTF	if (!0) ; else LogAppendMsg
+
+static void PrvHandlePortOpenErrors (ErrCode err, string errString);
 
 // ---------------------------------------------------------------------------
 //		¥ EmHAL::AddHandler
@@ -259,32 +269,6 @@ void EmHAL::GetLCDScanlines (EmScreenUpdateInfo& info)
 
 
 // ---------------------------------------------------------------------------
-//		¥ EmHAL::GetIRPortOn
-// ---------------------------------------------------------------------------
-
-Bool EmHAL::GetIRPortOn (int /*uartNum*/)
-{
-#if 0
-	EmAssert (EmHAL::GetRootHandler());
-	return EmHAL::GetRootHandler()->GetIRPortOn (uartNum);
-#else
-	return false;	// For now, now IR port handling.
-#endif
-}
-
-
-// ---------------------------------------------------------------------------
-//		¥ EmHAL::GetSerialPortOn
-// ---------------------------------------------------------------------------
-
-Bool EmHAL::GetSerialPortOn (int uartNum)
-{
-	EmAssert (EmHAL::GetRootHandler());
-	return EmHAL::GetRootHandler()->GetSerialPortOn (uartNum);
-}
-
-
-// ---------------------------------------------------------------------------
 //		¥ EmHAL::GetDynamicHeapSize
 // ---------------------------------------------------------------------------
 
@@ -409,13 +393,128 @@ void EmHAL::GetKeyInfo (int* numRows, int* numCols,
 // ---------------------------------------------------------------------------
 //		¥ EmHAL::LineDriverChanged
 // ---------------------------------------------------------------------------
-// Tell the UART manager for the given UART that the host transport needs to
-// be opened or closed.
+// Open or close the transports in response to their line drivers being
+// enabled or disabled.
 
-void EmHAL::LineDriverChanged (int uartNum)
+void EmHAL::LineDriverChanged (EmUARTDeviceType type)
+{
+	ErrCode			err			= errNone;
+	EmTransport*	transport	= gEmuPrefs->GetTransportForDevice (type);
+
+	if (transport)
+	{
+		if (EmHAL::GetLineDriverState (type))
+		{
+			err = transport->Open ();
+		}
+		else
+		{
+			/* err = */ transport->Close ();
+		}
+
+		if (err != errNone)
+		{
+			string errString (transport->GetSpecificName ());
+			::PrvHandlePortOpenErrors (err, errString);
+		}
+	}
+}
+
+
+// ---------------------------------------------------------------------------
+//		¥ EmHAL::GetLineDriverState
+// ---------------------------------------------------------------------------
+// Return whether or not the line drivers for the given object are open or
+// closed.
+
+Bool EmHAL::GetLineDriverState (EmUARTDeviceType type)
 {
 	EmAssert (EmHAL::GetRootHandler());
-	EmHAL::GetRootHandler()->LineDriverChanged (uartNum);
+	return EmHAL::GetRootHandler()->GetLineDriverState (type);
+}
+
+
+// ---------------------------------------------------------------------------
+//		¥ EmHAL::GetUARTDevice
+// ---------------------------------------------------------------------------
+// Return what sort of device is hooked up to the given UART.
+
+EmUARTDeviceType EmHAL::GetUARTDevice (int uartNum)
+{
+	EmAssert (EmHAL::GetRootHandler());
+	return EmHAL::GetRootHandler()->GetUARTDevice (uartNum);
+}
+
+
+// ---------------------------------------------------------------------------
+//		¥ EmHAL::GetLineDriverStates
+// ---------------------------------------------------------------------------
+// Collect all the states of all the driver types we know about.  Pass in to
+// this routine a variable of type Bool[kUARTEnd].
+
+void EmHAL::GetLineDriverStates (Bool* states)
+{
+	for (EmUARTDeviceType ii = kUARTBegin; ii < kUARTEnd; ++ii)
+	{
+		states[ii] = EmHAL::GetLineDriverState (ii);
+	}
+}
+
+
+// ---------------------------------------------------------------------------
+//		¥ EmHAL::CompareLineDriverStates
+// ---------------------------------------------------------------------------
+// Collect the current state of all the line drivers, and compare them to
+// a previously-saved snapshot.  For any differences, call LineDriverChanged.
+
+void EmHAL::CompareLineDriverStates (const Bool* oldStates)
+{
+	Bool	newStates[kUARTEnd];
+	EmHAL::GetLineDriverStates (newStates);
+
+	for (EmUARTDeviceType ii = kUARTBegin; ii < kUARTEnd; ++ii)
+	{
+		if (newStates[ii] != oldStates[ii])
+		{
+			EmHAL::LineDriverChanged (ii);
+		}
+	}
+}
+
+
+// ---------------------------------------------------------------------------
+//		¥ EmHAL::GetDTR
+// ---------------------------------------------------------------------------
+// DTR is "Data Terminal Ready".  In the same way that the RTS signal is
+// typically hooked up to the external device's CTS signal, our DTR pin is
+// hooked up to the external device's DSR pin.  It can be modified in order
+// to tell the external device if we can accept any data.
+
+Bool EmHAL::GetDTR (int uartNum)
+{
+	EmAssert (EmHAL::GetRootHandler());
+	return EmHAL::GetRootHandler()->GetDTR (uartNum);
+}
+
+
+// ---------------------------------------------------------------------------
+//		¥ EmHAL::DTRChanged
+// ---------------------------------------------------------------------------
+// Called when the Palm OS changes the setting of the DTR pin.  We respond
+// to this change by reflecting the setting in the host's DTR pin.
+
+void EmHAL::DTRChanged (int uartNum)
+{
+	EmUARTDeviceType	type			= EmHAL::GetUARTDevice (uartNum);
+	EmTransport*		transport		= gEmuPrefs->GetTransportForDevice (type);
+	EmTransportSerial*	serTransport	= dynamic_cast<EmTransportSerial*> (transport);
+
+	if (serTransport)
+	{
+		Bool	state = EmHAL::GetDTR (uartNum);
+		PRINTF ("EmHAL::DTRChanged: DTR changed in emulated port to %d.", (int) state);
+		serTransport->SetDTR (state);
+	}
 }
 
 
@@ -609,28 +708,6 @@ void EmHALHandler::GetLCDScanlines (EmScreenUpdateInfo& info)
 
 
 // ---------------------------------------------------------------------------
-//		¥ EmHALHandler::GetIRPortOn
-// ---------------------------------------------------------------------------
-
-Bool EmHALHandler::GetIRPortOn (int uartNum)
-{
-	EmAssert (this->GetNextHandler());
-	return this->GetNextHandler()->GetIRPortOn (uartNum);
-}
-
-
-// ---------------------------------------------------------------------------
-//		¥ EmHALHandler::GetSerialPortOn
-// ---------------------------------------------------------------------------
-
-Bool EmHALHandler::GetSerialPortOn (int uartNum)
-{
-	EmAssert (this->GetNextHandler());
-	return this->GetNextHandler()->GetSerialPortOn (uartNum);
-}
-
-
-// ---------------------------------------------------------------------------
 //		¥ EmHALHandler::GetDynamicHeapSize
 // ---------------------------------------------------------------------------
 
@@ -753,15 +830,54 @@ void EmHALHandler::GetKeyInfo (int* numRows, int* numCols,
 
 
 // ---------------------------------------------------------------------------
-//		¥ EmHALHandler::LineDriverChanged
+//		¥ EmHALHandler::GetLineDriverState
 // ---------------------------------------------------------------------------
-// Tell the UART manager for the given UART that the host transport needs to
-// be opened or closed.
+// Return whether or not the line drivers for the given object are open or
+// closed.
 
-void EmHALHandler::LineDriverChanged (int uartNum)
+Bool EmHALHandler::GetLineDriverState (EmUARTDeviceType type)
 {
-	EmAssert (this->GetNextHandler());
-	this->GetNextHandler()->LineDriverChanged (uartNum);
+	if (EmHALHandler::GetNextHandler())
+	{
+		return EmHALHandler::GetNextHandler()->GetLineDriverState (type);
+	}
+
+	return false;
+}
+
+
+// ---------------------------------------------------------------------------
+//		¥ EmHALHandler::GetUARTDevice
+// ---------------------------------------------------------------------------
+// Return what sort of device is hooked up to the given UART.
+
+EmUARTDeviceType EmHALHandler::GetUARTDevice (int uartNum)
+{
+	if (EmHALHandler::GetNextHandler())
+	{
+		return EmHALHandler::GetNextHandler()->GetUARTDevice (uartNum);
+	}
+
+	return kUARTNone;
+}
+
+
+// ---------------------------------------------------------------------------
+//		¥ EmHALHandler::GetDTR
+// ---------------------------------------------------------------------------
+// DTR is "Data Terminal Ready".  In the same way that the RTS signal is
+// typically hooked up to the external device's CTS signal, our DTR pin is
+// hooked up to the external device's DSR pin.  It can be modified in order
+// to tell the external device if we can accept any data.
+
+Bool EmHALHandler::GetDTR (int uartNum)
+{
+	if (EmHALHandler::GetNextHandler())
+	{
+		return EmHALHandler::GetNextHandler()->GetDTR (uartNum);
+	}
+
+	return false;
 }
 
 
@@ -790,4 +906,34 @@ uint16 EmHALHandler::GetLEDState (void)
 
 	EmAssert (this->GetNextHandler());
 	return this->GetNextHandler()->GetLEDState ();
+}
+
+
+/***********************************************************************
+ *
+ * FUNCTION:	PrvHandlePortOpenErrors
+ *
+ * DESCRIPTION:	.
+ *
+ * PARAMETERS:	none.
+ *
+ * RETURNED:	nothing, but displays one of two warnings if its cases
+ *				are tripped.
+ *
+ ***********************************************************************/
+
+void PrvHandlePortOpenErrors (ErrCode err, string errString)
+{
+	switch (err)
+	{
+		// access denied, comm port, on Win32
+		case 5:
+			Errors::ReportErrCommPort (errString);
+			break;
+
+		// comm port error on Mac
+		case -97:
+			Errors::ReportErrCommPort (errString);
+			break;
+	}
 }

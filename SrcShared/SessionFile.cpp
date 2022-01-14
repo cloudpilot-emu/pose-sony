@@ -1,5 +1,5 @@
 /* -*- mode: C++; tab-width: 4 -*- */
-/* ===================================================================== *\
+/* ===================================================================== *
 	Copyright (c) 1999-2001 Palm, Inc. or its subsidiaries.
 	All rights reserved.
 
@@ -9,7 +9,7 @@
 	it under the terms of the GNU General Public License as published by
 	the Free Software Foundation; either version 2 of the License, or
 	(at your option) any later version.
-\* ===================================================================== */
+* ===================================================================== */
 
 #include "EmCommon.h"
 #include "SessionFile.h"
@@ -160,12 +160,12 @@ Bool SessionFile::ReadROMFileReference (EmFileRef& f)
 
 Bool SessionFile::ReadRAMImage (void* image)
 {
-	long	result = this->ReadChunk (kRAMDataTag, image, kGzipCompression);
+	Bool	result = this->ReadChunk (kRAMDataTag, image, kGzipCompression);
 
-	if (result == ChunkFile::kChunkNotFound)
+	if (!result)
 		result = this->ReadChunk (kRLERAMDataTag, image, kRLECompression);
 
-	if (result == ChunkFile::kChunkNotFound)
+	if (!result)
 		result = this->ReadChunk (kUncompRAMDataTag, image, kNoCompression);
 
 	return result;
@@ -192,9 +192,9 @@ Bool SessionFile::ReadRAMImage (void* image)
 
 Bool SessionFile::ReadMetaRAMImage (void* image)
 {
-	long	result = this->ReadChunk (kMetaRAMDataTag, image, kGzipCompression);
+	Bool	result = this->ReadChunk (kMetaRAMDataTag, image, kGzipCompression);
 
-	if (result == ChunkFile::kChunkNotFound)
+	if (!result)
 		result = this->ReadChunk (kRLEMetaRAMDataTag, image, kRLECompression);
 
 	return result;
@@ -221,7 +221,7 @@ Bool SessionFile::ReadMetaRAMImage (void* image)
 
 Bool SessionFile::ReadMetaROMImage (void* image)
 {
-	long	result = this->ReadChunk (kMetaROMDataTag, image, kGzipCompression);
+	Bool	result = this->ReadChunk (kMetaROMDataTag, image, kGzipCompression);
 
 	return result;
 }
@@ -310,6 +310,46 @@ Bool SessionFile::ReadHwrDBallVZType (HwrM68VZ328Type& hwRegs)
 
 /***********************************************************************
  *
+ * FUNCTION:	SessionFile::ReadHwrDBallSZType
+ *
+ * DESCRIPTION:	Read the DragonballSZ hardware registers from the
+ *				session file.
+ *
+ * PARAMETERS:	hwRegs - reference to the struct to receive the register
+ *					data.
+ *
+ * RETURNED:	True if the data was found and could be read in.
+ *
+ ***********************************************************************/
+
+#if INCLUDE_SECRET_STUFF
+
+Bool SessionFile::ReadHwrDBallSZType (HwrM68SZ328Type& hwRegs)
+{
+	// We're going to read this in in two chunks, since it was written out in
+	// two chunks.
+
+	Chunk	chunk;
+
+	if (fFile.ReadChunk (kDBSZRegsChunk1, chunk))
+	{
+		memcpy (&hwRegs, chunk.GetPointer (), 0x82C - 0x000);
+	}
+
+	if (fFile.ReadChunk (kDBSZRegsChunk2, chunk))
+	{
+		memcpy ((char *) &hwRegs + 0x10000, chunk.GetPointer (), sizeof (hwRegs) - 0x10000);
+		return true;
+	}
+
+	return false;
+}
+
+#endif	// INCLUDE_SECRET_STUFF
+
+
+/***********************************************************************
+ *
  * FUNCTION:	SessionFile::ReadDBallRegs
  *
  * DESCRIPTION:	Read the Dragonball CPU registers structure from the
@@ -362,23 +402,7 @@ Bool SessionFile::ReadDevice (EmDevice& v)
 		v = EmDevice (deviceTypeString);
 	}
 
-	// Check against any bound device type.
-
-	if (v.Supported ())
-	{
-		if (::IsBound ())
-		{
-			EmDevice	ourDevice = Platform::GetBoundDevice ();
-			if (v != ourDevice)
-			{
-				Errors::Throw (kError_InvalidDevice);
-			}
-		}
-
-		return true;
-	}
-
-	return false;
+	return v.Supported ();
 }
 
 
@@ -423,7 +447,7 @@ Bool SessionFile::ReadSED1375RegsType (SED1375RegsType& sedRegs)
 
 Bool SessionFile::ReadSED1375Image (void* image)
 {
-	long	result = this->ReadChunk (kSED1375Image, image, kGzipCompression);
+	Bool	result = this->ReadChunk (kSED1375Image, image, kGzipCompression);
 
 	return result;
 }
@@ -472,6 +496,32 @@ Bool SessionFile::ReadSED1376Palette (RGBType palette[256])
 }
 
 
+// SessionFile::ReadMediaQRegsType is defined in SessionFile.h
+
+
+Bool SessionFile::ReadMediaQImage (void* image)
+{
+	Bool	result = this->ReadChunk (kMediaQImage, image, kGzipCompression);
+
+	return result;
+}
+
+
+Bool SessionFile::ReadMediaQPalette (RGBType palette[256])
+{
+	Chunk	chunk;
+	if (fFile.ReadChunk (kMediaQPalette, chunk))
+	{
+		// Note: "sizeof (palette)" gives 4, not 512.
+		int size = 256 * sizeof (palette[0]);
+		memcpy (palette, chunk.GetPointer (), size);
+		return true;
+	}
+
+	return false;
+}
+
+
 Bool SessionFile::ReadPLDRegsType (HwrJerryPLDType& pldRegs)
 {
 	Chunk	chunk;
@@ -490,7 +540,7 @@ Bool SessionFile::ReadConfiguration (Configuration& cfg)
 	if (!this->ReadDevice (cfg.fDevice))
 		return false;
 
-	if (!::IsBound () && !this->ReadROMFileReference (cfg.fROMFile))
+	if (!this->ReadROMFileReference (cfg.fROMFile))
 		return false;
 
 	cfg.fRAMSize = this->GetRAMImageSize ();
@@ -504,7 +554,7 @@ Bool SessionFile::ReadConfiguration (Configuration& cfg)
 	{
 		cfg.fMSSize = MSSIZE_DEFAULT;		
 	}
-#endif
+#endif //SONY_ROM
 
 	return true;
 }
@@ -697,6 +747,35 @@ void SessionFile::WriteHwrDBallVZType (const HwrM68VZ328Type& hwRegs)
 
 /***********************************************************************
  *
+ * FUNCTION:	SessionFile::WriteHwrDBallSZType
+ *
+ * DESCRIPTION:	Write the Dragonball SZ hardware registers to the session
+ *				file.
+ *
+ * PARAMETERS:	hwRegs - the DB registers to write to disk.  No munging
+ *					of this data is performed; it is expected that any
+ *					byteswapping has already taken place.
+ *
+ * RETURNED:	Nothing
+ *
+ ***********************************************************************/
+
+#if INCLUDE_SECRET_STUFF
+
+void SessionFile::WriteHwrDBallSZType (const HwrM68SZ328Type& hwRegs)
+{
+	// We're going to write this out in two chunks, due to the large
+	// unmapped register space in the SZ.
+
+	fFile.WriteChunk (kDBSZRegsChunk1, 0x82C - 0x000, &hwRegs);
+	fFile.WriteChunk (kDBSZRegsChunk2, sizeof (hwRegs) - 0x10000, (char *) &hwRegs + 0x10000);
+}
+
+#endif	// INCLUDE_SECRET_STUFF
+
+
+/***********************************************************************
+ *
  * FUNCTION:	SessionFile::WriteDBallRegs
  *
  * DESCRIPTION:	Write the Dragonball CPU registers to the session file.
@@ -782,6 +861,20 @@ void SessionFile::WriteSED1376Palette (const RGBType palette[256])
 	// Note: "sizeof (palette)" gives 4, not 512.
 	int	size = 256 * sizeof (palette[0]);
 	fFile.WriteChunk (kSED1376Palette, size, palette);
+}
+
+// SessionFile::WriteMediaQRegsType is defined in SessionFile.h
+
+void SessionFile::WriteMediaQImage (const void* image, uint32 size)
+{
+	this->WriteChunk (kMediaQImage, size, image, kGzipCompression);
+}
+
+void SessionFile::WriteMediaQPalette (const RGBType palette[256])
+{
+	// Note: "sizeof (palette)" gives 4, not 512.
+	int size = 256 * sizeof (palette[0]);
+	fFile.WriteChunk (kMediaQPalette, size, palette);
 }
 
 void SessionFile::WritePLDRegsType (const HwrJerryPLDType& pldRegs)
@@ -895,7 +988,7 @@ Bool SessionFile::IncludesBugFix (BugFix val)
  *
  ***********************************************************************/
 
-long SessionFile::ReadChunk (ChunkFile::Tag tag, void* image,
+Bool SessionFile::ReadChunk (ChunkFile::Tag tag, void* image,
 							 CompressionType compType)
 {
 	// Get the size of the chunk.
@@ -903,7 +996,7 @@ long SessionFile::ReadChunk (ChunkFile::Tag tag, void* image,
 	long	chunkSize = fFile.FindChunk (tag);
 	if (chunkSize == ChunkFile::kChunkNotFound)
 	{
-		return chunkSize;
+		return false;
 	}
 
 	if (chunkSize)
@@ -948,6 +1041,66 @@ long SessionFile::ReadChunk (ChunkFile::Tag tag, void* image,
 		}
 	}
 	
+	return true;
+}
+
+
+Bool SessionFile::ReadChunk (ChunkFile::Tag tag, Chunk& chunk,
+							 CompressionType compType)
+{
+	// Get the size of the chunk.
+
+	long	chunkSize = fFile.FindChunk (tag);
+	if (chunkSize == ChunkFile::kChunkNotFound)
+	{
+		return false;
+	}
+
+	if (chunkSize)
+	{
+		// If no compression is being used, just read the data.
+
+		if (compType == kNoCompression)
+		{
+			chunk.SetLength (chunkSize);
+			fFile.ReadChunk (chunkSize, chunk.GetPointer ());
+		}
+
+		// The data is compressed.
+
+		else
+		{
+			// Use the chunk size to create a buffer.
+
+			StMemory	packedImage (chunkSize);
+
+			// Read the chunk into memory.
+
+			fFile.ReadChunk (chunkSize, packedImage.Get ());
+
+			// The size of the unpacked image is stored as the first 4 bytes
+			// of the chunk.
+
+			long		unpackedSize = *(long*) packedImage.Get ();
+			Canonical (unpackedSize);
+
+			chunk.SetLength (unpackedSize);
+
+			// Get pointers to the source (packed) data and
+			// destination (unpacked) data.
+
+			void*	src = packedImage.Get () + sizeof (long);
+			void*	dest = chunk.GetPointer ();
+
+			// Decompress the data into the dest buffer.
+
+			if (compType == kGzipCompression)
+				::GzipDecode (&src, &dest, chunkSize - sizeof (long), unpackedSize);
+			else
+				::RunLengthDecode (&src, &dest, chunkSize - sizeof (long), unpackedSize);
+		}
+	}
+
 	return true;
 }
 
@@ -1024,4 +1177,9 @@ void SessionFile::WriteChunk (ChunkFile::Tag tag, uint32 size,
 
 		fFile.WriteChunk (tag, packedSize, packedImage.Get ());
 	}
+}
+
+void SessionFile::WriteChunk (ChunkFile::Tag tag, const Chunk& chunk, CompressionType compType)
+{
+	this->WriteChunk (tag, chunk.GetLength (), chunk.GetPointer (), compType);
 }

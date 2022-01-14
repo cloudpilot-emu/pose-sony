@@ -16,6 +16,19 @@
 
 #include "EmStructs.h"			// HordeInfo, DatabaseInfoList
 #include "EmTypes.h"			// ErrCode
+#include "CGremlins.h"			// GremlinEventType
+
+
+enum HordeFileType
+{
+	kHordeProgressFile		= 0x00,
+	kHordeRootFile			= 0x01,
+	kHordeSuspendFile		= 0x02,
+	kHordeEventFile			= 0x03,
+	kHordeMinimalEventFile	= 0x04,
+	kHordeAutoCurrentFile	= 0x05
+};
+
 
 
 ///////////////////////////////////////////////////////////////////////////////////////
@@ -51,9 +64,10 @@ class Hordes
 		
 		static Bool				IsOn					(void);
 		static Bool				InSingleGremlinMode		(void);
-		static Bool				SilentRunning			(void);
+		static Bool				QuitWhenDone			(void);
 
 		static Bool				CanNew					(void);
+		static Bool				CanSuspend				(void);
 		static Bool				CanStep					(void);
 		static Bool				CanResume				(void);
 		static Bool				CanStop					(void);
@@ -70,15 +84,17 @@ class Hordes
 
 		static void				StopEventReached		(void);
 		static void				ErrorEncountered		(void);
-		static Bool				DoDialog				(const string& msg, int flags);
+		static void				RecordErrorStats		(StrCode messageID = -1);
 
+		static void 			Suspend					(void);
 		static void 			Step					(void);
 		static void				Resume					(void);
 		static void				Stop					(void);
 
-//		static void				Load					(SessionFile& f);
+		static string			SuggestFileName			(HordeFileType category, uint32 num = 0);
+		static EmFileRef		SuggestFileRef			(HordeFileType category, uint32 num = 0);
+
 		static void				PostLoad				(void);
-//		static void				Save					(SessionFile& f);
 
 		static Bool				PostFakeEvent			(void);
 		static void				PostFakePenEvent		(void);
@@ -99,12 +115,18 @@ class Hordes
 		static ErrCode			LoadRootState			(void);
 		static ErrCode			LoadSuspendedState		(void);
 
+		static void				LoadEvents				(void);
+		static void				SaveEvents				(void);
+
 		static void				StartGremlinFromLoadedRootState		(void);
 		static void				StartGremlinFromLoadedSuspendedState(void);
 		static void				SetGremlinStatePathFromControlFile	(EmFileRef& controlFile);
 
 		static EmDirRef			GetGremlinDirectory		(void);
 		static void 			UseNewAutoSaveDirectory (void);
+		static DatabaseInfoList	GetAppList				(void);
+
+		static string			TranslateErrorCode		(UInt32 errCode);
 
 	private:
 		static void				NextGremlin();
@@ -119,6 +141,12 @@ class Hordes
 		static void				StartLog				(void);
 		static string			GremlinsFlagsToString	(void);
 		static void				GremlinsFlagsFromString	(string& inFlags);
+		static void				ComputeStatistics		(int32 &min,
+														 int32 &max,
+														 int32 &avg,
+														 int32 &stdDev,
+														 int32 &smallErrorIndex);
+		static void				GremlinReport			(void);
 };
 
 #endif /* _HORDES_H_ */

@@ -17,7 +17,6 @@
 
 #include "EmCommon.h"
 #include "EmRegsEZTRGpro.h"
-#include "EmTRGSPI.h"
 #include "EmRegsEZPrv.h"
 
 #include "EmSPISlaveADS784x.h"	// EmSPISlaveADS784x
@@ -48,10 +47,11 @@ const uint16	kButtonMap[kNumButtonRows][kNumButtonCols] =
 //		¥ EmRegsEZTRGpro::EmRegsEZTRGpro
 // ---------------------------------------------------------------------------
 
-EmRegsEZTRGpro::EmRegsEZTRGpro (void) :
+EmRegsEZTRGpro::EmRegsEZTRGpro (CFBusManager ** fBusMgr) :
 	EmRegsEZ (),
 	fSPISlaveADC (new EmSPISlaveADS784x (kChannelSet2))
 {
+	*fBusMgr = &CFBus;
 }
 
 
@@ -71,8 +71,11 @@ EmRegsEZTRGpro::~EmRegsEZTRGpro (void)
 
 void EmRegsEZTRGpro::Initialize(void)
 {
+	bBacklightOn	= false;
+	CFBus.bEnabled	= false;
+	CFBus.Width		= kCFBusWidth16;
+	CFBus.bSwapped	= false;
 	EmRegsEZ::Initialize();
-	SpiInitialize();
 }
 
 // ---------------------------------------------------------------------------
@@ -91,17 +94,25 @@ Bool EmRegsEZTRGpro::GetLCDScreenOn (void)
 
 Bool EmRegsEZTRGpro::GetLCDBacklightOn (void)
 {
-	return (SpiIsBacklightOn());
+	return (bBacklightOn);
 }
 
 
 // ---------------------------------------------------------------------------
-//		¥ EmRegsEZTRGpro::GetSerialPortOn
+//		¥ EmRegsEZTRGpro::GetLineDriverState
 // ---------------------------------------------------------------------------
+// Return whether or not the line drivers for the given object are open or
+// closed.
 
-Bool EmRegsEZTRGpro::GetSerialPortOn (int /*uartNum*/)
+Bool EmRegsEZTRGpro::GetLineDriverState (EmUARTDeviceType type)
 {
-	return (READ_REGISTER (portDData) & hwrEZPortD232EnableTRGpro ) != 0;
+	if (type == kUARTSerial)
+		return (READ_REGISTER (portDData) & hwrEZPortD232EnableTRGpro) != 0;
+
+	if (type == kUARTIR)
+		return (READ_REGISTER (portGData) & 0x10) == 0;
+
+	return false;
 }
 
 
@@ -148,20 +159,35 @@ uint8 EmRegsEZTRGpro::GetPortInternalValue (int port)
 void EmRegsEZTRGpro::GetKeyInfo (int* numRows, int* numCols,
 								uint16* keyMap, Bool* rows)
 {
-	KeyRowsType keyRows;
+//      KeyRowsType keyRows;
 
-	*numRows = kNumButtonRows;
-	*numCols = kNumButtonCols;
+        *numRows = kNumButtonRows;
+        *numCols = kNumButtonCols;
 
-	memcpy (keyMap, kButtonMap, sizeof (kButtonMap));
+        memcpy (keyMap, kButtonMap, sizeof (kButtonMap));
 
-	// Determine what row is being asked for.
-	SpiGetKeyRows(&keyRows);
-	rows[0]	= !(keyRows.val[0]);
-	rows[1]	= !(keyRows.val[1]);
-	rows[2]	= !(keyRows.val[2]);
+        // Determine what row is being asked for.
+        rows[0] = Keys.Row[0];
+        rows[1] = Keys.Row[1];
+        rows[2] = Keys.Row[2];
 }
 
+void EmRegsEZTRGpro::LatchSpi(void)
+{
+    uint16 latched = spiUnlatchedVal;
+
+    bBacklightOn  = ((latched & SPIBacklightOn) != 0);
+    CFBus.bEnabled  = ((latched & (SPICardBufferOff |
+                                 SPICardSlotPwrOff)) == 0);
+    CFBus.bSwapped  = ((latched & SPIBusSwapOff) == 0);
+    if (latched & SPIBusWidth8)
+        CFBus.Width = kCFBusWidth8;
+    else
+        CFBus.Width = kCFBusWidth16;
+    Keys.Row[0] = !(latched & SPIKeyRow0);
+    Keys.Row[1] = !(latched & SPIKeyRow1);
+    Keys.Row[2] = !(latched & SPIKeyRow2);
+}
 
 // ---------------------------------------------------------------------------
 //		¥ EmRegsEZTRGpro::GetKeyInfo
@@ -176,7 +202,7 @@ void EmRegsEZTRGpro::PortDataChanged (int port, uint8 oldValue, uint8 newValue)
 		// the touchscreen
 
 		if (newValue & hwrEZPortGDO_LATCH)
-			SpiLatch();
+            LatchSpi();
 	}
 
 	EmRegsEZ::PortDataChanged(port, oldValue, newValue);
@@ -191,7 +217,7 @@ void EmRegsEZTRGpro::PortDataChanged (int port, uint8 oldValue, uint8 newValue)
 
 void EmRegsEZTRGpro::spiWrite(emuptr address, int size, uint32 value)
 {
-	SpiSetUnlatchedVal(value);
+    spiUnlatchedVal = value;
 	EmRegsEZ::spiMasterControlWrite (address, size, value);
 }
 

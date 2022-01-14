@@ -16,6 +16,8 @@
 #include "EmRegsVZPrv.h"
 
 #include "EmSPISlaveADS784x.h"	// EmSPISlaveADS784x
+#include "EmTransportSerial.h"	// EmTransportSerial
+
 
 const int		kNumButtonRows = 3;
 const int		kNumButtonCols = 4;

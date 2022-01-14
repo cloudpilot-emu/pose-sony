@@ -87,4 +87,14 @@ enum EmResetType
 	kResetDebugNoExt	= kResetNoExt | kResetDebug	// Same as kResetDebug with Page Up key down.
 };
 
+
+enum EmErrorHandlingOption
+{
+	kShow,
+	kContinue,
+	kQuit,
+	kSwitch
+};
+
+
 #endif	// EmTypes_h

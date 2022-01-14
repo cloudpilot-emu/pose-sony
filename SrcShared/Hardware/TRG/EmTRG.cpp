@@ -16,7 +16,12 @@
 
 #include "EmBankRegs.h"
 #include "EmRegsEZTRGpro.h"
+#include "EmRegs330CPLD.h"
+#include "EmRegsVZHandEra330.h"
+#include "EmHandEraCFBus.h"
+#include "EmHandEraSDBus.h"
 #include "EmTRGCF.h"
+#include "EmTRGSD.h"
 
 
 /***********************************************************************
@@ -31,12 +36,26 @@
  * RETURNED:    None
  *
  ***********************************************************************/
-void OEMCreateTRGRegObjs(long /*hardwareSubID*/)
+void OEMCreateTRGRegObjs(long hardwareSubID)
 {
-	EmBankRegs::AddSubBank (new EmRegsEZTRGpro);
+    CFBusManager *          fCFBus;
+    HandEra330PortManager * fPortMgr;
 
-	// the CF emulation has only been tested on a Windows system
-	#ifdef PLATFORM_WINDOWS
-  	EmBankRegs::AddSubBank (new EmRegsCFMemCard);
-	#endif
+    switch (hardwareSubID)
+    {
+	    case hwrTRGproID :
+        default :
+            EmBankRegs::AddSubBank (new EmRegsEZTRGpro(&fCFBus));
+#if !PLATFORM_MAC
+  	        EmBankRegs::AddSubBank (new EmRegsCFMemCard(fCFBus));
+#endif
+            break;
+        case hwrTRGproID + 1 :
+	        EmBankRegs::AddSubBank (new EmRegsVZHandEra330(&fPortMgr));
+	        EmBankRegs::AddSubBank (new EmRegs330CPLD(fPortMgr));
+#if !PLATFORM_MAC
+            EmBankRegs::AddSubBank (new EmRegsCFMemCard(&fPortMgr->CFBus));
+#endif
+            break;
+        }
 }

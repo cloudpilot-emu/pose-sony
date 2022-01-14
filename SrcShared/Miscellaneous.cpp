@@ -16,28 +16,27 @@
 
 #include "Byteswapping.h"		// Canonical
 #include "ChunkFile.h"			// Chunk::GetPointer
-#include "DebugMgr.h"			// Debug::Startup
-#include "EmDlg.h"				// EmDlg::DoDatabaseImport
-#include "EmErrCodes.h"			// kError_OnlySameType
-#include "EmFileImport.h"		// EmFileImport::CanUseExgMgr
+#include "EmBankMapped.h"		// EmBankMapped::GetEmulatedAddress
+#include "EmErrCodes.h"			// kError_UnimplementedTrap
 #include "EmHAL.h"				// EmHAL::ResetTimer, EmHAL::ResetRTC
-#include "EmLowMem.h"			// LowMem_SetGlobal, LowMem_GetGlobal
-#include "EmMemory.h"			// Memory::MapPhysicalMemory
+#include "EmLowMem.h"			// EmLowMem_SetGlobal, EmLowMem_GetGlobal
+#include "EmMemory.h"			// Memory::MapPhysicalMemory, EmMem_strcpy, EmMem_memcmp
 #include "EmPalmFunction.h"		// GetFunctionAddress
-#include "EmPalmHeap.h"			// EmPalmHeap::GetHeapByPtr
-#include "EmRPC.h"				// RPC::Startup
+#include "EmPatchState.h"		// EmPatchState::OSMajorVersion
 #include "EmSession.h"			// ScheduleDeferredError
 #include "EmStreamFile.h"		// EmStreamFile, kOpenExistingForRead
 #include "ErrorHandling.h"		// Errors::Throw
 #include "Logging.h"			// LogDump
 #include "Platform.h"			// Platform::AllocateMemory
 #include "ROMStubs.h"			// WinGetDisplayExtent, FrmGetNumberOfObjects, FrmGetObjectType, FrmGetObjectId, ...
-#include "SocketMessaging.h"	// CSocket::Startup
 #include "Strings.r.h"			// kStr_INetLibTrapBase, etc.
-#include "UAE_Utils.h"			// uae_strcpy
+#include "UAE.h"				// m68k_dreg, etc.
 
 #include <algorithm>			// sort()
-#include <locale.h> 			// localconv, lconv
+#include <locale.h> 			// localeconv, lconv
+#include <strstream>			// strstream
+#include <time.h>				// time, localtime
+
 
 extern "C" {
 	// These are defined in machdep_maccess.h, too
@@ -110,44 +109,6 @@ static long 	gSrcBytes;
 static long 	gDstBytes;
 static long 	gSrcOffset;
 static long 	gDstOffset;
-
-void CommonStartup (void)
-{
-	CSocket::Startup ();
-	Debug::Startup ();	// Create our sockets
-	RPC::Startup ();	// Create our sockets
-
-	LogStartup ();
-
-	// Check to see if any skins were loaded.
-	// Report a possible problem if not.
-	// Only warn the user once.
-
-	Preference<Bool>	pref (kPrefKeyWarnAboutSkinsDir);
-	if (*pref)
-	{
-		SkinNameList	names;
-		SkinGetSkinNames (EmDevice (), names);
-
-		if (names.size () <= 1)
-		{
-			EmDlg::DoCommonDialog (kStr_MissingSkins, kDlgFlags_OK);
-
-			pref = false;
-		}
-	}
-}
-
-
-void CommonShutdown (void)
-{
-	Debug::Shutdown ();
-	RPC::Shutdown ();
-	CSocket::Shutdown ();
-
-	delete LogGetStdLog ();	// Dumps it to a file, too.
-}
-
 
 // ===========================================================================
 //	¥ StMemory Class
@@ -266,124 +227,261 @@ void	Platform_DisposeMemory	(void* p)
 }
 
 
-// ---------------------------------------------------------------------------
-//		¥ LoadAnyFiles
-// ---------------------------------------------------------------------------
-
-void LoadAnyFiles (const EmFileRefList& fileList)
+StWordSwapper::StWordSwapper (void* memory, long length) :
+	fMemory (memory),
+	fLength (length)
 {
-	try
-	{
-		int 	prcCount = 0;
-		int 	psfCount = 0;
-		int 	romCount = 0;
-		int 	otherCount = 0;
+	::ByteswapWords (fMemory, fLength);
+}
 
-		EmFileRefList::const_iterator	iter = fileList.begin();
-		while (iter != fileList.end())
-		{
-			// egcs 1.1.1 can't seem to handle iter->Method() here...
-			if ((*iter).IsType (kFileTypePalmApp))		prcCount++;
-			else if ((*iter).IsType (kFileTypePalmDB))	prcCount++;
-			else if ((*iter).IsType (kFileTypePalmQA))	prcCount++;
-			else if ((*iter).IsType (kFileTypeSession))	psfCount++;
-			else if ((*iter).IsType (kFileTypeROM))		romCount++;
-			else otherCount++;
-
-			++iter;
-		}
-
-		// If we're able to use the Exchange Manager, let us beam in any
-		// file type.  Later, we may want to do something like PrvFindTarget
-		// to see if there's actually a handler installed for any given
-		// file type before trying to beam it.  For now, let's just let the
-		// OS return an error in that case.
-		//
-		// Note that the check of "otherCount" is a cheap way to ensure
-		// that a session is currently running.  If no session were running,
-		// then the call to CanUseExgMgr would crash, as it tries to call
-		// into the ROM.
-
-		if (otherCount && EmFileImport::CanUseExgMgr ())
-		{
-			prcCount += otherCount;
-			otherCount = 0;
-		}
-
-		if ((prcCount > 0) + (psfCount > 0) + (romCount > 0) + (otherCount > 0) > 1)
-		{
-			Errors::Throw (kError_OnlySameType);
-		}
-		else if (prcCount > 0)
-		{
-			EmDlg::DoDatabaseImport (fileList, kMethodBest);
-		}
-		else if (psfCount > 0)
-		{
-			if (!::IsBoundFully ())
-			{
-				if (psfCount > 1)
-				{
-					Errors::Throw (kError_OnlyOnePSF);
-				}
-				else
-				{
-					gEmuPrefs->UpdateRAMMRU (fileList[0]);
-					Platform::OpenSession ();
-				}
-			}
-		}
-		else if (romCount > 0)
-		{
-			if (!::IsBound ())
-			{
-				if (romCount > 1)
-				{
-					Errors::Throw (kError_OnlyOneROM);
-				}
-				else
-				{
-					Preference<Configuration>	pref (kPrefKeyLastConfiguration);
-					Configuration	cfg = *pref;
-					cfg.fROMFile = (fileList[0]);
-					pref = cfg;
-
-					Platform::CreateSession ();
-				}
-			}
-		}
-		else
-		{
-			Errors::Throw (kError_UnknownType);
-		}
-	}
-	catch (ErrCode errCode)
-	{
-		Errors::ReportIfError (kStr_GenericOperation, errCode, 0, false);
-	}
+StWordSwapper::~StWordSwapper (void)
+{
+	::ByteswapWords (fMemory, fLength);
 }
 
 
-// ---------------------------------------------------------------------------
-//		¥ CollectOKObjects
-// ---------------------------------------------------------------------------
+/***********************************************************************
+ *
+ * FUNCTION:	PrvFormObjectHasValidSize
+ *
+ * DESCRIPTION: Determine whether or not a form object's size is valid.
+ *
+ * PARAMETERS:	frm - form containing the object
+ *
+ *				objType - the object's type
+ *
+ *				objIndex - the object's index in the form
+ *
+ *				bounds - the bounding rectangle around the object
+ *
+ * RETURNED:	True if the object's size is valid.
+ *
+ ***********************************************************************/
 
-void CollectOKObjects(FormPtr frm, vector<UInt16>& okObjects, Bool reportErrors)
+static Bool PrvFormObjectHasValidSize (FormPtr frm, FormObjectKind objType, UInt16 objIndex, 
+									   RectangleType bounds)
 {
-	// !!! We access numItems directly; should be calling LstGetNumberOfItems
-	// Actually, our access to ControlType.style will probably also require
-	// CEnableFullAccess.
+	EmAssert (frm); 
+
 	CEnableFullAccess	munge;	// Remove blocks on memory access.
+
+	// Return valid right away if we have height and width
+
+	if (bounds.extent.x > 0 &&
+		bounds.extent.y > 0)
+	{
+		return true;
+	}
+
+	// Allow zero-sized gadgets and tables.  The former are often
+	// used as dummy objects merely to hold references to custom
+	// data.  The latter exist because there's no other way to
+	// hide a table (there's no "usable" bit).
+
+	if (objType == frmGadgetObj ||
+		objType == frmTableObj)
+	{
+		return true;
+	}
+
+	// Allow zero-width (but not zero-height) popup triggers.
+
+	if (objType == frmControlObj)
+	{
+		emuptr	ctrlPtr	= (emuptr) ::FrmGetObjectPtr (frm, objIndex);
+		uint8	style	= EmMemGet8 (ctrlPtr + offsetof (ControlType, style));
+
+		if (style == popupTriggerCtl)
+		{
+			if (bounds.extent.x == 0 &&
+				bounds.extent.y > 0)
+			{
+				return true;
+			}
+		}
+	}
+
+	// Allow zero-height lists if the number of objects in them is zero.
+
+	if (objType == frmListObj)
+	{
+		emuptr	listPtr = (emuptr) FrmGetObjectPtr (frm, objIndex);
+		Int16	numItems = ::LstGetNumberOfItems ((ListType*)listPtr);
+
+		if (numItems == 0)
+		{
+			if (bounds.extent.x > 0 &&
+				bounds.extent.y == 0)
+			{
+				return true;
+			}
+		}
+	}
+
+	// Failed all the special cases.
+
+	return false;
+}
+
+
+/***********************************************************************
+ *
+ * FUNCTION:	PrvFormObjectIsOffscreen
+ *
+ * DESCRIPTION: Determine whether or not an object is off-screen.
+ *
+ * PARAMETERS:	bounds - the bounding rectangle of the object
+ *
+ *				winWidth - width of the window
+ *
+ *				winHeight - width of the window
+ *
+ * RETURNED:	True if the object is off-screen.
+ *
+ ***********************************************************************/
+
+static Bool PrvFormObjectIsOffscreen (RectangleType bounds, Int16 winWidth, Int16 winHeight)
+{
+	// Ignore objects with a zero extent
+
+	if (bounds.extent.x <= 0 ||
+		bounds.extent.y <= 0) 
+		return false;
+
+	return (bounds.topLeft.x >= winWidth ||
+			bounds.topLeft.y >= winHeight ||
+			bounds.topLeft.x + bounds.extent.x <= 0 ||
+			bounds.topLeft.y + bounds.extent.y <= 0);
+}
+
+
+/***********************************************************************
+ *
+ * FUNCTION:	PrvFormObjectIsUsable
+ *
+ * DESCRIPTION: Determines whether or not a form object is usable, ie 
+ *				should be considered part of the UI.
+ *
+ * PARAMETERS:	frmP - form containing the object in question
+ *
+ *				index - index of the object
+ *
+ *				kind - type of the object
+ *
+ * RETURNED:	True if the object is usable.
+ *
+ ***********************************************************************/
+
+
+#define ControlAttrType_usable			0x8000	// set if part of ui 
+
+
+static Bool PrvFormObjectIsUsable (FormPtr frmP, uint16 index, FormObjectKind kind)
+{
+	EmAssert (frmP);
+
+	CEnableFullAccess	munge;	// Remove blocks on memory access.
+
+	emuptr objP = (emuptr)::FrmGetObjectPtr (frmP, index);
+
+	if (objP == EmMemNULL)
+	{
+		return false;
+	}
+
+	switch (kind)
+	{
+		// Objects with special 'usable' flag:
+
+		case frmFieldObj:
+		{
+			FieldAttrType attr;
+			::FldGetAttributes ((FieldType*)objP, &attr);
+
+			return attr.usable == true;
+		}
+
+		case frmControlObj:
+		{
+			EmAliasControlType<PAS>	control ((emuptr)objP);
+
+			return control.attr.flags & ControlAttrType_usable;
+		}
+
+		case frmGadgetObj:
+		{
+			EmAliasFormGadgetType<PAS> gadget ((emuptr)objP);
+
+			return gadget.attr.flags & ControlAttrType_usable;
+		}
+
+		case frmListObj:
+		{
+			EmAliasListType<PAS> list ((emuptr)objP);
+
+			return list.attr.flags & ControlAttrType_usable;
+		}
+
+		case frmScrollBarObj:
+		{
+			EmAliasScrollBarType<PAS> scrollbar ((emuptr)objP);
+
+			return scrollbar.attr.flags & ControlAttrType_usable;
+		}
+
+		// Objects assumed to be usable:
+
+		case frmTableObj:
+		case frmGraffitiStateObj:
+
+			return true;
+
+		// Objects assumed to be unusable:
+
+		case frmBitmapObj:
+		case frmLineObj:
+		case frmFrameObj:
+		case frmRectangleObj:
+		case frmLabelObj:
+		case frmPopupObj:
+		case frmTitleObj:
+
+			return false;
+	}
+
+	// Everything else:
+
+	return false;
+}
+
+
+/***********************************************************************
+ *
+ * FUNCTION:	ValidateFormObjects
+ *
+ * DESCRIPTION: Iterate over all the objects in a form and complain
+ *				if we find one that is invalid in some way.
+ *
+ * PARAMETERS:	frm - the form to validate
+ *
+ * RETURNED:	Nothing.
+ *
+ ***********************************************************************/
+
+void ValidateFormObjects (FormPtr frm)
+{
+	if (!frm)
+		return;
 
 	Int16 winWidth, winHeight;
 	::WinGetDisplayExtent (&winWidth, &winHeight);
 
-	UInt16	numObjects = FrmGetNumberOfObjects (frm);
+	UInt16	numObjects = ::FrmGetNumberOfObjects (frm);
 	for (UInt16 objIndex = 0; objIndex < numObjects; ++objIndex)
 	{
-		FormObjectKind	objType	= FrmGetObjectType (frm, objIndex);
-		UInt16			objID	= FrmGetObjectId (frm, objIndex);
-
+		FormObjectKind	objType	= ::FrmGetObjectType (frm, objIndex);
+		UInt16			objID	= ::FrmGetObjectId (frm, objIndex);
+		
 		switch (objType)
 		{
 			case frmBitmapObj:
@@ -401,80 +499,89 @@ void CollectOKObjects(FormPtr frm, vector<UInt16>& okObjects, Bool reportErrors)
 				// Check for completely offscreen objects.
 				// (The jury is still out on partially offscreen objects.)
 				RectangleType	bounds;
-				FrmGetObjectBounds (frm, objIndex, &bounds);
+				::FrmGetObjectBounds (frm, objIndex, &bounds);
 
-				if (bounds.extent.x <= 0 ||
-					bounds.extent.y <= 0)
+				if (!::PrvFormObjectHasValidSize (frm, objType, objIndex, bounds))
 				{
-					// Allow zero-sized gadgets and tables.  The former are often
-					// used as dummy objects merely to hold references to custom
-					// data.  The latter exist because there's no other way to
-					// hide a table (there's no "usable" bit).
-
-					if (objType == frmGadgetObj ||
-						objType == frmTableObj)
-					{
-						break;
-					}
-
-					// Allow zero-width (but not zero-height) popup triggers.
-
-					if (objType == frmControlObj)
-					{
-						emuptr	ctrlPtr	= (emuptr) FrmGetObjectPtr (frm, objIndex);
-						uint8	style	= EmMemGet8 (ctrlPtr + offsetof (ControlType, style));
-
-						if (style == popupTriggerCtl)
-						{
-							if (bounds.extent.x == 0 &&
-								bounds.extent.y > 0)
-							{
-								break;
-							}
-						}
-					}
-
-					// Allow zero-height lists if the number of objects in them is zero.
-
-					if (objType == frmListObj)
-					{
-						emuptr	listPtr = (emuptr) FrmGetObjectPtr (frm, objIndex);
-						UInt16	numItems = EmMemGet16 (listPtr + offsetof (ListType, numItems));
-							// !!! TBD: call LstGetNumberOfItems instead...
-
-						if (numItems == 0)
-						{
-							if (bounds.extent.x > 0 &&
-								bounds.extent.y == 0)
-							{
-								break;
-							}
-						}
-					}
-
 					// Report any errors.  For now, don't report errors on 1.0
 					// devices.  They may not follow the rules, either.  In
 					// particular, someone noticed that the Graffiti state
 					// indicator has a size of 0,0.
 
-					if (reportErrors && Patches::OSMajorVersion () > 1)
+					if (EmPatchState::OSMajorVersion () > 1)
 					{
 						EmAssert (gSession);
 						gSession->ScheduleDeferredError (
 							new EmDeferredErrSizelessObject (objID, bounds));
 					}
 				}
-				else if (bounds.topLeft.x >= winWidth ||
-					bounds.topLeft.y >= winHeight ||
-					bounds.topLeft.x + bounds.extent.x <= 0 ||
-					bounds.topLeft.y + bounds.extent.y <= 0)
+				else if (::PrvFormObjectIsOffscreen (bounds, winWidth, winHeight))
 				{
-					if (reportErrors && Patches::OSMajorVersion () > 1)
+					if (EmPatchState::OSMajorVersion () > 1)
 					{
 						EmAssert (gSession);
 						gSession->ScheduleDeferredError (
 							new EmDeferredErrOffscreenObject (objID, bounds));
 					}
+				}
+			}
+		}
+	}
+}
+
+
+/***********************************************************************
+ *
+ * FUNCTION:	CollectOKObjects
+ *
+ * DESCRIPTION: Iterate over the objects in a form and make a list of
+ *				the ones that are fair game for tapping on. Exclude
+ *				objects that aren't interactive (ie a label), aren't
+ *				usable, or aren't valid.
+ *
+ * PARAMETERS:	frm - the form in question
+ *
+ *				okObjects - vector list of objects that are deemed 'ok'.
+ *
+ * RETURNED:	Nothing.
+ *
+ ***********************************************************************/
+
+void CollectOKObjects (FormPtr frm, vector<UInt16>& okObjects)
+{
+	if (!frm)
+		return;
+
+	Int16 winWidth, winHeight;
+	::WinGetDisplayExtent (&winWidth, &winHeight);
+
+	UInt16	numObjects = ::FrmGetNumberOfObjects (frm);
+	for (UInt16 objIndex = 0; objIndex < numObjects; ++objIndex)
+	{
+		FormObjectKind	objType	= ::FrmGetObjectType (frm, objIndex);
+
+		switch (objType)
+		{
+			case frmBitmapObj:
+			case frmLineObj:
+			case frmFrameObj:
+			case frmRectangleObj:
+			case frmLabelObj:
+			case frmTitleObj:
+			case frmPopupObj:
+				// do nothing for these
+				break;
+			
+			default:
+			{
+				RectangleType	bounds;
+				::FrmGetObjectBounds (frm, objIndex, &bounds);
+
+				if (!::PrvFormObjectHasValidSize (frm, objType, objIndex, bounds) ||
+					 ::PrvFormObjectIsOffscreen (bounds, winWidth, winHeight) ||
+					!::PrvFormObjectIsUsable (frm, objIndex, objType))
+				{
+					break;
 				}
 				else
 				{
@@ -524,68 +631,6 @@ Bool PinRectInRect (EmRect& inner, const EmRect& outer)
 	}
 
 	return result;
-}
-
-
-// ---------------------------------------------------------------------------
-//		¥ IsBound
-// ---------------------------------------------------------------------------
-//	Returns whether or not this application is bound in any sort of fashion.
-//	We cache the result in case this function is called from time-critical
-//	functions.
-
-Bool IsBound (void)
-{
-	static int	result;
-
-	if (result == 0)
-	{
-		result = Platform::ROMResourcePresent () ? 1 : -1;
-	}
-
-	return result > 0;
-}
-
-
-// ---------------------------------------------------------------------------
-//		¥ IsBoundPartially
-// ---------------------------------------------------------------------------
-//	Returns whether or not this application is partially bound.  Returns false
-//	if fully bound or not bound.
-//	We cache the result in case this function is called from time-critical
-//	functions.
-
-Bool IsBoundPartially (void)
-{
-	static int	result;
-
-	if (result == 0)
-	{
-		result = (Platform::ROMResourcePresent () && !Platform::PSFResourcePresent ()) ? 1 : -1;
-	}
-
-	return result > 0;
-}
-
-
-// ---------------------------------------------------------------------------
-//		¥ IsBoundFully
-// ---------------------------------------------------------------------------
-//	Returns whether or not this application is fully bound.  Return false if
-//	partially bound or not bound.
-//	We cache the result in case this function is called from time-critical
-//	functions.
-
-Bool IsBoundFully (void)
-{
-	static int	result;
-
-	if (result == 0)
-	{
-		result = Platform::PSFResourcePresent () ? 1 : -1;
-	}
-
-	return result > 0;
 }
 
 
@@ -862,7 +907,7 @@ static Err AppGetExtraInfo (DatabaseInfo* infoP)
 		if (strH != NULL)
 		{
 			emuptr strP = (emuptr) MemHandleLock (strH);
-			uae_strcpy (infoP->name, strP);
+			EmMem_strcpy (infoP->name, strP);
 			MemHandleUnlock (strH);
 			DmReleaseResource (strH);
 		}
@@ -923,7 +968,7 @@ static Err AppGetExtraInfo (DatabaseInfo* infoP)
 				bP += sizeof(UInt16);
 				if (titleWords)
 				{
-					uae_strcpy (infoP->name, bP);
+					EmMem_strcpy (infoP->name, bP);
 				}
 			} // If valid appInfo
 
@@ -1230,7 +1275,7 @@ void ResetCalibrationInfo (void)
 				MemPtr			resP = ::MemHandleLock (resourceH);
 				unsigned char	perfect_pattern[] = { 1, 0, 1, 0, 0, 0, 0, 0 };
 
-				perfect = (uae_memcmp ((void*) perfect_pattern, (emuptr) resP, 8) == 0);
+				perfect = (EmMem_memcmp ((void*) perfect_pattern, (emuptr) resP, 8) == 0);
 
 				::MemHandleUnlock (resourceH);
 				::DmReleaseResource (resourceH);
@@ -1240,6 +1285,7 @@ void ResetCalibrationInfo (void)
 		}
 	}
 }
+
 
 /***********************************************************************
  *
@@ -1327,18 +1373,18 @@ void SetHotSyncUserName (const char* userNameP)
 					dlpMaxUserNameSize];
 
 	// Get handy pointers to all of the above.
-	DlpReqHeaderType*			reqHdr = (DlpReqHeaderType*) buffer;
-	DlpTinyArgWrapperType*		reqWrapper = (DlpTinyArgWrapperType*) (((char*) reqHdr) + sizeof(DlpReqHeaderType));
-	DlpWriteUserInfoReqHdrType* reqArgHdr = (DlpWriteUserInfoReqHdrType*) (((char*) reqWrapper) + sizeof(DlpTinyArgWrapperType));
-	char*						reqName = ((char*) reqArgHdr) + sizeof (DlpWriteUserInfoReqHdrType);
+	DlpReqHeaderType*			reqHdr		= (DlpReqHeaderType*) buffer;
+	DlpTinyArgWrapperType*		reqWrapper	= (DlpTinyArgWrapperType*) (((char*) reqHdr) + sizeof(DlpReqHeaderType));
+	DlpWriteUserInfoReqHdrType* reqArgHdr	= (DlpWriteUserInfoReqHdrType*) (((char*) reqWrapper) + sizeof(DlpTinyArgWrapperType));
+	char*						reqName		= ((char*) reqArgHdr) + sizeof (DlpWriteUserInfoReqHdrType);
 
 	// Fill in request header
-	reqHdr->id		= dlpWriteUserInfo;
-	reqHdr->argc	= 1;
+	reqHdr->id				= dlpWriteUserInfo;
+	reqHdr->argc			= 1;
 
 	// Fill in the request arg wrapper
-	reqWrapper->bID 	= (UInt8) dlpWriteUserInfoReqArgID;
-	reqWrapper->bSize	= (UInt8) (sizeof (*reqArgHdr) + userNameLen);
+	reqWrapper->bID 		= (UInt8) dlpWriteUserInfoReqArgID;
+	reqWrapper->bSize		= (UInt8) (sizeof (*reqArgHdr) + userNameLen);
 
 	// Fill in request arg header
 	reqArgHdr->modFlags 	= dlpUserInfoModName;
@@ -1350,18 +1396,13 @@ void SetHotSyncUserName (const char* userNameP)
 	// Build up a session block to hold the command block.
 	DlkServerSessionType	session;
 	memset (&session, 0, sizeof (session));
-	session.htalLibRefNum = kMagicRefNum;	// See comments in HtalLibSendReply.
-	session.gotCommand = true;
-	session.cmdLen = sizeof (buffer);
-	session.cmdP = buffer;
+	session.htalLibRefNum	= kMagicRefNum;	// See comments in HtalLibSendReply.
+	session.gotCommand		= true;
+	session.cmdLen			= sizeof (buffer);
+	session.cmdP			= buffer;
 
 	// For simplicity, byteswap here so that we don't have to reparse all
 	// that above data in DlkDispatchRequest.
-
-	Canonical (session.htalLibRefNum);
-	Canonical (session.gotCommand);
-	Canonical (session.cmdLen);
-	Canonical (session.cmdP);
 
 	Canonical (reqHdr->id);
 	Canonical (reqHdr->argc);
@@ -1371,6 +1412,11 @@ void SetHotSyncUserName (const char* userNameP)
 
 	Canonical (reqArgHdr->modFlags);
 	Canonical (reqArgHdr->userNameLen);
+
+	// Patch up cmdP and map in the buffer it points to.
+
+	StMemoryMapper	mapper (session.cmdP, session.cmdLen);
+	session.cmdP = (void*) EmBankMapped::GetEmulatedAddress (session.cmdP);
 
 	// Finally, install the name.
 	/*Err err =*/ DlkDispatchRequest (&session);
@@ -1834,6 +1880,102 @@ int PrvGzipWriteProc (char* buf, unsigned size)
 }
 
 
+/***********************************************************************
+ *
+ * FUNCTION:	StackCrawlStrings
+ *
+ * DESCRIPTION: .
+ *
+ * PARAMETERS:	.
+ *
+ * RETURNED:	.
+ *
+ ***********************************************************************/
+
+void StackCrawlStrings (const EmStackFrameList& stackCrawl, StringList& stackCrawlStrings)
+{
+	EmStackFrameList::const_iterator	iter = stackCrawl.begin ();
+	while (iter != stackCrawl.end ())
+	{
+		// Get the function name.
+
+		char	funcName[256] = {0};
+		::FindFunctionName (iter->fAddressInFunction, funcName, NULL, NULL, 255);
+
+		// If we can't find the name, dummy one up.
+
+		if (strlen (funcName) == 0)
+		{
+			sprintf (funcName, "<Unknown @ 0x%08lX>", iter->fAddressInFunction);
+		}
+
+		stackCrawlStrings.push_back (string (funcName));
+
+		++iter;
+	}
+}
+
+
+/***********************************************************************
+ *
+ * FUNCTION:	StackCrawlString
+ *
+ * DESCRIPTION: .
+ *
+ * PARAMETERS:	.
+ *
+ * RETURNED:	.
+ *
+ ***********************************************************************/
+
+string StackCrawlString (const EmStackFrameList& stackCrawl, long maxLen, Bool includeFrameSize, emuptr oldStackLow)
+{
+	StringList	strings;
+	::StackCrawlStrings (stackCrawl, strings);
+
+	string stackCrawlString;
+
+	EmStackFrameList::const_iterator	iter = stackCrawl.begin ();
+	StringList::const_iterator			s_iter = strings.begin ();
+
+	while (iter != stackCrawl.end ())
+	{
+		// Catenate the function name to the built-up string.
+
+		if (iter != stackCrawl.begin ())
+		{
+			stackCrawlString += ", ";
+		}
+
+		stackCrawlString += *s_iter;
+
+		if (includeFrameSize)
+		{
+			// Get the stack size used by the function.
+
+			char	stackSize[20];
+			sprintf (stackSize, "%ld", iter->fA6 - oldStackLow);
+
+			stackCrawlString += string ("(") + string (stackSize) + ")";
+		}
+
+		// If the string looks long enough, stop.
+
+		if (maxLen > 0 && (long) stackCrawlString.size () > maxLen)
+		{
+			stackCrawlString += "...";
+			break;
+		}
+
+		oldStackLow = iter->fA6;
+
+		++iter;
+		++s_iter;
+	}
+
+	return stackCrawlString;
+}
+
 #pragma mark -
 
 static int kBitCount[16] =
@@ -2003,7 +2145,7 @@ uint32 HighBitNumber (uint32 x)
 #endif
 
 #if 0
-	// This one was posted to the net. Make up to 5 comparisons, which is
+	// This one was posted to the net. Makes up to 5 comparisons, which is
 	// more than the one we're using.
 uint32 HighBitNumber (uint32 x)
 {
@@ -2147,15 +2289,19 @@ string GetLibraryName (uint16 refNum)
 
 	if (refNum >= sysLibTableEntries)
 	{
-		// !!! RefNum out of range!
-		EmAssert (false);
+		if (refNum != 0x0666)
+		{
+			// !!! RefNum out of range!
+			EmAssert (false);
+		}
+
 		return string();
 	}
 
 	emuptr libEntry;
 	emuptr dispatchTblP;
 
-	if (Patches::OSMajorVersion () > 1)
+	if (EmPatchState::OSMajorVersion () > 1)
 	{
 		libEntry		= sysLibTableP + refNum * sizeof (SysLibTblEntryType);
 		dispatchTblP	= EmMemGet32 (libEntry + offsetof (SysLibTblEntryType, dispatchTblP));
@@ -2171,15 +2317,14 @@ string GetLibraryName (uint16 refNum)
 	// get the library name.
 
 	int16 	offset = EmMemGet16 (dispatchTblP + LibTrapIndex (sysLibTrapName) * 2);
-
 #ifdef SONY_ROM
 	emuptr 	libNameP = dispatchTblP + (UInt16)offset;
-#else
+#else //!SONY_ROM
 	emuptr 	libNameP = dispatchTblP + offset;
-#endif
+#endif //SONY_ROM
 
 	char		libName[256];
-	uae_strcpy (libName, libNameP);
+	EmMem_strcpy (libName, libNameP);
 
 	return string (libName);
 }
@@ -2223,6 +2368,10 @@ Bool GetSystemCallContext (emuptr pc, SystemCallContext& context)
 	context.fViaTrap 	= opcode == (m68kTrapInstr + sysDispatchTrapNum);
 	context.fViaJsrA1	= opcode == (0x4e91);
 
+	if (context.fTrapWord == 0xA801)
+	{
+		char breakPoint = 1;
+	}
 	
 	if (context.fViaTrap)
 	{
@@ -2589,6 +2738,92 @@ void FormatInteger (char* dest, uint32 integer)
 	}
 }
 
+string FormatInteger (uint32 integer)
+{
+	// Format the integer as a plain string.
+
+	strstream	stream;
+	
+	stream << integer;
+
+	string	result (stream.str (), stream.pcount ());
+
+	// Unfreeze the stream, or else its storage will be leaked.
+
+	stream.freeze (false);
+
+	// Get the thousands separator character(s).
+
+	struct lconv*	locale_data = localeconv ();
+	char*			thousands_sep = locale_data->thousands_sep;
+
+	if (strlen (thousands_sep) == 0)
+	{
+		thousands_sep = ",";
+	}
+
+	// Insert the thousands separator(s).
+
+		// Divide by three to get the number of 3 digit groupings remaining
+		// (subtracting one to get the math to come out right)
+		//
+		//		 1 -> 0
+		//		 2 -> 0
+		//		 3 -> 0
+		//		 4 -> 1
+		//		 5 -> 1
+		//		 6 -> 1
+		//		 7 -> 2
+		//		 8 -> 2
+		//		 9 -> 2
+		//		10 -> 3
+		//
+		//	etc...
+
+	int numCommas = (result.size () - 1) / 3;
+
+		// Special case the stupid rule about not putting a comma
+		// in a number like xxxx.
+
+	if (result.size () <= 4)
+	{
+		numCommas = 0;
+	}
+
+	for (int ii = 1; ii <= numCommas; ++ii)
+	{
+		// Back up four for every comma (skip past every ",xxx" pattern).
+		
+		result.insert (result.size () + 1 - (4 * ii), thousands_sep);
+	}
+
+	return result;
+}
+
+
+string FormatElapsedTime (uint32 mSecs)
+{
+	// Get hours, minutes, and seconds.
+
+	const long	kMillisecondsPerSecond	= 1000;
+	const long	kSecondsPerMinute		= 60;
+	const long	kMinutesPerHour 		= 60;
+
+	const long	kMillisecondsPerMinute	= kMillisecondsPerSecond * kSecondsPerMinute;
+	const long	kMillisecondsPerHour	= kMillisecondsPerMinute * kMinutesPerHour;
+
+	long	hours	= mSecs / kMillisecondsPerHour;		mSecs -= hours * kMillisecondsPerHour;
+	long	minutes	= mSecs / kMillisecondsPerMinute;	mSecs -= minutes * kMillisecondsPerMinute;
+	long	seconds	= mSecs / kMillisecondsPerSecond;	mSecs -= seconds * kMillisecondsPerSecond;
+
+	// Format them into a string.
+
+	char	formattedTime[20];
+	sprintf (formattedTime, "%ld:%02ld:%02ld", hours, minutes, seconds);
+
+	return string (formattedTime);
+}
+
 
 /***********************************************************************
  *
@@ -2689,98 +2924,7 @@ void GetMemoryTextList (MemoryTextList& memoryList)
 	memoryList.push_back (make_pair (RAMSizeType (2048), string ("2048K")));
 	memoryList.push_back (make_pair (RAMSizeType (4096), string ("4096K")));
 	memoryList.push_back (make_pair (RAMSizeType (8192), string ("8192K")));
-#ifdef SONY_ROM
-	memoryList.push_back (make_pair (RAMSizeType (16384), string ("16384K")));
-#endif
-}
-
-
-/***********************************************************************
- *
- * FUNCTION:    GenerateStackCrawl
- *
- * DESCRIPTION: Starting with the current PC and A6, generate a list
- *				of active functions.
- *
- * PARAMETERS:  frameList - reference to the collection to receive
- *					the results.
- *
- * RETURNED:    Nothing
- *
- ***********************************************************************/
-
-void GenerateStackCrawl (EmStackFrameList& frameList)
-{
-	// Clear out the stack crawl list.
-
-	frameList.clear ();
-
-	// Get the starting A6 value.
-
-	emuptr	oldA6 = m68k_areg (regs, 6);
-
-	// Get the heap that contains A6.
-
-	const EmPalmHeap*	heap = EmPalmHeap::GetHeapByPtr (oldA6);
-	if (!heap)
-		return;
-
-	// Get the chunk that contains A6.  This chunk will be used
-	// to stop the stack crawl when we get to the top.
-
-	const EmPalmChunk*	stackChunk = heap->GetChunkBodyContaining (oldA6);
-	if (!stackChunk)
-		return;
-
-	// Push the initial stack frame onto the stack.  This consists
-	// of the current PC and A6 values.
-
-	EmStackFrame	frame;
-
-	frame.fAddressInFunction	= m68k_getpc ();
-	frame.fA6					= m68k_areg (regs, 6);
-
-	frameList.push_back (frame);
-
-	while (1)
-	{
-		// Get the previous A6 and function from the stack.
-
-		frame.fAddressInFunction	= EmMemGet32 (oldA6 + 4);
-		frame.fA6					= EmMemGet32 (oldA6);
-
-		// If A6 moved to a different memory chunk, stop the
-		// stack crawl.
-
-		if (!stackChunk->Contains (frame.fA6))
-			return;
-
-		// If the return address is not valid, let's take a chance
-		// that what's on the stack is <A6> <SR> <return address>.
-		// We'd see this sequence if an exception has occurred and
-		// and exception frame is on the stack.
-
-		if (!EmMemCheckAddress (frame.fAddressInFunction, 2))
-		{
-			frame.fAddressInFunction	= EmMemGet32 (oldA6 + 6);
-
-			// If the return address still doesn't look valid,
-			// stop the stack crawl.
-
-			if (!EmMemCheckAddress (frame.fAddressInFunction, 2))
-			{
-				return;
-			}
-		}
-
-		// Everything looks OK, push this information onto our stack.
-
-		frameList.push_back (frame);
-
-		// Move to the next stack frame.
-
-		oldA6 = frame.fA6;
-	}
+	memoryList.push_back (make_pair (RAMSizeType (16384), string ("16,384K")));
 }
 
 
@@ -2807,11 +2951,12 @@ void GenerateStackCrawl (EmStackFrameList& frameList)
 
 void MyAssertFailed (const char* expr, const char* file, unsigned int line)
 {
-	char	message[200];
+	char	message[2000];
 
 	sprintf (message, "Assertion Failure: Expression: \"%s\", File: %s, Line: %d",
 				expr, file, line);
 
-//	LogGetStdLog ()->DumpToFile ();
+	LogDump ();
+
 	Platform::Debugger (message);
 }

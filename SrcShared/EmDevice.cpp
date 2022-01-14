@@ -47,8 +47,10 @@
 
 #include "Platform.h"			// _stricmp
 
-#include "EmBankRegs.h"
-#include "EmROMReader.h"
+#include "EmBankRegs.h"			// AddSubBank
+#include "EmROMReader.h"		// EmROMReader
+#include "EmStreamFile.h"		// EmStreamFile
+#include "Miscellaneous.h"		// StMemory
 
 #include "PalmPack.h"
 #define NON_PORTABLE
@@ -85,6 +87,8 @@
 #include "EmRegsEZVisor.h"
 #include "EmRegsEZTemp.h"
 
+#include "EmRegsSZTemp.h"
+
 #include "EmRegsVZPalmM500.h"
 #include "EmRegsVZPalmM505.h"
 #include "EmRegsVZVisorPrism.h"
@@ -103,6 +107,7 @@
 #include "EmTRG.h"
 
 #ifdef SONY_ROM
+#include "EmRegsSZ.h"
 #include "SonyShared\SonyDevice.h"
 #include "SonyShared\EmRegsEZPegS500C.h"
 #include "SonyShared\EmRegsEZPegS300.h"
@@ -111,14 +116,53 @@
 #include "SonyShared\EmRegsVZPegYellowStone.h"
 #include "SonyShared\EmRegsVZPegVenice.h"
 #include "SonyShared\EmRegsVZPegModena.h"
+#include "SonyShared\EmRegsSZRedwood.h"
+#include "SonyShared\EmRegsSZNaples.h"
 #include "SonyShared\Bank_USBSony.h"
 #include "SonyShared\EmRegsLCDCtrl.h"
+#include "SonyShared\EmRegsLCDCtrlT2.h"
 #include "SonyShared\EmRegsExpCardCLIE.h"
+//#include "SonyShared\EmRegsCommandItf.h"
 #include "SonyShared\EmRegsFMSound.h"
+#include "SonyShared\EmRegsRAMforCLIE.h"
+//#include "SonyShared\EmRegsFMSoundforSZ.h"
+//#include "SonyShared\EmRegsSharedRAMforCLIE.h"
+//#include "SonyShared\EmRegsClockIRQCntrl.h"
 #include "EmBankROM.h"
 #endif	// SONY_ROM
 
+#ifndef SONY_ROM 
+enum	// DeviceType
+{
+	kDeviceUnspecified	= 0,
+	kDevicePilot,
+	kDevicePalmPilot,
+	kDevicePalmIII,
+	kDevicePalmIIIc,
+	kDevicePalmIIIe,
+	kDevicePalmIIIx,
+	kDevicePalmV,
+	kDevicePalmVx,
+	kDevicePalmVII,
+	kDevicePalmVIIEZ,
+	kDevicePalmVIIx,
+	kDevicePalmM100,
+	kDevicePalmM500,
+	kDevicePalmM505,
+	kDeviceARMRef,
+	kDeviceSymbol1500,
+	kDeviceSymbol1700,
+	kDeviceSymbol1740,
+	kDeviceTRGpro,
+	kDeviceHandEra330,
+	kDeviceVisor,
+	kDeviceVisorPrism,
+	kDeviceVisorPlatinum,
+	kDeviceVisorEdge,
 
+	kDeviceLast
+};
+#endif //!SONY_ROM 
 
 struct DeviceInfo
 {
@@ -277,13 +321,13 @@ static const DeviceInfo kDeviceInfo[] =
 	{
 		kDevicePalmM500, "Palm m500",
 		{ "PalmM500", "m500", "Tornado" },
-		kSupports68VZ328 + kHasFlash, 2048, hwrMiscFlagIDNone, hwrMiscFlagExtSubIDNone,
+		kSupports68VZ328 + kHasFlash, 8192, hwrMiscFlagIDNone, hwrMiscFlagExtSubIDNone,
 		{{ 'palm', 'vtrn' }}
 	},
 	{
 		kDevicePalmM505, "Palm m505",
 		{ "PalmM505", "m505", "EmeraldCity", "VZDevice" },
-		kSupports68VZ328 + kHasFlash, 2048, hwrMiscFlagIDNone, hwrMiscFlagExtSubIDNone,
+		kSupports68VZ328 + kHasFlash, 8192, hwrMiscFlagIDNone, hwrMiscFlagExtSubIDNone,
 		{{ 'palm', 'ecty' }}
 	},
 	{
@@ -309,12 +353,31 @@ static const DeviceInfo kDeviceInfo[] =
 		kSupports68328 + kHasFlash, 2048, hwrMiscFlagIDRocky, hwrMiscFlagExtSubIDNone,
 	},
 
-	// ===== TRG devices =====
+	// ===== TRG/HandEra devices =====
+
+#if !PLATFORM_MAC
+	// OEMCreateTRGRegObjs installs emulation sub-systems for all of its hardware
+	// modules only on Windows.  I'm not sure why.  But it means that their ROMs
+	// will cause memory-access errors on non-Windows platforms due to their lack.
+	// Therefore, disable emulation of their devices on non-Windows platforms.
+	//
+	// Michael Glickman has enabled this support and tested it on Unix, and says
+	// it works OK there.  So now it's disabled only for the Mac.
+
 	{
 		kDeviceTRGpro, "TRGpro",
 		{ "TRGpro" },
 		kSupports68EZ328 + kHasFlash, 8192, hwrOEMCompanyIDTRG, hwrTRGproID,
+		{{ 'trgp', 'trg1' }}
 	},
+
+	{
+		kDeviceHandEra330, "HandEra 330",
+		{ "HandEra330" },
+		kSupports68VZ328 + kHasFlash, 8192, hwrOEMCompanyIDTRG, hwrTRGproID + 1,
+		{{ 'trgp', 'trg2' }}
+	},
+#endif
 
 	// ===== Handspring devices =====
 	{
@@ -340,7 +403,7 @@ static const DeviceInfo kDeviceInfo[] =
 
 #ifdef SONY_ROM
 #include "SonyShared\EmDeviceSony.inl"
-#endif
+#endif //SONY_ROM
 
 };
 
@@ -603,7 +666,39 @@ Bool EmDevice::EdgeHack (void) const
  *
  ***********************************************************************/
 
-Bool EmDevice::SupportsROM (const EmROMReader<LAS> & ROM) const
+Bool EmDevice::SupportsROM (const EmFileRef& romFileRef) const
+{
+	// Load the ROM image into memory.
+
+	EmStreamFile	romStream (romFileRef, kOpenExistingForRead);
+	StMemory    	romImage (romStream.GetLength ());
+
+	romStream.GetBytes (romImage.Get (), romStream.GetLength ());
+
+	// Create a ROM Reader on the ROM image.
+
+	EmROMReader reader (romImage.Get (), romStream.GetLength ());
+
+	// Grovel over the ROM.
+
+	if (reader.AcquireCardHeader ())
+	{
+		UInt16	version = reader.GetCardVersion ();
+
+		if (version < 5)
+		{
+			reader.AcquireROMHeap ();
+			reader.AcquireDatabases ();
+			reader.AcquireFeatures ();
+			reader.AcquireSplashDB ();
+		}
+	}
+
+	return this->SupportsROM (reader);
+}
+
+
+Bool EmDevice::SupportsROM (const EmROMReader& ROM) const
 {
 	/* If the ROM is recent enough, use the embedded hardware ID information
 	   to determine whether it will work with this device */
@@ -790,10 +885,15 @@ Bool EmDevice::SupportsROM (const EmROMReader<LAS> & ROM) const
 				return true;
 			break;
 
+#if !PLATFORM_MAC
+		// See comments above concerning OEMCreateTRGRegObjs as to
+		// why these cases are commented out.
 		case kDeviceTRGpro:
+		case kDeviceHandEra330:
 			if (ROM.GetCardManufacturer () == TRGPRO_MANUF)
 				return true;
 			break;
+#endif
 
 		case kDeviceVisor:
 			if ((ROM.GetCardManufacturer () == HANDSPRING_MANUF) &&
@@ -845,13 +945,15 @@ Bool EmDevice::SupportsROM (const EmROMReader<LAS> & ROM) const
 			break;
 
 		case kDevicePEGS320:
-		case kDevicePEGS360:
 		case kDevicePEGN600C:
 		case kDevicePEGT400:
 		case kDevicePEGT600:
+		case kDeviceYSX1100:
+		case kDeviceYSX1230:
 			break;
 
 #endif // SONY_ROM
+
 		case kDeviceLast:
 			EmAssert (false);
 			break;
@@ -884,7 +986,8 @@ EmCPU* EmDevice::CreateCPU (EmSession* session) const
 
 	if (this->Supports68328 () ||
 		this->Supports68EZ328 () ||
-		this->Supports68VZ328 ())
+		this->Supports68VZ328 () ||
+		this->Supports68SZ328 ())
 	{
 		result = new EmCPU68K (session);
 	}
@@ -998,9 +1101,17 @@ void EmDevice::CreateRegs (void) const
 			EmBankRegs::AddSubBank (new EmRegsASICSymbol1700);
 			break;
 
+#if !PLATFORM_MAC
+		// See comments above concerning OEMCreateTRGRegObjs as to
+		// why these cases are commented out.
 		case kDeviceTRGpro:
-			OEMCreateTRGRegObjs(hwrTRGproID);
+			OEMCreateTRGRegObjs (hwrTRGproID);
 			break;
+
+ 		case kDeviceHandEra330:
+			OEMCreateTRGRegObjs (hwrTRGproID + 1);
+			break;
+#endif
 
 		case kDeviceVisor:
 			EmBankRegs::AddSubBank (new EmRegsEZVisor);
@@ -1049,7 +1160,6 @@ void EmDevice::CreateRegs (void) const
 			break;
 
 		case kDevicePEGS320:
-		case kDevicePEGS360:
 			EmBankRegs::AddSubBank (new EmRegsVzPegNasca);
 			EmBankRegs::AddSubBank (new EmRegsExpCardCLIE);
 			EmBankRegs::AddSubBank (new EmRegsUsbCLIE (0x11000000L, 0));
@@ -1077,6 +1187,35 @@ void EmDevice::CreateRegs (void) const
 			EmBankRegs::AddSubBank (new EmRegsExpCardCLIE(ExpCard_BaseAddress));
 			EmBankRegs::AddSubBank (new EmRegsUsbCLIE (0x10900000L, 0));
 			EmBankRegs::AddSubBank (new EmRegsFMSound (FMSound_BaseAddress));
+			break;
+
+		case kDeviceYSX1100:
+			EmBankRegs::AddSubBank (new EmRegsSzRedwood);
+			EmBankRegs::AddSubBank (new EmRegsMQLCDControlT2(MQ_LCDControllerT2_RegsAddr, MQ_LCDControllerT2_VideoMemStart));
+			EmBankRegs::AddSubBank (new EmRegsFrameBuffer (MQ_LCDControllerT2_VideoMemStart, MQ_LCDControllerT2_VideoMemSize));
+			EmBankRegs::AddSubBank (new EmRegsUSBforPegN700C (0x11000000L));
+//			EmBankRegs::AddSubBank (new EmRegsRAMforCLIE (RAMforCLIE_BaseAddress));
+//			EmBankRegs::AddSubBank (new EmRegsExpCardCLIE(0x11000200L/*?????*/));
+//			EmBankRegs::AddSubBank (new EmRegsClockIRQCntrl(0x11000000L/*?????*/));
+//			EmBankRegs::AddSubBank (new EmRegsUsbCLIE (0x11000800L, 0));
+//			EmBankRegs::AddSubBank (new EmRegsCommandItf (0x11000C00L));
+//			EmBankRegs::AddSubBank (new EmRegsFMSoundforSZ (0x11000E00L));
+//			EmBankRegs::AddSubBank (new EmRegsSharedRAMforCLIE (0x11008000L));
+//			EmBankRegs::AddSubBank (new EmRegsFMSound (0x11000E00L));
+			break;
+
+		case kDeviceYSX1230:
+			EmBankRegs::AddSubBank (new EmRegsSzNaples);
+			EmBankRegs::AddSubBank (new EmRegsMQLCDControl(MQ_LCDController_RegsAddr, MQ_LCDController_VideoMemStart));
+			EmBankRegs::AddSubBank (new EmRegsFrameBuffer (MQ_LCDController_VideoMemStart, MQ_LCDController_VideoMemSize));
+			EmBankRegs::AddSubBank (new EmRegsUSBforPegN700C (0x11000000L));
+//			EmBankRegs::AddSubBank (new EmRegsExpCardCLIE(0x11000200L/*?????*/));
+//			EmBankRegs::AddSubBank (new EmRegsClockIRQCntrl(0x11000000L));
+//			EmBankRegs::AddSubBank (new EmRegsUsbCLIE (0x11000800L, 0));
+//			EmBankRegs::AddSubBank (new EmRegsCommandItf (0x11000C00L));
+//			EmBankRegs::AddSubBank (new EmRegsFMSoundforSZ (0x11000E00L));
+//			EmBankRegs::AddSubBank (new EmRegsSharedRAMforCLIE (0x11008000L));
+//			EmBankRegs::AddSubBank (new EmRegsFMSound (0x11000E00L));
 			break;
 
 #endif // SONY_ROM

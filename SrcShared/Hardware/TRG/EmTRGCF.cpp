@@ -15,7 +15,7 @@
 #include "EmTRGCF.h"
 
 #include "EmMemory.h"
-#include "EmTRGSPI.h"
+
 
 
 //-------------------------------------------------------------------------
@@ -32,8 +32,9 @@
 //		¥ EmRegsCFMemCard::EmRegsCFMemCard
 // ---------------------------------------------------------------------------
 
-EmRegsCFMemCard::EmRegsCFMemCard (void)
+EmRegsCFMemCard::EmRegsCFMemCard (CFBusManager * fBusManager)
 {
+    fBusMgr = fBusManager;
 }
 
 
@@ -130,29 +131,26 @@ uint32 EmRegsCFMemCard::GetLong (emuptr /*address*/)
 // ---------------------------------------------------------------------------
 uint32 EmRegsCFMemCard::GetByte(emuptr address)
 {
-	uint8 retVal = 0;
-	uint32   offset;
-	BusState bus;
+    uint8 retVal = 0;
+    uint32   offset;
 
-	bus = SpiGetBusState();
-	if (!(bus & BUS_ENABLED))
-		return(INVALID_READ);
-	if ((bus & (BUS_16BIT|BUS_SWAP)) == 0)
-		return(INVALID_READ);
-	offset = address-kMemoryStartCF;
-	if (offset < kMemoryOffsetCFConfig)
-		Tuple.ReadByte(offset-kMemoryOffsetCFTuple,
-                       &retVal);
-   	else if (offset < kMemoryOffsetCFAta)
-        	Config.ReadByte(offset-kMemoryOffsetCFConfig,
-                             &retVal);
-   	else if (offset < kMemoryOffsetCFReset)
-        	Ata.ReadByte(offset-kMemoryOffsetCFAta,
-		                 &retVal);
-	else
-		CFReset.ReadByte(offset-kMemoryOffsetCFReset,
-				 &retVal);
-	return((uint32)retVal);
+    if (!fBusMgr->bEnabled)
+        return(INVALID_READ);
+
+    if ((fBusMgr->Width == kCFBusWidth8) && (!fBusMgr->bSwapped))
+        return(INVALID_READ);
+
+    offset = address-kMemoryStartCF;
+    if (offset < kMemoryOffsetCFConfig)
+        Tuple.ReadByte(offset-kMemoryOffsetCFTuple, &retVal);
+    else if (offset < kMemoryOffsetCFAta)
+        Config.ReadByte(offset-kMemoryOffsetCFConfig, &retVal);
+    else if (offset < kMemoryOffsetCFReset)
+        Ata.ReadByte(offset-kMemoryOffsetCFAta, &retVal);
+    else
+        CFReset.ReadByte(offset-kMemoryOffsetCFReset, &retVal);
+
+    return((uint32)retVal);
 }
 
 // ---------------------------------------------------------------------------
@@ -160,42 +158,38 @@ uint32 EmRegsCFMemCard::GetByte(emuptr address)
 // ---------------------------------------------------------------------------
 uint32 EmRegsCFMemCard::GetWord (emuptr address)
 {
-	_Word    val;
-	uint32   retval;
-	int      msb, lsb;
-	BusState bus;
-	uint32   offset;
+    _Word    val;
+    uint32   retval;
+    int      msb, lsb;
+    uint32   offset;
+    
+    if (!fBusMgr->bEnabled)
+        return(INVALID_READ);
+    if ((fBusMgr->Width == kCFBusWidth8) && (!fBusMgr->bSwapped))
+        return(INVALID_READ);
+    offset = address-kMemoryStartCF;
 
-	bus = SpiGetBusState();
-	if (!(bus & BUS_ENABLED))
-		return(INVALID_READ);
-	if ((bus & (BUS_16BIT|BUS_SWAP)) == 0)
-		return(INVALID_READ);
-	offset = address-kMemoryStartCF;
-	if (offset < kMemoryOffsetCFConfig)
-		Tuple.ReadWord(offset-kMemoryOffsetCFTuple,
-	                       &val);
-   	else if (offset < kMemoryOffsetCFAta)
-       		Config.ReadWord(offset-kMemoryOffsetCFConfig,
-		                &val);
-   	else if (offset < kMemoryOffsetCFReset)
-       		Ata.ReadWord(offset-kMemoryOffsetCFAta,
-		             &val);
-	else
-		CFReset.ReadWord(offset-kMemoryOffsetCFReset,
-		                 &val);
-	if (bus & BUS_SWAP)
-	{
-		msb = 0;
-		lsb = 1;
-	}
-	else
-	{
-		msb = 1;
-		lsb = 0;
-	}
-	retval = ((uint32)(val.Bytes[msb]) << 8) | (uint32)val.Bytes[lsb];
-	return (retval);
+    if (offset < kMemoryOffsetCFConfig)
+        Tuple.ReadWord(offset-kMemoryOffsetCFTuple, &val);
+    else if (offset < kMemoryOffsetCFAta)
+        Config.ReadWord(offset-kMemoryOffsetCFConfig, &val);
+    else if (offset < kMemoryOffsetCFReset)
+        Ata.ReadWord(offset-kMemoryOffsetCFAta, &val);
+    else
+        CFReset.ReadWord(offset-kMemoryOffsetCFReset, &val);
+
+    if (fBusMgr->bSwapped)
+    {
+        msb = 0;
+        lsb = 1;
+    }
+    else
+    {
+        msb = 1;
+        lsb = 0;
+    }
+    retval = ((uint32)(val.Bytes[msb]) << 8) | (uint32)val.Bytes[lsb];
+    return (retval);
 }
 
 // ---------------------------------------------------------------------------
@@ -211,38 +205,33 @@ void EmRegsCFMemCard::SetLong (emuptr /*address*/, uint32 /*value*/)
 // ---------------------------------------------------------------------------
 void EmRegsCFMemCard::SetWord (emuptr address, uint32 val)
 {
-	_Word setVal;
-	BusState bus;
-	int      msb, lsb;
+    _Word setVal;
+    int      msb, lsb;
 
-	bus = SpiGetBusState();
-	if (!(bus & BUS_ENABLED))
-		return;
+    if (!fBusMgr->bEnabled)
+        return;
 
-	if (bus & BUS_SWAP)
-	{
-		msb = 0;
-		lsb = 1;
-	}
-	else
-	{
-		msb = 1;
-		lsb = 0;
-	}
-	setVal.Bytes[msb] = (uint8)((val & 0xFF00) >> 8);
-	setVal.Bytes[lsb] = (uint8)(val & 0x00FF);
-	if (address < kMemoryStartCFConfig)
-		Tuple.WriteWord(address-kMemoryStartCFTuple,
-                        setVal);
-   	else if (address < kMemoryStartCFAta)
-       		 Config.WriteWord(address-kMemoryStartCFConfig,
-                              setVal);
-   	else if (address < kMemoryStartCFReset)
-       		Ata.WriteWord(address-kMemoryStartCFAta,
-		             setVal);
-	else
-		CFReset.WriteWord(address-kMemoryStartCFReset,
-				  setVal);
+    if (fBusMgr->bSwapped)
+    {
+        msb = 0;
+        lsb = 1;
+    }
+    else
+    {
+        msb = 1;
+        lsb = 0;
+    }
+    setVal.Bytes[msb] = (uint8)((val & 0xFF00) >> 8);
+    setVal.Bytes[lsb] = (uint8)(val & 0x00FF);
+
+    if (address < kMemoryStartCFConfig)
+        Tuple.WriteWord(address-kMemoryStartCFTuple, setVal);
+    else if (address < kMemoryStartCFAta)
+        Config.WriteWord(address-kMemoryStartCFConfig, setVal);
+    else if (address < kMemoryStartCFReset)
+        Ata.WriteWord(address-kMemoryStartCFAta, setVal);
+    else
+        CFReset.WriteWord(address-kMemoryStartCFReset, setVal);
 }
 
 
@@ -251,26 +240,20 @@ void EmRegsCFMemCard::SetWord (emuptr address, uint32 val)
 // ---------------------------------------------------------------------------
 void EmRegsCFMemCard::SetByte (emuptr address, uint32 value)
 {
-	uint8 setVal = 0;
-	BusState bus;
+    uint8 setVal = 0;
 
-	bus = SpiGetBusState();
-	if (!(bus & BUS_ENABLED))
-		return;
-
-	setVal = (uint8)value;
-	if (address < kMemoryStartCFConfig)
-		Tuple.WriteByte(address-kMemoryStartCFTuple,
-                        setVal);
-   	else if (address < kMemoryStartCFAta)
-       		 Config.WriteByte(address-kMemoryStartCFConfig,
-                              setVal);
-   	else if (address < kMemoryStartCFReset)
-       		Ata.WriteByte(address-kMemoryStartCFAta,
-		                  setVal);
-	else
-		CFReset.WriteByte(address-kMemoryStartCFReset,
-				          setVal);
+    if (!fBusMgr->bEnabled)
+        return;
+    
+    setVal = (uint8)value;
+    if (address < kMemoryStartCFConfig)
+        Tuple.WriteByte(address-kMemoryStartCFTuple, setVal);
+    else if (address < kMemoryStartCFAta)
+        Config.WriteByte(address-kMemoryStartCFConfig, setVal);
+    else if (address < kMemoryStartCFReset)
+        Ata.WriteByte(address-kMemoryStartCFAta, setVal);
+    else
+        CFReset.WriteByte(address-kMemoryStartCFReset, setVal);
 }
 
 

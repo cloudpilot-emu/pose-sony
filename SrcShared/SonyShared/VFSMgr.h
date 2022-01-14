@@ -43,7 +43,7 @@
 #include "ExpansionMgr.h"
 
 #ifdef BUILDING_AGAINST_PALMOS35
-	#define sysTrapVFSMgr	sysTrapSysReserved3
+	#define sysTrapVFSMgr	sysTrapFileSystemDispatch
 
 	#define vfsErrorClass	0x2A00		// Post-3.5 this is defined in ErrorBase.h
 #else

@@ -14,7 +14,6 @@
 #include "EmCommon.h"
 #include "EmPixMap.h"
 
-#include "EmCPU.h"				// EmScreenUpdateInfo
 #include "Platform.h"			// Platform::AllocateMemory
 
 /*
@@ -141,6 +140,208 @@ static EmPixMapDepth	PrvGetDepth		(EmPixMapFormat);
 
 
 FOR_EACH_FORMAT_PAIR (DECLARE_CONVERTER)
+
+
+// Macros used for accessing and converting/copying pixels.
+
+#define GET_24RGB(srcPtr, r, g, b, a)	\
+	r = *srcPtr++;						\
+	g = *srcPtr++;						\
+	b = *srcPtr++;						\
+	a = 0;
+
+
+#define GET_24BGR(srcPtr, r, g, b, a)	\
+	b = *srcPtr++;						\
+	g = *srcPtr++;						\
+	r = *srcPtr++;						\
+	a = 0;
+
+
+#define GET_32ARGB(srcPtr, r, g, b, a)	\
+	a = *srcPtr++;						\
+	r = *srcPtr++;						\
+	g = *srcPtr++;						\
+	b = *srcPtr++;
+
+
+#define GET_32ABGR(srcPtr, r, g, b, a)	\
+	a = *srcPtr++;						\
+	b = *srcPtr++;						\
+	g = *srcPtr++;						\
+	r = *srcPtr++;
+
+
+#define GET_32RGBA(srcPtr, r, g, b, a)	\
+	r = *srcPtr++;						\
+	g = *srcPtr++;						\
+	b = *srcPtr++;						\
+	a = *srcPtr++;
+
+
+#define GET_32BGRA(srcPtr, r, g, b, a)	\
+	b = *srcPtr++;						\
+	g = *srcPtr++;						\
+	r = *srcPtr++;						\
+	a = *srcPtr++;
+
+
+#define PUT_24RGB(destPtr, r, g, b, a)	\
+	*destPtr++ = r;						\
+	*destPtr++ = g;						\
+	*destPtr++ = b;
+
+
+#define PUT_24BGR(destPtr, r, g, b, a)	\
+	*destPtr++ = b;						\
+	*destPtr++ = g;						\
+	*destPtr++ = r;
+
+
+#define PUT_32ARGB(destPtr, r, g, b, a)	\
+	*destPtr++ = a;						\
+	*destPtr++ = r;						\
+	*destPtr++ = g;						\
+	*destPtr++ = b;
+
+
+#define PUT_32ABGR(destPtr, r, g, b, a)	\
+	*destPtr++ = a;						\
+	*destPtr++ = b;						\
+	*destPtr++ = g;						\
+	*destPtr++ = r;
+
+
+#define PUT_32RGBA(destPtr, r, g, b, a)	\
+	*destPtr++ = r;						\
+	*destPtr++ = g;						\
+	*destPtr++ = b;						\
+	*destPtr++ = a;
+
+
+#define PUT_32BGRA(destPtr, r, g, b, a)	\
+	*destPtr++ = b;						\
+	*destPtr++ = g;						\
+	*destPtr++ = r;						\
+	*destPtr++ = a;
+
+
+#define CONVERT_PACKED_PIXEL(shift, mask, dest_format)					\
+	if (xx++ >= right)													\
+		break;															\
+	{																	\
+	const RGBType&	rgb = (*srcColors)[(bits >> (shift)) & (mask)];		\
+	PUT_##dest_format(destPtr, rgb.fRed, rgb.fGreen, rgb.fBlue, 0)		\
+	}
+
+
+#define CONVERT_PACKED_BYTE_1(dest_format)		\
+	CONVERT_PACKED_PIXEL(7, 0x01, dest_format)	\
+	CONVERT_PACKED_PIXEL(6, 0x01, dest_format)	\
+	CONVERT_PACKED_PIXEL(5, 0x01, dest_format)	\
+	CONVERT_PACKED_PIXEL(4, 0x01, dest_format)	\
+	CONVERT_PACKED_PIXEL(3, 0x01, dest_format)	\
+	CONVERT_PACKED_PIXEL(2, 0x01, dest_format)	\
+	CONVERT_PACKED_PIXEL(1, 0x01, dest_format)	\
+	CONVERT_PACKED_PIXEL(0, 0x01, dest_format)
+
+
+#define CONVERT_PACKED_BYTE_2(dest_format)		\
+	CONVERT_PACKED_PIXEL(6, 0x03, dest_format)	\
+	CONVERT_PACKED_PIXEL(4, 0x03, dest_format)	\
+	CONVERT_PACKED_PIXEL(2, 0x03, dest_format)	\
+	CONVERT_PACKED_PIXEL(0, 0x03, dest_format)
+
+
+#define CONVERT_PACKED_BYTE_4(dest_format)		\
+	CONVERT_PACKED_PIXEL(4, 0x0F, dest_format)	\
+	CONVERT_PACKED_PIXEL(0, 0x0F, dest_format)
+
+
+#define CONVERT_PACKED_BYTE_8(dest_format)								\
+	if (xx++ >= right)													\
+		break;															\
+																		\
+	const RGBType&	rgb = (*srcColors)[bits];							\
+	PUT_##dest_format(destPtr, rgb.fRed, rgb.fGreen, rgb.fBlue, 0)
+
+
+#define STD_NO_CONVERT(BPP)									\
+	long	numBytes = ((parms.fRight * BPP) + 7) / 8;		\
+	memcpy (parms.fDestScanline, parms.fSrcScanline, numBytes);
+
+
+#define STD_DIRECT_CONVERT(src_format, dest_format)			\
+	EmCoord			right	= parms.fRight;					\
+	uint8*			destPtr	= parms.fDestScanline;			\
+	const uint8*	srcPtr	= parms.fSrcScanline;			\
+															\
+	for (EmCoord xx = 0; xx < right; ++xx)					\
+	{														\
+		uint8	r, g, b, a;									\
+		GET_##src_format(srcPtr, r, g, b, a)				\
+		PUT_##dest_format(destPtr, r, g, b, a)				\
+	}
+
+
+#define STD_INDEX_TO_DIRECT_CONVERT(src_format, dest_format)	\
+	EmCoord			right		= parms.fRight;				\
+	uint8*			destPtr		= parms.fDestScanline;		\
+	const uint8*	srcPtr		= parms.fSrcScanline;		\
+	const RGBList*	srcColors	= parms.fSrcColors;			\
+															\
+	EmAssert (srcColors);										\
+															\
+	EmCoord xx = 0;											\
+	while (1)												\
+	{														\
+		uint8	bits = *srcPtr++;							\
+		CONVERT_PACKED_BYTE_##src_format(dest_format)		\
+	}
+
+
+#define STD_DIRECT_TO_1_CONVERT(src_format)					\
+	EmCoord			right		= parms.fRight;				\
+	uint8*			destPtr		= parms.fDestScanline;		\
+	const uint8*	srcPtr		= parms.fSrcScanline;		\
+															\
+	uint8			bitMask		= 0x80;						\
+	uint8			aByte		= 0;						\
+															\
+	for (EmCoord xx = 0; xx < right; ++xx)					\
+	{														\
+		uint8	r, g, b, a;									\
+		GET_##src_format(srcPtr, r, g, b, a)				\
+		Bool	isDark1 = r < 0xF0;							\
+		Bool	isDark2 = g < 0xF0;							\
+		Bool	isDark3 = b < 0xF0;							\
+/* comment out for SONY_ROM									\
+		Bool	isDark1 = r < 0xC0;							\
+		Bool	isDark2 = g < 0xC0;							\
+		Bool	isDark3 = b < 0xC0;							\
+*/															\
+															\
+		if (isDark1 || isDark2 || isDark3)					\
+		{													\
+			/* Assumes white/black color table! */			\
+			aByte |= bitMask;								\
+		}													\
+															\
+		bitMask >>= 1;										\
+		if (bitMask == 0)									\
+		{													\
+			*destPtr++	= aByte;							\
+			bitMask		= 0x80;								\
+			aByte		= 0;								\
+		}													\
+	}														\
+															\
+	/* Write out any partially filled out byte. */			\
+															\
+	if (bitMask != 0)										\
+	{														\
+		*destPtr++ = aByte;									\
+	}
 
 
 /***********************************************************************
@@ -563,14 +764,14 @@ void EmPixMap::CreateMask (EmPixMap& dest) const
 EmRegion
 EmPixMap::CreateRegion	(void) const
 {
-	EmRegion	region;
+	EmRegion			region;
 
-	uint8*		bits		= (uint8*) this->GetBits ();
-	long		width		= this->GetSize().fX;
-	long		height		= this->GetSize().fY;
-	long		rowBytes	= this->GetRowBytes ();
+	uint8*				bits		= (uint8*) this->GetBits ();
+	EmCoord				width		= this->GetSize().fX;
+	EmCoord				height		= this->GetSize().fY;
+	EmPixMapRowBytes	rowBytes	= this->GetRowBytes ();
 
-	for (long yy = 0; yy < height; ++yy)
+	for (EmCoord yy = 0; yy < height; ++yy)
 	{
 		Bool	wasInRegion = false;
 		long	xStart = 0;
@@ -601,6 +802,7 @@ EmPixMap::CreateRegion	(void) const
 			}
 
 			// Exiting a region?
+
 			else if (!nowInRegion && wasInRegion)
 			{
 				// Close off "in region" scan.
@@ -623,6 +825,284 @@ EmPixMap::CreateRegion	(void) const
 	}
 
 	return region;
+}
+
+
+/***********************************************************************
+ *
+ * FUNCTION:	EmPixMap::ChangeTone
+ *
+ * DESCRIPTION:	Adjust the pixmap in the given line range by the given
+ *				percentage.
+ *
+ * PARAMETERS:	amount - amount by which the image should be adjusted.
+ *					100			= White
+ *					1...99		= Lighten
+ *					0			= No change
+ *					-1...-99	= Darken
+ *					-100		= Black
+ *
+ *				firstLine - first scanline in the image to alter.
+ *
+ *				lastLine - last scanline in the image to alter plus 1.
+ *
+ * RETURNED:	Nothing.
+ *
+ ***********************************************************************/
+
+inline void PrvAdjustPixel_ChangeTone (uint8& r, uint8& g, uint8& b, int32 amount)
+{
+	if (amount >= 0)
+	{
+		// Lighten the value.
+		//
+		// If amount == 0, rhs == 0, leaving value unchanged.
+		//
+		// If amount == 255, rhs == 255 - (value * 255 / 255),
+		// == 255 - value, leaving value at 255.
+
+		r += (amount - (r * amount / 255));
+		g += (amount - (g * amount / 255));
+		b += (amount - (b * amount / 255));
+	}
+	else
+	{
+		// Darken the value.
+		//
+		// If amount == 0, rhs == 0, leaving value unchanged.
+		//
+		// If amount == -255, rhs == value * -255 / 255 == -value, leaving value at zero.
+
+		r += (r * amount / 255);
+		g += (g * amount / 255);
+		b += (b * amount / 255);
+	}
+}
+
+
+void
+EmPixMap::ChangeTone (int32 percent, EmCoord firstLine, EmCoord lastLine)
+{
+	EmAssert (percent >= -100);
+	EmAssert (percent <= 100);
+
+	EmPixMapDepth	depth		= this->GetDepth ();
+	EmPixMapFormat	format		= this->GetFormat ();
+	int32			amount		= (percent * 255) / 100;
+
+	if (firstLine == -1)
+		firstLine = 0;
+
+	if (lastLine == -1)
+		lastLine = this->GetSize ().fY;
+
+	// If the image has a color table, alter that.
+
+	if (depth <= 8)
+	{
+		RGBList::iterator	iter = fColors.begin ();
+		while (iter != fColors.end ())
+		{
+			// Munge the RGB values directly.  You might be tempted to
+			// convert the RGB values to HSV values, alter the V
+			// parameter, and then convert back.  However, that gives
+			// pretty much the same results.
+
+			RGBType&	rgb	= *iter;
+
+			::PrvAdjustPixel_ChangeTone (rgb.fRed, rgb.fGreen, rgb.fBlue, amount);
+
+			++iter;
+		}
+	}
+
+	// If the image is direct, alter that.
+
+	else
+	{
+		uint8*				image		= (uint8*) this->GetBits ();
+		EmPixMapRowBytes	rowBytes	= this->GetRowBytes ();
+		EmCoord				width		= this->GetSize ().fX;
+
+		for (int yy = firstLine; yy < lastLine; ++yy)
+		{
+			uint8*	scanline	= image + rowBytes * yy;
+			uint8*	pixPtr		= scanline;
+
+			for (int xx = 0; xx < width; ++xx)
+			{
+				uint8	r, g, b, a;
+
+				switch (format)
+				{
+					case kPixMapFormat24RGB:	GET_24RGB (pixPtr, r, g, b, a);		break;
+					case kPixMapFormat24BGR:	GET_24BGR (pixPtr, r, g, b, a);		break;
+					case kPixMapFormat32ARGB:	GET_32ARGB (pixPtr, r, g, b, a);	break;
+					case kPixMapFormat32ABGR:	GET_32ABGR (pixPtr, r, g, b, a);	break;
+					case kPixMapFormat32RGBA:	GET_32RGBA (pixPtr, r, g, b, a);	break;
+					case kPixMapFormat32BGRA:	GET_32BGRA (pixPtr, r, g, b, a);	break;
+					default:	EmAssert (false);	r = g = b = a = 0;
+				}
+
+				// Munge the RGB values directly.  You might be tempted to
+				// convert the RGB values to HSV values, alter the V
+				// parameter, and then convert back.  However, that gives
+				// pretty much the same results.
+
+				::PrvAdjustPixel_ChangeTone (r, g, b, amount);
+
+				switch (format)
+				{
+					case kPixMapFormat24RGB:	pixPtr -= 3;	PUT_24RGB (pixPtr, r, g, b, a);		break;
+					case kPixMapFormat24BGR:	pixPtr -= 3;	PUT_24BGR (pixPtr, r, g, b, a);		break;
+					case kPixMapFormat32ARGB:	pixPtr -= 4;	PUT_32ARGB (pixPtr, r, g, b, a);	break;
+					case kPixMapFormat32ABGR:	pixPtr -= 4;	PUT_32ABGR (pixPtr, r, g, b, a);	break;
+					case kPixMapFormat32RGBA:	pixPtr -= 4;	PUT_32RGBA (pixPtr, r, g, b, a);	break;
+					case kPixMapFormat32BGRA:	pixPtr -= 4;	PUT_32BGRA (pixPtr, r, g, b, a);	break;
+					default:	EmAssert (false);
+				}
+			}
+		}
+	}
+}
+
+
+/***********************************************************************
+ *
+ * FUNCTION:	EmPixMap::ConvertToColor
+ *
+ * DESCRIPTION:	Adjust the pixmap in the given line range by the given
+ *				percentage.
+ *
+ * PARAMETERS:	type - color to which the pixmap should be converted.
+ *					100			= White
+ *					1...99		= Lighten
+ *					0			= No change
+ *					-1...-99	= Darken
+ *					-100		= Black
+ *
+ *				firstLine - first scanline in the image to alter.
+ *
+ *				lastLine - last scanline in the image to alter plus 1.
+ *
+ * RETURNED:	Nothing.
+ *
+ ***********************************************************************/
+
+inline void PrvAdjustPixel_ConvertToColor (uint8& r, uint8& g, uint8& b, int type)
+{
+	// First convert to grayscale.
+
+	uint8	gray = (uint8) ((r * 0.2990) + (g * 0.5870) + (b * 0.1140));
+
+	// The assign the 8-bit grayscale value accordingly.
+
+	switch (type)
+	{
+		case 0:
+			r = gray;
+			g = gray;
+			b = gray;
+			break;
+
+		case 1:
+			r = gray;
+			g = 0;
+			b = 0;
+			break;
+
+		case 2:
+			r = 0;
+			g = gray;
+			b = 0;
+			break;
+
+		case 3:
+			r = 0;
+			g = 0;
+			b = gray;
+			break;
+	}
+}
+
+
+void
+EmPixMap::ConvertToColor (int type, EmCoord firstLine, EmCoord lastLine)
+{
+	EmAssert (type >= 0);
+	EmAssert (type <= 3);
+
+	EmPixMapDepth	depth		= this->GetDepth ();
+	EmPixMapFormat	format		= this->GetFormat ();
+
+	if (firstLine == -1)
+		firstLine = 0;
+
+	if (lastLine == -1)
+		lastLine = this->GetSize ().fY;
+
+	// If the image has a color table, alter that.
+
+	if (depth <= 8)
+	{
+		RGBList::iterator	iter = fColors.begin ();
+		while (iter != fColors.end ())
+		{
+			// Munge the RGB values directly.
+
+			RGBType&	rgb	= *iter;
+
+			::PrvAdjustPixel_ConvertToColor (rgb.fRed, rgb.fGreen, rgb.fBlue, type);
+
+			++iter;
+		}
+	}
+
+	// If the image is direct, alter that.
+
+	else
+	{
+		uint8*				image		= (uint8*) this->GetBits ();
+		EmPixMapRowBytes	rowBytes	= this->GetRowBytes ();
+		EmCoord				width		= this->GetSize ().fX;
+
+		for (int yy = firstLine; yy < lastLine; ++yy)
+		{
+			uint8*	scanline	= image + rowBytes * yy;
+			uint8*	pixPtr		= scanline;
+
+			for (int xx = 0; xx < width; ++xx)
+			{
+				uint8	r, g, b, a;
+
+				switch (format)
+				{
+					case kPixMapFormat24RGB:	GET_24RGB (pixPtr, r, g, b, a);		break;
+					case kPixMapFormat24BGR:	GET_24BGR (pixPtr, r, g, b, a);		break;
+					case kPixMapFormat32ARGB:	GET_32ARGB (pixPtr, r, g, b, a);	break;
+					case kPixMapFormat32ABGR:	GET_32ABGR (pixPtr, r, g, b, a);	break;
+					case kPixMapFormat32RGBA:	GET_32RGBA (pixPtr, r, g, b, a);	break;
+					case kPixMapFormat32BGRA:	GET_32BGRA (pixPtr, r, g, b, a);	break;
+					default:	EmAssert (false);	r = g = b = a = 0;
+				}
+
+				// Munge the RGB values directly.
+
+				::PrvAdjustPixel_ConvertToColor (r, g, b, type);
+
+				switch (format)
+				{
+					case kPixMapFormat24RGB:	pixPtr -= 3;	PUT_24RGB (pixPtr, r, g, b, a);		break;
+					case kPixMapFormat24BGR:	pixPtr -= 3;	PUT_24BGR (pixPtr, r, g, b, a);		break;
+					case kPixMapFormat32ARGB:	pixPtr -= 4;	PUT_32ARGB (pixPtr, r, g, b, a);	break;
+					case kPixMapFormat32ABGR:	pixPtr -= 4;	PUT_32ABGR (pixPtr, r, g, b, a);	break;
+					case kPixMapFormat32RGBA:	pixPtr -= 4;	PUT_32RGBA (pixPtr, r, g, b, a);	break;
+					case kPixMapFormat32BGRA:	pixPtr -= 4;	PUT_32BGRA (pixPtr, r, g, b, a);	break;
+					default:	EmAssert (false);
+				}
+			}
+		}
+	}
 }
 
 
@@ -1374,207 +1854,6 @@ EmPixMapDepth PrvGetDepth (EmPixMapFormat f)
  *
  ***********************************************************************/
 
-#define GET_24RGB(srcPtr, r, g, b, a)	\
-	r = *srcPtr++;						\
-	g = *srcPtr++;						\
-	b = *srcPtr++;						\
-	a = 0;
-
-
-#define GET_24BGR(srcPtr, r, g, b, a)	\
-	b = *srcPtr++;						\
-	g = *srcPtr++;						\
-	r = *srcPtr++;						\
-	a = 0;
-
-
-#define GET_32ARGB(srcPtr, r, g, b, a)	\
-	a = *srcPtr++;						\
-	r = *srcPtr++;						\
-	g = *srcPtr++;						\
-	b = *srcPtr++;
-
-
-#define GET_32ABGR(srcPtr, r, g, b, a)	\
-	a = *srcPtr++;						\
-	b = *srcPtr++;						\
-	g = *srcPtr++;						\
-	r = *srcPtr++;
-
-
-#define GET_32RGBA(srcPtr, r, g, b, a)	\
-	r = *srcPtr++;						\
-	g = *srcPtr++;						\
-	b = *srcPtr++;						\
-	a = *srcPtr++;
-
-
-#define GET_32BGRA(srcPtr, r, g, b, a)	\
-	b = *srcPtr++;						\
-	g = *srcPtr++;						\
-	r = *srcPtr++;						\
-	a = *srcPtr++;
-
-
-#define PUT_24RGB(destPtr, r, g, b, a)	\
-	*destPtr++ = r;						\
-	*destPtr++ = g;						\
-	*destPtr++ = b;
-
-
-#define PUT_24BGR(destPtr, r, g, b, a)	\
-	*destPtr++ = b;						\
-	*destPtr++ = g;						\
-	*destPtr++ = r;
-
-
-#define PUT_32ARGB(destPtr, r, g, b, a)	\
-	*destPtr++ = a;						\
-	*destPtr++ = r;						\
-	*destPtr++ = g;						\
-	*destPtr++ = b;
-
-
-#define PUT_32ABGR(destPtr, r, g, b, a)	\
-	*destPtr++ = a;						\
-	*destPtr++ = b;						\
-	*destPtr++ = g;						\
-	*destPtr++ = r;
-
-
-#define PUT_32RGBA(destPtr, r, g, b, a)	\
-	*destPtr++ = r;						\
-	*destPtr++ = g;						\
-	*destPtr++ = b;						\
-	*destPtr++ = a;
-
-
-#define PUT_32BGRA(destPtr, r, g, b, a)	\
-	*destPtr++ = b;						\
-	*destPtr++ = g;						\
-	*destPtr++ = r;						\
-	*destPtr++ = a;
-
-
-#define CONVERT_PACKED_PIXEL(shift, mask, dest_format)					\
-	if (xx++ >= right)													\
-		break;															\
-	{																	\
-	const RGBType&	rgb = (*srcColors)[(bits >> (shift)) & (mask)];		\
-	PUT_##dest_format(destPtr, rgb.fRed, rgb.fGreen, rgb.fBlue, 0)		\
-	}
-
-
-#define CONVERT_PACKED_BYTE_1(dest_format)		\
-	CONVERT_PACKED_PIXEL(7, 0x01, dest_format)	\
-	CONVERT_PACKED_PIXEL(6, 0x01, dest_format)	\
-	CONVERT_PACKED_PIXEL(5, 0x01, dest_format)	\
-	CONVERT_PACKED_PIXEL(4, 0x01, dest_format)	\
-	CONVERT_PACKED_PIXEL(3, 0x01, dest_format)	\
-	CONVERT_PACKED_PIXEL(2, 0x01, dest_format)	\
-	CONVERT_PACKED_PIXEL(1, 0x01, dest_format)	\
-	CONVERT_PACKED_PIXEL(0, 0x01, dest_format)
-
-
-#define CONVERT_PACKED_BYTE_2(dest_format)		\
-	CONVERT_PACKED_PIXEL(6, 0x03, dest_format)	\
-	CONVERT_PACKED_PIXEL(4, 0x03, dest_format)	\
-	CONVERT_PACKED_PIXEL(2, 0x03, dest_format)	\
-	CONVERT_PACKED_PIXEL(0, 0x03, dest_format)
-
-
-#define CONVERT_PACKED_BYTE_4(dest_format)		\
-	CONVERT_PACKED_PIXEL(4, 0x0F, dest_format)	\
-	CONVERT_PACKED_PIXEL(0, 0x0F, dest_format)
-
-
-#define CONVERT_PACKED_BYTE_8(dest_format)								\
-	if (xx++ >= right)													\
-		break;															\
-																		\
-	const RGBType&	rgb = (*srcColors)[bits];							\
-	PUT_##dest_format(destPtr, rgb.fRed, rgb.fGreen, rgb.fBlue, 0)
-
-
-#define STD_NO_CONVERT(BPP)									\
-	long	numBytes = ((parms.fRight * BPP) + 7) / 8;		\
-	memcpy (parms.fDestScanline, parms.fSrcScanline, numBytes);
-
-
-#define STD_DIRECT_CONVERT(src_format, dest_format)			\
-	EmCoord			right	= parms.fRight;					\
-	uint8*			destPtr	= parms.fDestScanline;			\
-	const uint8*	srcPtr	= parms.fSrcScanline;			\
-															\
-	for (EmCoord xx = 0; xx < right; ++xx)					\
-	{														\
-		uint8	r, g, b, a;									\
-		GET_##src_format(srcPtr, r, g, b, a)				\
-		PUT_##dest_format(destPtr, r, g, b, a)				\
-	}
-
-
-#define STD_INDEX_TO_DIRECT_CONVERT(src_format, dest_format)	\
-	EmCoord			right		= parms.fRight;				\
-	uint8*			destPtr		= parms.fDestScanline;		\
-	const uint8*	srcPtr		= parms.fSrcScanline;		\
-	const RGBList*	srcColors	= parms.fSrcColors;			\
-															\
-	EmAssert (srcColors);										\
-															\
-	EmCoord xx = 0;											\
-	while (1)												\
-	{														\
-		uint8	bits = *srcPtr++;							\
-		CONVERT_PACKED_BYTE_##src_format(dest_format)		\
-	}
-
-
-#define STD_DIRECT_TO_1_CONVERT(src_format)					\
-	EmCoord			right		= parms.fRight;				\
-	uint8*			destPtr		= parms.fDestScanline;		\
-	const uint8*	srcPtr		= parms.fSrcScanline;		\
-															\
-	uint8			bitMask		= 0x80;						\
-	uint8			aByte		= 0;						\
-															\
-	for (EmCoord xx = 0; xx < right; ++xx)					\
-	{														\
-		uint8	r, g, b, a;									\
-		GET_##src_format(srcPtr, r, g, b, a)				\
-															\
-		Bool	isDark1 = r < 0xF0;							\
-		Bool	isDark2 = g < 0xF0;							\
-		Bool	isDark3 = b < 0xF0;							\
-/* comment out for SONY_ROM									\
-		Bool	isDark1 = r < 0xC0;							\
-		Bool	isDark2 = g < 0xC0;							\
-		Bool	isDark3 = b < 0xC0;							\
-*/															\
-															\
-		if (isDark1 || isDark2 || isDark3)					\
-		{													\
-			/* Assumes white/black color table! */			\
-			aByte |= bitMask;								\
-		}													\
-															\
-		bitMask >>= 1;										\
-		if (bitMask == 0)									\
-		{													\
-			*destPtr++	= aByte;							\
-			bitMask		= 0x80;								\
-			aByte		= 0;								\
-		}													\
-	}														\
-															\
-	/* Write out any partially filled out byte. */			\
-															\
-	if (bitMask != 0)										\
-	{														\
-		*destPtr++ = aByte;									\
-	}
-
-
 #pragma mark -
 
 void PrvConvert1To1 (const ScanlineParms& parms)
@@ -1839,18 +2118,17 @@ void PrvConvert8To1 (const ScanlineParms& parms)
 		uint8			pixel = *srcPtr++;
 		const RGBType&	rgb = (*srcColors)[pixel];
 
-		// See if the current pixel is dark.  Test it this way
-		// to ensure that all three components are evaluated.
+		// See if the current pixel is dark.
 
 #ifdef SONY_ROM
 		Bool	isDark1 = rgb.fRed		< 0xF0;
 		Bool	isDark2 = rgb.fGreen	< 0xF0;
 		Bool	isDark3 = rgb.fBlue		< 0xF0;
-#else
+#else //!SONY_ROM
 		Bool	isDark1 = rgb.fRed		< 0xC0;
 		Bool	isDark2 = rgb.fGreen	< 0xC0;
 		Bool	isDark3 = rgb.fBlue		< 0xC0;
-#endif
+#endif //SONY_ROM
 
 		if (isDark1 || isDark2 || isDark3)
 		{

@@ -16,6 +16,7 @@
 
 #include "EmFileRef.h"			// EmFileRef
 #include "EmDevice.h"			// EmDevice
+#include "EmTypes.h"			// GremlinEventType, EventIDType
 
 #include <deque>
 #include <map>
@@ -140,7 +141,13 @@ struct Configuration
 		fMSSize (MSSIZE_DEFAULT)
 	{
 	}
-
+	Configuration (const Configuration& cfg) :
+		fDevice (cfg.fDevice),
+		fRAMSize (cfg.fRAMSize),
+		fROMFile (cfg.fROMFile),
+		fMSSize (cfg.fMSSize)
+	{
+	}
 	Configuration (const EmDevice& dt, long size, const EmFileRef& rom, long mssize) :
 		fDevice (dt),
 		fRAMSize (size),
@@ -149,13 +156,39 @@ struct Configuration
 	{
 	}
 
+	Bool IsValid (void) const
+	{
+		// Return whether or not the configuration looks 
+		// valid.
+
+		if (!fDevice.Supported ())
+			return false;
+
+		if (fRAMSize <= 0)
+			return false;
+
+		if (!fROMFile.IsSpecified ())
+			return false;
+
+		if (!fROMFile.Exists ())
+			return false;
+
+		if (!fDevice.SupportsROM (fROMFile))
+			return false;
+
+		if (fMSSize < 0)
+			return false;
+
+		return true;
+	}
+
 	EmDevice				fDevice;
 	RAMSizeType				fRAMSize;
 	EmFileRef				fROMFile;
 	MSSizeType				fMSSize;	// for Sony & MemoryStick				
 };
 
-#else // SONY_ROM
+#else // !SONY_ROM
 
 struct Configuration
 {
@@ -166,11 +199,41 @@ struct Configuration
 	{
 	}
 
+	Configuration (const Configuration& cfg) :
+		fDevice (cfg.fDevice),
+		fRAMSize (cfg.fRAMSize),
+		fROMFile (cfg.fROMFile)
+	{
+	}
+
 	Configuration (const EmDevice& dt, long size, const EmFileRef& rom) :
 		fDevice (dt),
 		fRAMSize (size),
 		fROMFile (rom)
 	{
+	}
+
+	Bool IsValid (void) const
+	{
+		// Return whether or not the configuration looks 
+		// valid.
+
+		if (!fDevice.Supported ())
+			return false;
+
+		if (fRAMSize <= 0)
+			return false;
+
+		if (!fROMFile.IsSpecified ())
+			return false;
+
+		if (!fROMFile.Exists ())
+			return false;
+
+		if (!fDevice.SupportsROM (fROMFile))
+			return false;
+
+		return true;
 	}
 
 	EmDevice				fDevice;
@@ -190,6 +253,7 @@ struct GremlinInfo
 	GremlinInfo () :
 		fNumber (0),
 		fSteps (-1),
+		fFinal (-1),
 		fSaveFrequency (10000),
 		fAppList ()
 	{
@@ -197,6 +261,7 @@ struct GremlinInfo
 
 	long				fNumber;
 	long				fSteps;
+	long				fFinal;
 	long				fSaveFrequency;
 	DatabaseInfoList	fAppList;
 };
@@ -216,8 +281,11 @@ struct HordeInfo
 		fCanSwitch (false),
 		fCanSave (false),
 		fCanStop (false),
-		fAppList ()
-
+		fAppList (),
+		fSaveFrequency (0),	// Rewritten in c'tor
+		fSwitchDepth (0),	// Rewritten in c'tor
+		fMaxDepth (0),		// Rewritten in c'tor
+		fFirstLaunchedAppName ("")
 	{
 		NewToOld ();
 	}
@@ -242,6 +310,11 @@ struct HordeInfo
 	long				fSwitchDepth;
 	long				fMaxDepth;
 
+	// New field added so that the first application
+	// to be launched can be specified
+
+	string				fFirstLaunchedAppName;
+
 	void NewToOld (void)
 	{
 		fSwitchDepth	= fCanSwitch ? fDepthSwitch : -1;
@@ -262,6 +335,26 @@ struct HordeInfo
 	}
 };
 typedef vector<HordeInfo>	HordeInfoList;
+
+
+// ---------- EmGremlinThreadInfo ----------
+
+struct EmGremlinThreadInfo
+{
+	Bool	fHalted;
+	Int32	fErrorEvent;
+	StrCode	fMessageID;
+};
+
+
+// ---------- EmGremlinErrorFrequencyInfo ----------
+
+struct EmGremlinErrorFrequencyInfo
+{
+	Int32	fCount;
+	Int32	fErrorFrequency;
+	Int32	fFirstErrantGremlinIndex;
+};
 
 
 // ---------- SysLibTblEntryTypeV10 ----------

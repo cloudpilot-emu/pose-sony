@@ -183,6 +183,414 @@
 
 
 // ========================================
+// ===== ctlSelect =====
+// ========================================
+
+#define FOR_ctlSelect_STRUCT(DO_TO_STRUCT)										\
+	DO_TO_STRUCT (ctlSelect, 10, FOR_ctlSelect_FIELDS)
+
+#define FOR_ctlSelect_FIELDS(DO_TO_FIELD)										\
+	DO_TO_FIELD (0,		Int16,						controlID)					\
+	DO_TO_FIELD (2,		emuptr,						pControl)					\
+	DO_TO_FIELD (6,		Boolean,					on)							\
+	DO_TO_FIELD (7,		UInt8,						reserved1)					\
+	DO_TO_FIELD (8,		UInt16,						value)						\
+
+
+// ========================================
+// ===== ctlRepeat =====
+// ========================================
+
+#define FOR_ctlRepeat_STRUCT(DO_TO_STRUCT)										\
+	DO_TO_STRUCT (ctlRepeat, 12, FOR_ctlRepeat_FIELDS)
+
+#define FOR_ctlRepeat_FIELDS(DO_TO_FIELD)										\
+	DO_TO_FIELD (0,		Int16,						controlID)					\
+	DO_TO_FIELD (2,		emuptr,						pControl)					\
+	DO_TO_FIELD (6,		UInt32,						time)						\
+	DO_TO_FIELD (10,	UInt16,						value)						\
+
+
+// ========================================
+// ===== ctlExit =====
+// ========================================
+
+#define FOR_ctlExit_STRUCT(DO_TO_STRUCT)										\
+	DO_TO_STRUCT (ctlExit, 6, FOR_ctlExit_FIELDS)
+
+#define FOR_ctlExit_FIELDS(DO_TO_FIELD)											\
+	DO_TO_FIELD (0,		Int16,						controlID)					\
+	DO_TO_FIELD (2,		emuptr,						pControl)					\
+
+
+// ========================================
+// ===== fldEnter =====
+// ========================================
+
+#define FOR_fldEnter_STRUCT(DO_TO_STRUCT)										\
+	DO_TO_STRUCT (fldEnter, 6, FOR_fldEnter_FIELDS)
+
+#define FOR_fldEnter_FIELDS(DO_TO_FIELD)										\
+	DO_TO_FIELD (0,		UInt16,						fieldID)					\
+	DO_TO_FIELD (2,		emuptr,						pField)						\
+
+
+// ========================================
+// ===== fldHeightChanged =====
+// ========================================
+
+#define FOR_fldHeightChanged_STRUCT(DO_TO_STRUCT)								\
+	DO_TO_STRUCT (fldHeightChanged, 10, FOR_fldHeightChanged_FIELDS)
+
+#define FOR_fldHeightChanged_FIELDS(DO_TO_FIELD)								\
+	DO_TO_FIELD (0,		UInt16,						fieldID)					\
+	DO_TO_FIELD (2,		emuptr,						pField)						\
+	DO_TO_FIELD (6,		Int16,						newHeight)					\
+	DO_TO_FIELD (8,		UInt16,						currentPos)					\
+
+
+// ========================================
+// ===== fldChanged =====
+// ========================================
+
+#define FOR_fldChanged_STRUCT(DO_TO_STRUCT)										\
+	DO_TO_STRUCT (fldChanged, 6, FOR_fldChanged_FIELDS)
+
+#define FOR_fldChanged_FIELDS(DO_TO_FIELD)										\
+	DO_TO_FIELD (0,		UInt16,						fieldID)					\
+	DO_TO_FIELD (2,		emuptr,						pField)						\
+
+
+// ========================================
+// ===== fldExit =====
+// ========================================
+
+#define FOR_fldExit_STRUCT(DO_TO_STRUCT)										\
+	DO_TO_STRUCT (fldExit, 6, FOR_fldExit_FIELDS)
+
+#define FOR_fldExit_FIELDS(DO_TO_FIELD)											\
+	DO_TO_FIELD (0,		UInt16,						fieldID)					\
+	DO_TO_FIELD (2,		emuptr,						pField)						\
+
+
+// ========================================
+// ===== lstEnter =====
+// ========================================
+
+#define FOR_lstEnter_STRUCT(DO_TO_STRUCT)										\
+	DO_TO_STRUCT (lstEnter, 8, FOR_lstEnter_FIELDS)
+
+#define FOR_lstEnter_FIELDS(DO_TO_FIELD)										\
+	DO_TO_FIELD (0,		UInt16,						listID)						\
+	DO_TO_FIELD (2,		emuptr,						pList)						\
+	DO_TO_FIELD (6,		Int16,						selection)					\
+
+
+// ========================================
+// ===== lstExit =====
+// ========================================
+
+#define FOR_lstExit_STRUCT(DO_TO_STRUCT)										\
+	DO_TO_STRUCT (lstExit, 6, FOR_lstExit_FIELDS)
+
+#define FOR_lstExit_FIELDS(DO_TO_FIELD)											\
+	DO_TO_FIELD (0,		UInt16,						listID)						\
+	DO_TO_FIELD (2,		emuptr,						pList)						\
+
+
+// ========================================
+// ===== lstSelect =====
+// ========================================
+
+#define FOR_lstSelect_STRUCT(DO_TO_STRUCT)										\
+	DO_TO_STRUCT (lstSelect, 8, FOR_lstSelect_FIELDS)
+
+#define FOR_lstSelect_FIELDS(DO_TO_FIELD)										\
+	DO_TO_FIELD (0,		UInt16,						listID)						\
+	DO_TO_FIELD (2,		emuptr,						pList)						\
+	DO_TO_FIELD (6,		Int16,						selection)					\
+
+
+// ========================================
+// ===== tblEnter =====
+// ========================================
+
+#define FOR_tblEnter_STRUCT(DO_TO_STRUCT)										\
+	DO_TO_STRUCT (tblEnter, 10, FOR_tblEnter_FIELDS)
+
+#define FOR_tblEnter_FIELDS(DO_TO_FIELD)										\
+	DO_TO_FIELD (0,		UInt16,						tableID)					\
+	DO_TO_FIELD (2,		emuptr,						pTable)						\
+	DO_TO_FIELD (6,		Int16,						row)						\
+	DO_TO_FIELD (8,		Int16,						column)						\
+
+
+// ========================================
+// ===== tblExit =====
+// ========================================
+
+#define FOR_tblExit_STRUCT(DO_TO_STRUCT)										\
+	DO_TO_STRUCT (tblExit, 10, FOR_tblExit_FIELDS)
+
+#define FOR_tblExit_FIELDS(DO_TO_FIELD)											\
+	DO_TO_FIELD (0,		UInt16,						tableID)					\
+	DO_TO_FIELD (2,		emuptr,						pTable)						\
+	DO_TO_FIELD (6,		Int16,						row)						\
+	DO_TO_FIELD (8,		Int16,						column)						\
+
+
+// ========================================
+// ===== tblSelect =====
+// ========================================
+
+#define FOR_tblSelect_STRUCT(DO_TO_STRUCT)										\
+	DO_TO_STRUCT (tblSelect, 10, FOR_tblSelect_FIELDS)
+
+#define FOR_tblSelect_FIELDS(DO_TO_FIELD)										\
+	DO_TO_FIELD (0,		UInt16,						tableID)					\
+	DO_TO_FIELD (2,		emuptr,						pTable)						\
+	DO_TO_FIELD (6,		Int16,						row)						\
+	DO_TO_FIELD (8,		Int16,						column)						\
+
+
+// ========================================
+// ===== frmLoad =====
+// ========================================
+
+#define FOR_frmLoad_STRUCT(DO_TO_STRUCT)										\
+	DO_TO_STRUCT (frmLoad, 2, FOR_frmLoad_FIELDS)
+
+#define FOR_frmLoad_FIELDS(DO_TO_FIELD)											\
+	DO_TO_FIELD (0,		UInt16,						formID)						\
+
+
+// ========================================
+// ===== frmOpen =====
+// ========================================
+
+#define FOR_frmOpen_STRUCT(DO_TO_STRUCT)										\
+	DO_TO_STRUCT (frmOpen, 2, FOR_frmOpen_FIELDS)
+
+#define FOR_frmOpen_FIELDS(DO_TO_FIELD)											\
+	DO_TO_FIELD (0,		UInt16,						formID)						\
+
+
+// ========================================
+// ===== frmGoto =====
+// ========================================
+
+#define FOR_frmGoto_STRUCT(DO_TO_STRUCT)										\
+	DO_TO_STRUCT (frmGoto, 14, FOR_frmGoto_FIELDS)
+
+#define FOR_frmGoto_FIELDS(DO_TO_FIELD)											\
+	DO_TO_FIELD (0,		UInt16,						formID)						\
+	DO_TO_FIELD (2,		UInt16,						recordNum)					\
+	DO_TO_FIELD (4,		UInt16,						matchPos)					\
+	DO_TO_FIELD (6,		UInt16,						matchLen)					\
+	DO_TO_FIELD (8,		UInt16,						matchFieldNum)				\
+	DO_TO_FIELD (10,	UInt32,						matchCustom)				\
+
+
+// ========================================
+// ===== frmClose =====
+// ========================================
+
+#define FOR_frmClose_STRUCT(DO_TO_STRUCT)										\
+	DO_TO_STRUCT (frmClose, 2, FOR_frmClose_FIELDS)
+
+#define FOR_frmClose_FIELDS(DO_TO_FIELD)										\
+	DO_TO_FIELD (0,		UInt16,						formID)						\
+
+
+// ========================================
+// ===== frmUpdate =====
+// ========================================
+
+#define FOR_frmUpdate_STRUCT(DO_TO_STRUCT)										\
+	DO_TO_STRUCT (frmUpdate, 4, FOR_frmUpdate_FIELDS)
+
+#define FOR_frmUpdate_FIELDS(DO_TO_FIELD)										\
+	DO_TO_FIELD (0,		UInt16,						formID)						\
+	DO_TO_FIELD (2,		UInt16,						updateCode)					\
+
+
+// ========================================
+// ===== frmTitleEnter =====
+// ========================================
+
+#define FOR_frmTitleEnter_STRUCT(DO_TO_STRUCT)									\
+	DO_TO_STRUCT (frmTitleEnter, 2, FOR_frmTitleEnter_FIELDS)
+
+#define FOR_frmTitleEnter_FIELDS(DO_TO_FIELD)									\
+	DO_TO_FIELD (0,		UInt16,						formID)						\
+
+
+// ========================================
+// ===== frmTitleSelect =====
+// ========================================
+
+#define FOR_frmTitleSelect_STRUCT(DO_TO_STRUCT)									\
+	DO_TO_STRUCT (frmTitleSelect, 2, FOR_frmTitleSelect_FIELDS)
+
+#define FOR_frmTitleSelect_FIELDS(DO_TO_FIELD)									\
+	DO_TO_FIELD (0,		UInt16,						formID)						\
+
+
+// ========================================
+// ===== attnIndicatorEnter =====
+// ========================================
+
+#define FOR_attnIndicatorEnter_STRUCT(DO_TO_STRUCT)								\
+	DO_TO_STRUCT (attnIndicatorEnter, 2, FOR_attnIndicatorEnter_FIELDS)
+
+#define FOR_attnIndicatorEnter_FIELDS(DO_TO_FIELD)								\
+	DO_TO_FIELD (0,		UInt16,						formID)						\
+
+
+// ========================================
+// ===== attnIndicatorSelect =====
+// ========================================
+
+#define FOR_attnIndicatorSelect_STRUCT(DO_TO_STRUCT)							\
+	DO_TO_STRUCT (attnIndicatorSelect, 2, FOR_attnIndicatorSelect_FIELDS)
+
+#define FOR_attnIndicatorSelect_FIELDS(DO_TO_FIELD)								\
+	DO_TO_FIELD (0,		UInt16,						formID)						\
+
+
+// ========================================
+// ===== daySelect =====
+// ========================================
+
+#define FOR_daySelect_STRUCT(DO_TO_STRUCT)										\
+	DO_TO_STRUCT (daySelect, 8, FOR_daySelect_FIELDS)
+
+#define FOR_daySelect_FIELDS(DO_TO_FIELD)										\
+	DO_TO_FIELD (0,		emuptr,						pSelector)					\
+	DO_TO_FIELD (4,		Int16,						selection)					\
+	DO_TO_FIELD (6,		Boolean,					useThisDate)				\
+	DO_TO_FIELD (7,		UInt8,						reserved1)					\
+
+
+// ========================================
+// ===== menu =====
+// ========================================
+
+#define FOR_menu_STRUCT(DO_TO_STRUCT)											\
+	DO_TO_STRUCT (menu, 2, FOR_menu_FIELDS)
+
+#define FOR_menu_FIELDS(DO_TO_FIELD)											\
+	DO_TO_FIELD (0,		UInt16,						itemID)						\
+
+
+// ========================================
+// ===== popSelect =====
+// ========================================
+
+#define FOR_popSelect_STRUCT(DO_TO_STRUCT)										\
+	DO_TO_STRUCT (popSelect, 16, FOR_popSelect_FIELDS)
+
+#define FOR_popSelect_FIELDS(DO_TO_FIELD)										\
+	DO_TO_FIELD (0,		UInt16,						controlID)					\
+	DO_TO_FIELD (2,		emuptr,						controlP)					\
+	DO_TO_FIELD (6,		UInt16,						listID)						\
+	DO_TO_FIELD (8,		emuptr,						listP)						\
+	DO_TO_FIELD (12,	Int16,						selection)					\
+	DO_TO_FIELD (14,	Int16,						priorSelection)				\
+
+
+// ========================================
+// ===== sclEnter =====
+// ========================================
+
+#define FOR_sclEnter_STRUCT(DO_TO_STRUCT)										\
+	DO_TO_STRUCT (sclEnter, 6, FOR_sclEnter_FIELDS)
+
+#define FOR_sclEnter_FIELDS(DO_TO_FIELD)										\
+	DO_TO_FIELD (0,		UInt16,						scrollBarID)				\
+	DO_TO_FIELD (2,		emuptr,						pScrollBar)					\
+
+
+// ========================================
+// ===== sclExit =====
+// ========================================
+
+#define FOR_sclExit_STRUCT(DO_TO_STRUCT)										\
+	DO_TO_STRUCT (sclExit, 10, FOR_sclExit_FIELDS)
+
+#define FOR_sclExit_FIELDS(DO_TO_FIELD)											\
+	DO_TO_FIELD (0,		UInt16,						scrollBarID)				\
+	DO_TO_FIELD (2,		emuptr,						pScrollBar)					\
+	DO_TO_FIELD (6,		Int16,						value)						\
+	DO_TO_FIELD (8,		Int16,						newValue)					\
+
+
+// ========================================
+// ===== sclRepeat =====
+// ========================================
+
+#define FOR_sclRepeat_STRUCT(DO_TO_STRUCT)										\
+	DO_TO_STRUCT (sclRepeat, 14, FOR_sclRepeat_FIELDS)
+
+#define FOR_sclRepeat_FIELDS(DO_TO_FIELD)										\
+	DO_TO_FIELD (0,		UInt16,						scrollBarID)				\
+	DO_TO_FIELD (2,		emuptr,						pScrollBar)					\
+	DO_TO_FIELD (6,		Int16,						value)						\
+	DO_TO_FIELD (8,		Int16,						newValue)					\
+	DO_TO_FIELD (10,	Int32,						time)						\
+
+
+// ========================================
+// ===== menuCmdBarOpen =====
+// ========================================
+
+#define FOR_menuCmdBarOpen_STRUCT(DO_TO_STRUCT)									\
+	DO_TO_STRUCT (menuCmdBarOpen, 2, FOR_menuCmdBarOpen_FIELDS)
+
+#define FOR_menuCmdBarOpen_FIELDS(DO_TO_FIELD)									\
+	DO_TO_FIELD (0,		Boolean,					preventFieldButtons)		\
+	DO_TO_FIELD (1,		UInt8,						reserved)					\
+
+
+// ========================================
+// ===== menuOpen =====
+// ========================================
+
+#define FOR_menuOpen_STRUCT(DO_TO_STRUCT)										\
+	DO_TO_STRUCT (menuOpen, 4, FOR_menuOpen_FIELDS)
+
+#define FOR_menuOpen_FIELDS(DO_TO_FIELD)										\
+	DO_TO_FIELD (0,		UInt16,						menuRscID)					\
+	DO_TO_FIELD (2,		Int16,						cause)						\
+
+
+// ========================================
+// ===== gadgetEnter =====
+// ========================================
+
+#define FOR_gadgetEnter_STRUCT(DO_TO_STRUCT)									\
+	DO_TO_STRUCT (gadgetEnter, 6, FOR_gadgetEnter_FIELDS)
+
+#define FOR_gadgetEnter_FIELDS(DO_TO_FIELD)										\
+	DO_TO_FIELD (0,		UInt16,						gadgetID)					\
+	DO_TO_FIELD (2,		emuptr,						gadgetP)					\
+
+
+// ========================================
+// ===== gadgetMisc =====
+// ========================================
+
+#define FOR_gadgetMisc_STRUCT(DO_TO_STRUCT)										\
+	DO_TO_STRUCT (gadgetMisc, 12, FOR_gadgetMisc_FIELDS)
+
+#define FOR_gadgetMisc_FIELDS(DO_TO_FIELD)										\
+	DO_TO_FIELD (0,		UInt16,						gadgetID)					\
+	DO_TO_FIELD (2,		emuptr,						gadgetP)					\
+	DO_TO_FIELD (6,		UInt16,						selector)					\
+	DO_TO_FIELD (8,		emuptr,						dataP)						\
+
+
+// ========================================
 // ===== AbsRectType =====
 // ========================================
 
@@ -197,20 +605,46 @@
 
 
 // ========================================
-// ===== BitmapType =====
+// ===== BitmapTypeV2 =====
 // ========================================
 
-#define FOR_BitmapType_STRUCT(DO_TO_STRUCT)										\
-	DO_TO_STRUCT (BitmapType, 12, FOR_BitmapType_FIELDS)
+#define FOR_BitmapTypeV2_STRUCT(DO_TO_STRUCT)									\
+	DO_TO_STRUCT (BitmapTypeV2, 16, FOR_BitmapTypeV2_FIELDS)
 
-#define FOR_BitmapType_FIELDS(DO_TO_FIELD)										\
-	DO_TO_FIELD (0,		Int16,					width)							\
-	DO_TO_FIELD (2,		Int16,					height)							\
-	DO_TO_FIELD (4,		UInt16,					rowBytes)						\
-	DO_TO_FIELD (6,		UInt16,					flags)							\
-	DO_TO_FIELD (8,		UInt8,					pixelSize)						\
-	DO_TO_FIELD (9,		UInt8,					version)						\
-	DO_TO_FIELD (10,	UInt16,					nextDepthOffset)				\
+#define FOR_BitmapTypeV2_FIELDS(DO_TO_FIELD)									\
+	DO_TO_FIELD (0,		Int16,						width)						\
+	DO_TO_FIELD (2,		Int16,						height)						\
+	DO_TO_FIELD (4,		UInt16,						rowBytes)					\
+	DO_TO_FIELD (6,		UInt16,						flags)						\
+	DO_TO_FIELD (8,		UInt8,						pixelSize)					\
+	DO_TO_FIELD (9,		UInt8,						version)					\
+	DO_TO_FIELD (10,	UInt16,						nextDepthOffset)			\
+	DO_TO_FIELD (12,	UInt8,						transparentIndex)			\
+	DO_TO_FIELD (13,	UInt8,						compressionType)			\
+	DO_TO_FIELD (14,	UInt16,						reserved)					\
+
+
+// ========================================
+// ===== BitmapTypeV3 =====
+// ========================================
+
+#define FOR_BitmapTypeV3_STRUCT(DO_TO_STRUCT)									\
+	DO_TO_STRUCT (BitmapTypeV3, 24, FOR_BitmapTypeV3_FIELDS)
+
+#define FOR_BitmapTypeV3_FIELDS(DO_TO_FIELD)									\
+	DO_TO_FIELD (0,		Int16,						width)						\
+	DO_TO_FIELD (2,		Int16,						height)						\
+	DO_TO_FIELD (4,		UInt16,						rowBytes)					\
+	DO_TO_FIELD (6,		UInt16,						flags)						\
+	DO_TO_FIELD (8,		UInt8,						pixelSize)					\
+	DO_TO_FIELD (9,		UInt8,						version)					\
+	DO_TO_FIELD (10,	UInt8,						size)						\
+	DO_TO_FIELD (11,	UInt8,						pixelFormat)				\
+	DO_TO_FIELD (12,	UInt8,						unused)						\
+	DO_TO_FIELD (13,	UInt8,						compressionType)			\
+	DO_TO_FIELD (14,	UInt16,						density)					\
+	DO_TO_FIELD (16,	UInt32,						transparentValue)			\
+	DO_TO_FIELD (20,	UInt32,						nextDepthOffset)			\
 
 
 // ========================================
@@ -264,18 +698,18 @@
 	DO_TO_STRUCT (CardInfoType, 48, FOR_CardInfoType_FIELDS)
 
 #define FOR_CardInfoType_FIELDS(DO_TO_FIELD)									\
-	DO_TO_FIELD (0,		emuptr,					baseP)						\
-	DO_TO_FIELD (4,		UInt32,					size)					\
-	DO_TO_FIELD (8,		UInt32,					firstRAMBlockSize)					\
+	DO_TO_FIELD (0,		emuptr,					baseP)							\
+	DO_TO_FIELD (4,		UInt32,					size)							\
+	DO_TO_FIELD (8,		UInt32,					firstRAMBlockSize)				\
 	DO_TO_FIELD (12,	UInt32,					targetROMShift)					\
-	DO_TO_FIELD (16,	UInt32,					cardHeaderOffset)					\
-	DO_TO_FIELD (20,	UInt32,					rsvSpace)					\
+	DO_TO_FIELD (16,	UInt32,					cardHeaderOffset)				\
+	DO_TO_FIELD (20,	UInt32,					rsvSpace)						\
 	DO_TO_FIELD (24,	UInt32,					dynHeapSpace)					\
-	DO_TO_FIELD (28,	emuptr,					ramStoreP)					\
+	DO_TO_FIELD (28,	emuptr,					ramStoreP)						\
 	DO_TO_FIELD (32,	UInt16,					numRAMHeaps)					\
-	DO_TO_FIELD (34,	emuptr,					ramHeapOffsetsP)					\
+	DO_TO_FIELD (34,	emuptr,					ramHeapOffsetsP)				\
 	DO_TO_FIELD (38,	UInt16,					numROMHeaps)					\
-	DO_TO_FIELD (40,	emuptr,					romHeapOffsetsP)					\
+	DO_TO_FIELD (40,	emuptr,					romHeapOffsetsP)				\
 	DO_TO_FIELD (44,	UInt32,					cardOffsetMask)					\
 
 
@@ -327,7 +761,7 @@
 #define FOR_DatabaseDirEntryType_STRUCT(DO_TO_STRUCT)							\
 	DO_TO_STRUCT (DatabaseDirEntryType, 4, FOR_DatabaseDirEntryType_FIELDS)
 
-#define FOR_DatabaseDirEntryType_FIELDS(DO_TO_FIELD)									\
+#define FOR_DatabaseDirEntryType_FIELDS(DO_TO_FIELD)							\
 	DO_TO_FIELD (0,		LocalID,					baseID)						\
 
 
@@ -368,6 +802,63 @@
 
 
 // ========================================
+// ===== DlkDBCreatorList =====
+// ========================================
+
+#define FOR_DlkDBCreatorList_STRUCT(DO_TO_STRUCT)								\
+	DO_TO_STRUCT (DlkDBCreatorList, 6, FOR_DlkDBCreatorList_FIELDS)
+
+#define FOR_DlkDBCreatorList_FIELDS(DO_TO_FIELD)								\
+	DO_TO_FIELD (0,		UInt16,						count)						\
+	DO_TO_FIELD (2,		emuptr,						listH)						\
+
+
+// ========================================
+// ===== DlkServerSessionType =====
+// ========================================
+
+#define FOR_DlkServerSessionType_STRUCT(DO_TO_STRUCT)							\
+	DO_TO_STRUCT (DlkServerSessionType, 146, FOR_DlkServerSessionType_FIELDS)
+
+#define FOR_DlkServerSessionType_FIELDS(DO_TO_FIELD)							\
+	DO_TO_FIELD (0,		UInt16,						htalLibRefNum)				\
+	DO_TO_FIELD (2,		UInt32,						maxHtalXferSize)			\
+	DO_TO_FIELD (6,		emuptr,						eventProcP)					\
+	DO_TO_FIELD (10,	UInt32,						eventRef)					\
+	DO_TO_FIELD (14,	emuptr,						canProcP)					\
+	DO_TO_FIELD (18,	UInt32,						canRef)						\
+	DO_TO_FIELD (22,	emuptr,						condFilterH)				\
+	DO_TO_FIELD (26,	UInt8,						dlkDBID)					\
+	DO_TO_FIELD (27,	UInt8,						reserved1)					\
+	DO_TO_FIELD (28,	emuptr,						dbR)						\
+	DO_TO_FIELD (32,	UInt16,						cardNo)						\
+	DO_TO_FIELD (34,	UInt32,						dbCreator)					\
+	DO_TO_FIELD (38,	Char,						dbName)						\
+	DO_TO_FIELD (70,	UInt16,						dbOpenMode)					\
+	DO_TO_FIELD (72,	Boolean,					created)					\
+	DO_TO_FIELD (73,	Boolean,					isResDB)					\
+	DO_TO_FIELD (74,	Boolean,					ramBased)					\
+	DO_TO_FIELD (75,	Boolean,					readOnly)					\
+	DO_TO_FIELD (76,	LocalID,					dbLocalID)					\
+	DO_TO_FIELD (80,	UInt32,						initialModNum)				\
+	DO_TO_FIELD (84,	UInt32,						curRecIndex)				\
+	DO_TO_FIELD (88,	DlkDBCreatorList,			creatorList)				\
+	DO_TO_FIELD (94,	UInt8,						syncState)					\
+	DO_TO_FIELD (95,	Boolean,					complete)					\
+	DO_TO_FIELD (96,	Boolean,					conduitOpened)				\
+	DO_TO_FIELD (97,	Boolean,					logCleared)					\
+	DO_TO_FIELD (98,	Boolean,					resetPending)				\
+	DO_TO_FIELD (99,	Boolean,					gotCommand)					\
+	DO_TO_FIELD (100,	UInt8,						cmdTID)						\
+	DO_TO_FIELD (101,	UInt8,						reserved2)					\
+	DO_TO_FIELD (102,	UInt16,						cmdLen)						\
+	DO_TO_FIELD (104,	emuptr,						cmdP)						\
+	DO_TO_FIELD (108,	emuptr,						cmdH)						\
+	DO_TO_FIELD (112,	UInt16,						wStateFlags)				\
+	DO_TO_FIELD (114,	DmSearchStateType,			dbSearchState)				\
+
+
+// ========================================
 // ===== DmAccessType =====
 // ========================================
 
@@ -405,6 +896,17 @@
 
 
 // ========================================
+// ===== DmSearchStateType =====
+// ========================================
+
+#define FOR_DmSearchStateType_STRUCT(DO_TO_STRUCT)								\
+	DO_TO_STRUCT (DmSearchStateType, 32, FOR_DmSearchStateType_FIELDS)
+
+#define FOR_DmSearchStateType_FIELDS(DO_TO_FIELD)								\
+	DO_TO_FIELD (0,		UInt32,						info)						\
+
+
+// ========================================
 // ===== EventTypeData =====
 // ========================================
 
@@ -421,10 +923,9 @@
 	DO_TO_FIELD (0,		tsmFepButton,				tsmFepButton)				\
 	DO_TO_FIELD (0,		tsmFepMode,					tsmFepMode)					\
 	DO_TO_FIELD (0,		ctlEnter,					ctlEnter)					\
-
-#if 0
 	DO_TO_FIELD (0,		ctlSelect,					ctlSelect)					\
 	DO_TO_FIELD (0,		ctlRepeat,					ctlRepeat)					\
+	DO_TO_FIELD (0,		ctlExit,					ctlExit)					\
 	DO_TO_FIELD (0,		fldEnter,					fldEnter)					\
 	DO_TO_FIELD (0,		fldHeightChanged,			fldHeightChanged)			\
 	DO_TO_FIELD (0,		fldChanged,					fldChanged)					\
@@ -442,6 +943,8 @@
 	DO_TO_FIELD (0,		frmUpdate,					frmUpdate)					\
 	DO_TO_FIELD (0,		frmTitleEnter,				frmTitleEnter)				\
 	DO_TO_FIELD (0,		frmTitleSelect,				frmTitleSelect)				\
+	DO_TO_FIELD (0,		attnIndicatorEnter,			attnIndicatorEnter)			\
+	DO_TO_FIELD (0,		attnIndicatorSelect,		attnIndicatorSelect)		\
 	DO_TO_FIELD (0,		daySelect,					daySelect)					\
 	DO_TO_FIELD (0,		menu,						menu)						\
 	DO_TO_FIELD (0,		popSelect,					popSelect)					\
@@ -452,8 +955,6 @@
 	DO_TO_FIELD (0,		menuOpen,					menuOpen)					\
 	DO_TO_FIELD (0,		gadgetEnter,				gadgetEnter)				\
 	DO_TO_FIELD (0,		gadgetMisc,					gadgetMisc)					\
-
-#endif
 
 
 // ========================================
@@ -580,7 +1081,16 @@
 	DO_TO_FIELD (128,	emuptr,						ftrGlobalsP)				\
 	DO_TO_FIELD (132,	emuptr,						grfGlobalsP)				\
 	DO_TO_FIELD (136,	emuptr,						keyGlobalsP)				\
+																				\
 	DO_TO_FIELD (140,	UIGlobalsType,				uiGlobals)					\
+	DO_TO_FIELD (140,	UIGlobalsTypeCommon,		uiGlobalsCommon)			\
+	DO_TO_FIELD (140,	UIGlobalsTypeV1,			uiGlobalsV1)				\
+	DO_TO_FIELD (140,	UIGlobalsTypeV2,			uiGlobalsV2)				\
+	DO_TO_FIELD (140,	UIGlobalsTypeV3,			uiGlobalsV3)				\
+	DO_TO_FIELD (140,	UIGlobalsTypeV31,			uiGlobalsV31)				\
+	DO_TO_FIELD (140,	UIGlobalsTypeV32,			uiGlobalsV32)				\
+	DO_TO_FIELD (140,	UIGlobalsTypeV35,			uiGlobalsV35)				\
+																				\
 	DO_TO_FIELD (316,	emuptr,						uiExtensionsP)				\
 	DO_TO_FIELD (320,	emuptr,						curUIAppInfoP)				\
 	DO_TO_FIELD (324,	UInt32,						nextUIAppDBID)				\
@@ -936,6 +1446,7 @@
 // ========================================
 // ===== GraphicStateTypeV1 =====
 // ========================================
+// Used in Palm OS 1.0 - 2.0.
 
 #define FOR_GraphicStateTypeV1_STRUCT(DO_TO_STRUCT)								\
 	DO_TO_STRUCT (GraphicStateTypeV1, 20, FOR_GraphicStateTypeV1_FIELDS)
@@ -953,6 +1464,7 @@
 // ========================================
 // ===== GraphicStateTypeV2 =====
 // ========================================
+// Used in Palm OS 3.0 - 3.3.
 
 #define FOR_GraphicStateTypeV2_STRUCT(DO_TO_STRUCT)								\
 	DO_TO_STRUCT (GraphicStateTypeV2, 28, FOR_GraphicStateTypeV2_FIELDS)
@@ -972,6 +1484,7 @@
 // ========================================
 // ===== GraphicStateTypeV3 =====
 // ========================================
+// Used in Palm OS 3.5 and later.
 
 #define FOR_GraphicStateTypeV3_STRUCT(DO_TO_STRUCT)								\
 	DO_TO_STRUCT (GraphicStateTypeV3, 12, FOR_GraphicStateTypeV3_FIELDS)
@@ -992,6 +1505,101 @@
 
 #define FOR_FormAttrType_FIELDS(DO_TO_FIELD)									\
 	DO_TO_FIELD (0,		UInt32,						flags)						\
+
+
+// ========================================
+// ===== HostDirEntType =====
+// ========================================
+
+#define FOR_HostDirEntType_STRUCT(DO_TO_STRUCT)									\
+	DO_TO_STRUCT (HostDirEntType, 256, FOR_HostDirEntType_FIELDS)
+
+#define FOR_HostDirEntType_FIELDS(DO_TO_FIELD)									\
+	DO_TO_FIELD (0,		Int8,						d_name)						\
+
+
+// ========================================
+// ===== HostGremlinInfoType =====
+// ========================================
+
+#define FOR_HostGremlinInfoType_STRUCT(DO_TO_STRUCT)							\
+	DO_TO_STRUCT (HostGremlinInfoType, 220, FOR_HostGremlinInfoType_FIELDS)
+
+#define FOR_HostGremlinInfoType_FIELDS(DO_TO_FIELD)								\
+	DO_TO_FIELD (0,		Int32,						fFirstGremlin)				\
+	DO_TO_FIELD (4,		Int32,						fLastGremlin)				\
+	DO_TO_FIELD (8,		Int32,						fSaveFrequency)				\
+	DO_TO_FIELD (12,	Int32,						fSwitchDepth)				\
+	DO_TO_FIELD (16,	Int32,						fMaxDepth)					\
+	DO_TO_FIELD (20,	Int8,						fAppNames)					\
+
+
+// ========================================
+// ===== HostStatType =====
+// ========================================
+
+#define FOR_HostStatType_STRUCT(DO_TO_STRUCT)									\
+	DO_TO_STRUCT (HostStatType, 56, FOR_HostStatType_FIELDS)
+
+#define FOR_HostStatType_FIELDS(DO_TO_FIELD)									\
+	DO_TO_FIELD (0,		Int32,						st_dev_)					\
+	DO_TO_FIELD (4,		Int32,						st_ino_)					\
+	DO_TO_FIELD (8,		Int32,						st_mode_)					\
+	DO_TO_FIELD (12,	Int32,						st_nlink_)					\
+	DO_TO_FIELD (16,	Int32,						st_uid_)					\
+	DO_TO_FIELD (20,	Int32,						st_gid_)					\
+	DO_TO_FIELD (24,	Int32,						st_rdev_)					\
+	DO_TO_FIELD (28,	HostTimeType,				st_atime_)					\
+	DO_TO_FIELD (32,	HostTimeType,				st_mtime_)					\
+	DO_TO_FIELD (36,	HostTimeType,				st_ctime_)					\
+	DO_TO_FIELD (40,	Int32,						st_size_)					\
+	DO_TO_FIELD (44,	Int32,						st_blksize_)				\
+	DO_TO_FIELD (48,	Int32,						st_blocks_)					\
+	DO_TO_FIELD (52,	Int32,						st_flags_)					\
+
+
+// ========================================
+// ===== HostTmType =====
+// ========================================
+
+#define FOR_HostTmType_STRUCT(DO_TO_STRUCT)										\
+	DO_TO_STRUCT (HostTmType, 36, FOR_HostTmType_FIELDS)
+
+#define FOR_HostTmType_FIELDS(DO_TO_FIELD)										\
+	DO_TO_FIELD (0,		Int32,						tm_sec_)					\
+	DO_TO_FIELD (4,		Int32,						tm_min_)					\
+	DO_TO_FIELD (8,		Int32,						tm_hour_)					\
+	DO_TO_FIELD (12,	Int32,						tm_mday_)					\
+	DO_TO_FIELD (16,	Int32,						tm_mon_)					\
+	DO_TO_FIELD (20,	Int32,						tm_year_)					\
+	DO_TO_FIELD (24,	Int32,						tm_wday_)					\
+	DO_TO_FIELD (28,	Int32,						tm_yday_)					\
+	DO_TO_FIELD (32,	Int32,						tm_isdst_)					\
+
+
+// ========================================
+// ===== HostUTimeType =====
+// ========================================
+
+#define FOR_HostUTimeType_STRUCT(DO_TO_STRUCT)									\
+	DO_TO_STRUCT (HostUTimeType, 12, FOR_HostUTimeType_FIELDS)
+
+#define FOR_HostUTimeType_FIELDS(DO_TO_FIELD)									\
+	DO_TO_FIELD (0,		HostTimeType,				crtime_)					\
+	DO_TO_FIELD (4,		HostTimeType,				actime_)					\
+	DO_TO_FIELD (8,		HostTimeType,				modtime_)					\
+
+
+// ========================================
+// ===== HwrBatCmdReadType =====
+// ========================================
+
+#define FOR_HwrBatCmdReadType_STRUCT(DO_TO_STRUCT)								\
+	DO_TO_STRUCT (HwrBatCmdReadType, 4, FOR_HwrBatCmdReadType_FIELDS)
+
+#define FOR_HwrBatCmdReadType_FIELDS(DO_TO_FIELD)								\
+	DO_TO_FIELD (0,		UInt16,				mVolts)								\
+	DO_TO_FIELD (2,		UInt16,				abs)								\
 
 
 // ========================================
@@ -1038,147 +1646,27 @@
 
 
 // ========================================
-// ===== HwrM68328Type =====
+// ===== HwrMediaQ11xxType =====
 // ========================================
 
-#define FOR_HwrM68328Type_STRUCT(DO_TO_STRUCT)									\
-	DO_TO_STRUCT (HwrM68328Type, 0xB14, FOR_HwrM68328Type_FIELDS)
+#define FOR_HwrMediaQ11xxType_STRUCT(DO_TO_STRUCT)								\
+	DO_TO_STRUCT (HwrMediaQ11xxType, 0x2000, FOR_HwrMediaQ11xxType_FIELDS)
 
-#define FOR_HwrM68328Type_FIELDS(DO_TO_FIELD)									\
-	DO_TO_FIELD (0x000,	UInt8,						scr)						\
-	DO_TO_FIELD (0x004,	UInt8,						chipID)						\
-	DO_TO_FIELD (0x005,	UInt8,						maskID)						\
-	DO_TO_FIELD (0x006,	UInt8,						swID)						\
-	DO_TO_FIELD (0x100,	UInt16,						csAGroupBase)				\
-	DO_TO_FIELD (0x102,	UInt16,						csBGroupBase)				\
-	DO_TO_FIELD (0x104,	UInt16,						csCGroupBase)				\
-	DO_TO_FIELD (0x106,	UInt16,						csDGroupBase)				\
-	DO_TO_FIELD (0x108,	UInt16,						csAGroupMask)				\
-	DO_TO_FIELD (0x10A,	UInt16,						csBGroupMask)				\
-	DO_TO_FIELD (0x10C,	UInt16,						csCGroupMask)				\
-	DO_TO_FIELD (0x10E,	UInt16,						csDGroupMask)				\
-	DO_TO_FIELD (0x110,	UInt32,						csASelect0)					\
-	DO_TO_FIELD (0x114,	UInt32,						csASelect1)					\
-	DO_TO_FIELD (0x118,	UInt32,						csASelect2)					\
-	DO_TO_FIELD (0x11C,	UInt32,						csASelect3)					\
-	DO_TO_FIELD (0x120,	UInt32,						csBSelect0)					\
-	DO_TO_FIELD (0x124,	UInt32,						csBSelect1)					\
-	DO_TO_FIELD (0x128,	UInt32,						csBSelect2)					\
-	DO_TO_FIELD (0x12C,	UInt32,						csBSelect3)					\
-	DO_TO_FIELD (0x130,	UInt32,						csCSelect0)					\
-	DO_TO_FIELD (0x134,	UInt32,						csCSelect1)					\
-	DO_TO_FIELD (0x138,	UInt32,						csCSelect2)					\
-	DO_TO_FIELD (0x13C,	UInt32,						csCSelect3)					\
-	DO_TO_FIELD (0x140,	UInt32,						csDSelect0)					\
-	DO_TO_FIELD (0x144,	UInt32,						csDSelect1)					\
-	DO_TO_FIELD (0x148,	UInt32,						csDSelect2)					\
-	DO_TO_FIELD (0x14C,	UInt32,						csDSelect3)					\
-	DO_TO_FIELD (0x150,	UInt16,						csDebug)					\
-	DO_TO_FIELD (0x200,	UInt16,						pllControl)					\
-	DO_TO_FIELD (0x202,	UInt16,						pllFreqSel)					\
-	DO_TO_FIELD (0x204,	UInt16,						pllTest)					\
-	DO_TO_FIELD (0x207,	UInt8,						pwrControl)					\
-	DO_TO_FIELD (0x300,	UInt8,						intVector)					\
-	DO_TO_FIELD (0x302,	UInt16,						intControl)					\
-	DO_TO_FIELD (0x304,	UInt16,						intMaskHi)					\
-	DO_TO_FIELD (0x306,	UInt16,						intMaskLo)					\
-	DO_TO_FIELD (0x308,	UInt16,						intWakeupEnHi)				\
-	DO_TO_FIELD (0x30A,	UInt16,						intWakeupEnLo)				\
-	DO_TO_FIELD (0x30C,	UInt16,						intStatusHi)				\
-	DO_TO_FIELD (0x30E,	UInt16,						intStatusLo)				\
-	DO_TO_FIELD (0x310,	UInt16,						intPendingHi)				\
-	DO_TO_FIELD (0x312,	UInt16,						intPendingLo)				\
-	DO_TO_FIELD (0x400,	UInt8,						portADir)					\
-	DO_TO_FIELD (0x401,	UInt8,						portAData)					\
-	DO_TO_FIELD (0x403,	UInt8,						portASelect)				\
-	DO_TO_FIELD (0x408,	UInt8,						portBDir)					\
-	DO_TO_FIELD (0x409,	UInt8,						portBData)					\
-	DO_TO_FIELD (0x40B,	UInt8,						portBSelect)				\
-	DO_TO_FIELD (0x410,	UInt8,						portCDir)					\
-	DO_TO_FIELD (0x411,	UInt8,						portCData)					\
-	DO_TO_FIELD (0x413,	UInt8,						portCSelect)				\
-	DO_TO_FIELD (0x418,	UInt8,						portDDir)					\
-	DO_TO_FIELD (0x419,	UInt8,						portDData)					\
-	DO_TO_FIELD (0x41A,	UInt8,						portDPullupEn)				\
-	DO_TO_FIELD (0x41C,	UInt8,						portDPolarity)				\
-	DO_TO_FIELD (0x41D,	UInt8,						portDIntReqEn)				\
-	DO_TO_FIELD (0x41F,	UInt8,						portDIntEdge)				\
-	DO_TO_FIELD (0x420,	UInt8,						portEDir)					\
-	DO_TO_FIELD (0x421,	UInt8,						portEData)					\
-	DO_TO_FIELD (0x422,	UInt8,						portEPullupEn)				\
-	DO_TO_FIELD (0x423,	UInt8,						portESelect)				\
-	DO_TO_FIELD (0x428,	UInt8,						portFDir)					\
-	DO_TO_FIELD (0x429,	UInt8,						portFData)					\
-	DO_TO_FIELD (0x42A,	UInt8,						portFPullupEn)				\
-	DO_TO_FIELD (0x42B,	UInt8,						portFSelect)				\
-	DO_TO_FIELD (0x430,	UInt8,						portGDir)					\
-	DO_TO_FIELD (0x431,	UInt8,						portGData)					\
-	DO_TO_FIELD (0x432,	UInt8,						portGPullupEn)				\
-	DO_TO_FIELD (0x433,	UInt8,						portGSelect)				\
-	DO_TO_FIELD (0x438,	UInt8,						portJDir)					\
-	DO_TO_FIELD (0x439,	UInt8,						portJData)					\
-	DO_TO_FIELD (0x43B,	UInt8,						portJSelect)				\
-	DO_TO_FIELD (0x440,	UInt8,						portKDir)					\
-	DO_TO_FIELD (0x441,	UInt8,						portKData)					\
-	DO_TO_FIELD (0x442,	UInt8,						portKPullupEn)				\
-	DO_TO_FIELD (0x443,	UInt8,						portKSelect)				\
-	DO_TO_FIELD (0x448,	UInt8,						portMDir)					\
-	DO_TO_FIELD (0x449,	UInt8,						portMData)					\
-	DO_TO_FIELD (0x44A,	UInt8,						portMPullupEn)				\
-	DO_TO_FIELD (0x44B,	UInt8,						portMSelect)				\
-	DO_TO_FIELD (0x500,	UInt16,						pwmControl)					\
-	DO_TO_FIELD (0x502,	UInt16,						pwmPeriod)					\
-	DO_TO_FIELD (0x504,	UInt16,						pwmWidth)					\
-	DO_TO_FIELD (0x506,	UInt16,						pwmCounter)					\
-	DO_TO_FIELD (0x600,	UInt16,						tmr1Control)				\
-	DO_TO_FIELD (0x602,	UInt16,						tmr1Prescaler)				\
-	DO_TO_FIELD (0x604,	UInt16,						tmr1Compare)				\
-	DO_TO_FIELD (0x606,	UInt16,						tmr1Capture)				\
-	DO_TO_FIELD (0x608,	UInt16,						tmr1Counter)				\
-	DO_TO_FIELD (0x60A,	UInt16,						tmr1Status)					\
-	DO_TO_FIELD (0x60C,	UInt16,						tmr2Control)				\
-	DO_TO_FIELD (0x60E,	UInt16,						tmr2Prescaler)				\
-	DO_TO_FIELD (0x610,	UInt16,						tmr2Compare)				\
-	DO_TO_FIELD (0x612,	UInt16,						tmr2Capture)				\
-	DO_TO_FIELD (0x614,	UInt16,						tmr2Counter)				\
-	DO_TO_FIELD (0x616,	UInt16,						tmr2Status)					\
-	DO_TO_FIELD (0x618,	UInt16,						wdControl)					\
-	DO_TO_FIELD (0x61A,	UInt16,						wdReference)				\
-	DO_TO_FIELD (0x61C,	UInt16,						wdCounter)					\
-	DO_TO_FIELD (0x700,	UInt16,						spiSlave)					\
-	DO_TO_FIELD (0x800,	UInt16,						spiMasterData)				\
-	DO_TO_FIELD (0x802,	UInt16,						spiMasterControl)			\
-	DO_TO_FIELD (0x900,	UInt16,						uControl)					\
-	DO_TO_FIELD (0x902,	UInt16,						uBaud)						\
-	DO_TO_FIELD (0x904,	UInt16,						uReceive)					\
-	DO_TO_FIELD (0x906,	UInt16,						uTransmit)					\
-	DO_TO_FIELD (0x908,	UInt16,						uMisc)						\
-	DO_TO_FIELD (0xA00,	UInt32,						lcdStartAddr)				\
-	DO_TO_FIELD (0xA05,	UInt8,						lcdPageWidth)				\
-	DO_TO_FIELD (0xA08,	UInt16,						lcdScreenWidth)				\
-	DO_TO_FIELD (0xA0A,	UInt16,						lcdScreenHeight)			\
-	DO_TO_FIELD (0xA18,	UInt16,						lcdCursorXPos)				\
-	DO_TO_FIELD (0xA1A,	UInt16,						lcdCursorYPos)				\
-	DO_TO_FIELD (0xA1C,	UInt16,						lcdCursorWidthHeight)		\
-	DO_TO_FIELD (0xA1F,	UInt8,						lcdBlinkControl)			\
-	DO_TO_FIELD (0xA20,	UInt8,						lcdPanelControl)			\
-	DO_TO_FIELD (0xA21,	UInt8,						lcdPolarity)				\
-	DO_TO_FIELD (0xA23,	UInt8,						lcdACDRate)					\
-	DO_TO_FIELD (0xA25,	UInt8,						lcdPixelClock)				\
-	DO_TO_FIELD (0xA27,	UInt8,						lcdClockControl)			\
-	DO_TO_FIELD (0xA29,	UInt8,						lcdLastBufferAddr)			\
-	DO_TO_FIELD (0xA2B,	UInt8,						lcdOctetTermCount)			\
-	DO_TO_FIELD (0xA2D,	UInt8,						lcdPanningOffset)			\
-	DO_TO_FIELD (0xA31,	UInt8,						lcdFrameRate)				\
-	DO_TO_FIELD (0xA32,	UInt16,						lcdGrayPalette)				\
-	DO_TO_FIELD (0xA34,	UInt8,						lcdReserved)				\
-	DO_TO_FIELD (0xB00,	UInt32,						rtcHourMinSec)				\
-	DO_TO_FIELD (0xB04,	UInt32,						rtcAlarm)					\
-	DO_TO_FIELD (0xB08,	UInt32,						rtcReserved)				\
-	DO_TO_FIELD (0xB0C,	UInt16,						rtcControl)					\
-	DO_TO_FIELD (0xB0E,	UInt16,						rtcIntStatus)				\
-	DO_TO_FIELD (0xB10,	UInt16,						rtcIntEnable)				\
-	DO_TO_FIELD (0xB12,	UInt16,						stopWatch)					\
+#define FOR_HwrMediaQ11xxType_FIELDS(DO_TO_FIELD)								\
+	DO_TO_FIELD (0x000,	UInt32,						ccREG)						\
+	DO_TO_FIELD (0x080,	UInt32,						mmREG)						\
+	DO_TO_FIELD (0x100,	UInt32,						inREG)						\
+	DO_TO_FIELD (0x180,	UInt32,						gcREG)						\
+	DO_TO_FIELD (0x200,	UInt32,						geREG)						\
+	DO_TO_FIELD (0x280,	UInt32,						ssREG)						\
+	DO_TO_FIELD (0x300,	UInt32,						spREG)						\
+	DO_TO_FIELD (0x380,	UInt32,						dcREG)						\
+	DO_TO_FIELD (0x400,	UInt32,						pcREG)						\
+	DO_TO_FIELD (0x500,	UInt32,						uhREG)						\
+	DO_TO_FIELD (0x600,	UInt32,						fpREG)						\
+	DO_TO_FIELD (0x800,	UInt32,						cpREG)						\
+	DO_TO_FIELD (0xC00,	UInt32,						sfREG)						\
+	DO_TO_FIELD (0x1000,UInt32,						udREG)						\
 
 
 // ========================================
@@ -1186,7 +1674,7 @@
 // ========================================
 
 #define FOR_HwrSkywalkerPLDType_STRUCT(DO_TO_STRUCT)							\
-	DO_TO_STRUCT (HwrSkywalkerPLDType, 24, FOR_HwrSkywalkerPLDType_FIELDS)
+	DO_TO_STRUCT (HwrSkywalkerPLDType, 42, FOR_HwrSkywalkerPLDType_FIELDS)
 
 #define FOR_HwrSkywalkerPLDType_FIELDS(DO_TO_FIELD)								\
 	DO_TO_FIELD (0,		UInt16,						todsln3)					\
@@ -1201,6 +1689,15 @@
 	DO_TO_FIELD (18,	UInt16,						charging_in_progress)		\
 	DO_TO_FIELD (20,	UInt16,						charging_in_prog2)			\
 	DO_TO_FIELD (22,	UInt16,						charging_in_prog_OE)		\
+	DO_TO_FIELD (24,	UInt16,						twister_irq_wake)			\
+	DO_TO_FIELD (26,	UInt16,						low_batt_mask)				\
+	DO_TO_FIELD (28,	UInt16,						acpr_mask)					\
+	DO_TO_FIELD (30,	UInt16,						acpr_polarity)				\
+	DO_TO_FIELD (32,	UInt16,						usb_int)					\
+	DO_TO_FIELD (34,	UInt16,						usb_int_mask)				\
+	DO_TO_FIELD (36,	UInt16,						bullet_det)					\
+	DO_TO_FIELD (38,	UInt16,						bullet_det_mask)			\
+	DO_TO_FIELD (40,	UInt16,						bullet_det_pol)				\
 
 
 // ========================================
@@ -1312,6 +1809,147 @@
 	DO_TO_FIELD (64,	UInt32,						ssp)						\
 	DO_TO_FIELD (68,	UInt32,						pc)							\
 	DO_TO_FIELD (72,	UInt16,						sr)							\
+
+
+// ========================================
+// ===== NetHostInfoBufType =====
+// ========================================
+
+#define FOR_NetHostInfoBufType_STRUCT(DO_TO_STRUCT)								\
+	DO_TO_STRUCT (NetHostInfoBufType, 568, FOR_NetHostInfoBufType_FIELDS)
+
+#define FOR_NetHostInfoBufType_FIELDS(DO_TO_FIELD)								\
+	DO_TO_FIELD (0,		NetHostInfoType,			hostInfo)					\
+	DO_TO_FIELD (16,	Char,						name)						\
+	DO_TO_FIELD (272,	emuptr,						aliasList)					\
+	DO_TO_FIELD (280,	Char,						aliases)					\
+	DO_TO_FIELD (536,	emuptr,						addressList)				\
+	DO_TO_FIELD (552,	NetIPAddr,					address)					\
+
+
+// ========================================
+// ===== NetHostInfoType =====
+// ========================================
+
+#define FOR_NetHostInfoType_STRUCT(DO_TO_STRUCT)								\
+	DO_TO_STRUCT (NetHostInfoType, 16, FOR_NetHostInfoType_FIELDS)
+
+#define FOR_NetHostInfoType_FIELDS(DO_TO_FIELD)									\
+	DO_TO_FIELD (0,		emuptr,						nameP)						\
+	DO_TO_FIELD (4,		emuptr,						nameAliasesP)				\
+	DO_TO_FIELD (8,		UInt16,						addrType)					\
+	DO_TO_FIELD (10,	UInt16,						addrLen)					\
+	DO_TO_FIELD (12,	emuptr,						addrListP)					\
+
+
+// ========================================
+// ===== NetIOParamType =====
+// ========================================
+
+#define FOR_NetIOParamType_STRUCT(DO_TO_STRUCT)									\
+	DO_TO_STRUCT (NetIOParamType, 18, FOR_NetIOParamType_FIELDS)
+
+#define FOR_NetIOParamType_FIELDS(DO_TO_FIELD)									\
+	DO_TO_FIELD (0,		emuptr,						addrP)						\
+	DO_TO_FIELD (4,		UInt16,						addrLen)					\
+	DO_TO_FIELD (6,		emuptr,						iov)						\
+	DO_TO_FIELD (10,	UInt16,						iovLen)						\
+	DO_TO_FIELD (12,	emuptr,						accessRights)				\
+	DO_TO_FIELD (16,	UInt16,						accessRightsLen)			\
+
+
+// ========================================
+// ===== NetIOVecType =====
+// ========================================
+
+#define FOR_NetIOVecType_STRUCT(DO_TO_STRUCT)									\
+	DO_TO_STRUCT (NetIOVecType, 6, FOR_NetIOVecType_FIELDS)
+
+#define FOR_NetIOVecType_FIELDS(DO_TO_FIELD)									\
+	DO_TO_FIELD (0,		emuptr,						bufP)						\
+	DO_TO_FIELD (4,		UInt16,						bufLen)						\
+
+
+// ========================================
+// ===== NetServInfoBufType =====
+// ========================================
+
+#define FOR_NetServInfoBufType_STRUCT(DO_TO_STRUCT)								\
+	DO_TO_STRUCT (NetServInfoBufType, 70, FOR_NetServInfoBufType_FIELDS)
+
+#define FOR_NetServInfoBufType_FIELDS(DO_TO_FIELD)								\
+	DO_TO_FIELD (0,		NetServInfoType,			servInfo)					\
+	DO_TO_FIELD (14,	Char,						name)						\
+	DO_TO_FIELD (30,	emuptr,						aliasList)					\
+	DO_TO_FIELD (38,	Char,						aliases)					\
+	DO_TO_FIELD (53,	Char,						protoName)					\
+	DO_TO_FIELD (69,	UInt8,						reserved)					\
+
+
+// ========================================
+// ===== NetServInfoType =====
+// ========================================
+
+#define FOR_NetServInfoType_STRUCT(DO_TO_STRUCT)								\
+	DO_TO_STRUCT (NetServInfoType, 14, FOR_NetServInfoType_FIELDS)
+
+#define FOR_NetServInfoType_FIELDS(DO_TO_FIELD)									\
+	DO_TO_FIELD (0,		emuptr,						nameP)						\
+	DO_TO_FIELD (4,		emuptr,						nameAliasesP)				\
+	DO_TO_FIELD (8,		UInt16,						port)						\
+	DO_TO_FIELD (10,	emuptr,						protoP)						\
+
+
+// ========================================
+// ===== NetSocketAddrINType =====
+// ========================================
+
+#define FOR_NetSocketAddrINType_STRUCT(DO_TO_STRUCT)							\
+	DO_TO_STRUCT (NetSocketAddrINType, 8, FOR_NetSocketAddrINType_FIELDS)
+
+#define FOR_NetSocketAddrINType_FIELDS(DO_TO_FIELD)								\
+	DO_TO_FIELD (0,		Int16,						family)						\
+	DO_TO_FIELD (2,		UInt16,						port)						\
+	DO_TO_FIELD (4,		NetIPAddr,					addr)						\
+
+
+// ========================================
+// ===== NetSocketAddrRawType =====
+// ========================================
+
+#define FOR_NetSocketAddrRawType_STRUCT(DO_TO_STRUCT)							\
+	DO_TO_STRUCT (NetSocketAddrRawType, 8, FOR_NetSocketAddrRawType_FIELDS)
+
+#define FOR_NetSocketAddrRawType_FIELDS(DO_TO_FIELD)							\
+	DO_TO_FIELD (0,		Int16,						family)						\
+	DO_TO_FIELD (2,		UInt16,						ifInstance)					\
+	DO_TO_FIELD (4,		UInt32,						ifCreator)					\
+
+
+// ========================================
+// ===== NetSocketAddrType =====
+// ========================================
+
+#define FOR_NetSocketAddrType_STRUCT(DO_TO_STRUCT)								\
+	DO_TO_STRUCT (NetSocketAddrType, 16, FOR_NetSocketAddrType_FIELDS)
+
+#define FOR_NetSocketAddrType_FIELDS(DO_TO_FIELD)								\
+	DO_TO_FIELD (0,		Int16,						family)						\
+	DO_TO_FIELD (2,		UInt8,						data)						\
+
+
+// ========================================
+// ===== PenBtnInfoType =====
+// ========================================
+
+#define FOR_PenBtnInfoType_STRUCT(DO_TO_STRUCT)									\
+	DO_TO_STRUCT (PenBtnInfoType, 14, FOR_PenBtnInfoType_FIELDS)
+
+#define FOR_PenBtnInfoType_FIELDS(DO_TO_FIELD)									\
+	DO_TO_FIELD (0,		RectangleType,				boundsR)					\
+	DO_TO_FIELD (8,		WChar,						asciiCode)					\
+	DO_TO_FIELD (10,	UInt16,						keyCode)					\
+	DO_TO_FIELD (12,	UInt16,						modifiers)					\
 
 
 // ========================================
@@ -1546,46 +2184,116 @@
 // ===== SliderControlType =====
 // ========================================
 
-#define FOR_SliderControlType_STRUCT(DO_TO_STRUCT)							\
+#define FOR_SliderControlType_STRUCT(DO_TO_STRUCT)								\
 	DO_TO_STRUCT (SliderControlType, 30, FOR_SliderControlType_FIELDS)
 
-#define FOR_SliderControlType_FIELDS(DO_TO_FIELD)							\
-	DO_TO_FIELD (0,		UInt16,						id)						\
-	DO_TO_FIELD (2,		RectangleType,				bounds)					\
-	DO_TO_FIELD (10,	DmResID,					thumbID)				\
-	DO_TO_FIELD (12,	DmResID,					backgroundID)			\
-	DO_TO_FIELD (14,	ControlAttrType,			attr)					\
-	DO_TO_FIELD (16,	ControlStyleType,			style)					\
-	DO_TO_FIELD (17,	UInt8,						reserved)				\
-	DO_TO_FIELD (18,	UInt16,						minValue)				\
-	DO_TO_FIELD (20,	UInt16,						maxValue)				\
-	DO_TO_FIELD (22,	UInt16,						pageSize)				\
-	DO_TO_FIELD (24,	UInt16,						value)					\
-	DO_TO_FIELD (26,	emuptr,						activeSliderP)			\
+#define FOR_SliderControlType_FIELDS(DO_TO_FIELD)								\
+	DO_TO_FIELD (0,		UInt16,						id)							\
+	DO_TO_FIELD (2,		RectangleType,				bounds)						\
+	DO_TO_FIELD (10,	DmResID,					thumbID)					\
+	DO_TO_FIELD (12,	DmResID,					backgroundID)				\
+	DO_TO_FIELD (14,	ControlAttrType,			attr)						\
+	DO_TO_FIELD (16,	ControlStyleType,			style)						\
+	DO_TO_FIELD (17,	UInt8,						reserved)					\
+	DO_TO_FIELD (18,	UInt16,						minValue)					\
+	DO_TO_FIELD (20,	UInt16,						maxValue)					\
+	DO_TO_FIELD (22,	UInt16,						pageSize)					\
+	DO_TO_FIELD (24,	UInt16,						value)						\
+	DO_TO_FIELD (26,	emuptr,						activeSliderP)				\
 
+
+// ========================================
+// ===== SlkPktFooterType =====
+// ========================================
+
+#define FOR_SlkPktFooterType_STRUCT(DO_TO_STRUCT)								\
+	DO_TO_STRUCT (SlkPktFooterType, 2, FOR_SlkPktFooterType_FIELDS)
+
+#define FOR_SlkPktFooterType_FIELDS(DO_TO_FIELD)								\
+	DO_TO_FIELD (0,		UInt16,						crc16)						\
+
+
+// ========================================
+// ===== SlkPktHeaderType =====
+// ========================================
+
+#define FOR_SlkPktHeaderType_STRUCT(DO_TO_STRUCT)								\
+	DO_TO_STRUCT (SlkPktHeaderType, 10, FOR_SlkPktHeaderType_FIELDS)
+
+#define FOR_SlkPktHeaderType_FIELDS(DO_TO_FIELD)								\
+	DO_TO_FIELD (0,		UInt16,						signature1)					\
+	DO_TO_FIELD (2,		UInt8,						signature2)					\
+	DO_TO_FIELD (3,		UInt8,						dest)						\
+	DO_TO_FIELD (4,		UInt8,						src)						\
+	DO_TO_FIELD (5,		UInt8,						type)						\
+	DO_TO_FIELD (6,		UInt16,						bodySize)					\
+	DO_TO_FIELD (8,		UInt8,						transId)					\
+	DO_TO_FIELD (9,		SlkPktHeaderChecksum,		checksum)					\
+
+
+// ========================================
+// ===== SndCommandType =====
+// ========================================
+
+#define FOR_SndCommandType_STRUCT(DO_TO_STRUCT)									\
+	DO_TO_STRUCT (SndCommandType, 10, FOR_SndCommandType_FIELDS)
+
+#define FOR_SndCommandType_FIELDS(DO_TO_FIELD)									\
+	DO_TO_FIELD (0,		UInt8,						cmd)						\
+	DO_TO_FIELD (1,		UInt8,						reserved)					\
+	DO_TO_FIELD (2,		Int32,						param1)						\
+	DO_TO_FIELD (6,		UInt16,						param2)						\
+	DO_TO_FIELD (8,		UInt16,						param3)						\
 
 
 // ========================================
 // ===== StorageHeaderType =====
 // ========================================
 
-#define FOR_StorageHeaderType_STRUCT(DO_TO_STRUCT)							\
+#define FOR_StorageHeaderType_STRUCT(DO_TO_STRUCT)								\
 	DO_TO_STRUCT (StorageHeaderType, 76, FOR_StorageHeaderType_FIELDS)
 
-#define FOR_StorageHeaderType_FIELDS(DO_TO_FIELD)							\
-	DO_TO_FIELD (0,		UInt32,						signature)				\
-	DO_TO_FIELD (4,		UInt16,						version)				\
-	DO_TO_FIELD (6,		UInt16,						flags)					\
-	DO_TO_FIELD (8,		UInt8,						name)					\
-	DO_TO_FIELD (40,	UInt32,						creationDate)			\
-	DO_TO_FIELD (44,	UInt32,						backupDate)				\
-	DO_TO_FIELD (48,	UInt32,						heapListOffset)			\
-	DO_TO_FIELD (52,	UInt32,						initCodeOffset1)		\
-	DO_TO_FIELD (56,	UInt32,						initCodeOffset2)		\
-	DO_TO_FIELD (60,	LocalID,					databaseDirID)			\
-	DO_TO_FIELD (64,	UInt32,						rsvSpace)				\
-	DO_TO_FIELD (68,	UInt32,						dynHeapSpace)			\
-	DO_TO_FIELD (72,	UInt32,						firstRAMBlockSize)		\
+#define FOR_StorageHeaderType_FIELDS(DO_TO_FIELD)								\
+	DO_TO_FIELD (0,		UInt32,						signature)					\
+	DO_TO_FIELD (4,		UInt16,						version)					\
+	DO_TO_FIELD (6,		UInt16,						flags)						\
+	DO_TO_FIELD (8,		UInt8,						name)						\
+	DO_TO_FIELD (40,	UInt32,						creationDate)				\
+	DO_TO_FIELD (44,	UInt32,						backupDate)					\
+	DO_TO_FIELD (48,	UInt32,						heapListOffset)				\
+	DO_TO_FIELD (52,	UInt32,						initCodeOffset1)			\
+	DO_TO_FIELD (56,	UInt32,						initCodeOffset2)			\
+	DO_TO_FIELD (60,	LocalID,					databaseDirID)				\
+	DO_TO_FIELD (64,	UInt32,						rsvSpace)					\
+	DO_TO_FIELD (68,	UInt32,						dynHeapSpace)				\
+	DO_TO_FIELD (72,	UInt32,						firstRAMBlockSize)			\
+
+
+// ========================================
+// ===== SysAppInfoType =====
+// ========================================
+
+#define FOR_SysAppInfoType_STRUCT(DO_TO_STRUCT)									\
+	DO_TO_STRUCT (SysAppInfoType, 60, FOR_SysAppInfoType_FIELDS)
+
+#define FOR_SysAppInfoType_FIELDS(DO_TO_FIELD)									\
+	DO_TO_FIELD (0,		Int16,						cmd)						\
+	DO_TO_FIELD (2,		emuptr,						cmdPBP)						\
+	DO_TO_FIELD (6,		UInt16,						launchFlags)				\
+	DO_TO_FIELD (8,		UInt32,						taskID)						\
+	DO_TO_FIELD (12,	emuptr,						codeH)						\
+	DO_TO_FIELD (16,	emuptr,						dbP)						\
+	DO_TO_FIELD (20,	emuptr,						stackP)						\
+	DO_TO_FIELD (24,	emuptr,						globalsChunkP)				\
+	DO_TO_FIELD (28,	UInt16,						memOwnerID)					\
+	DO_TO_FIELD (30,	emuptr,						dmAccessP)					\
+	DO_TO_FIELD (34,	Err,						dmLastErr)					\
+	DO_TO_FIELD (36,	emuptr,						errExceptionP)				\
+	DO_TO_FIELD (40,	emuptr,						a5Ptr)						\
+	DO_TO_FIELD (44,	emuptr,						stackEndP)					\
+	DO_TO_FIELD (48,	emuptr,						globalEndP)					\
+	DO_TO_FIELD (52,	emuptr,						rootP)						\
+	DO_TO_FIELD (56,	emuptr,						extraP)						\
 
 
 // ========================================
@@ -1676,32 +2384,97 @@
 
 
 // ========================================
-// ===== SlkPktFooterType =====
+// ===== SysKernelInfoType =====
 // ========================================
 
-#define FOR_SlkPktFooterType_STRUCT(DO_TO_STRUCT)								\
-	DO_TO_STRUCT (SlkPktFooterType, 2, FOR_SlkPktFooterType_FIELDS)
+#define FOR_SysKernelInfoType_STRUCT(DO_TO_STRUCT)								\
+	DO_TO_STRUCT (SysKernelInfoType, 62, FOR_SysKernelInfoType_FIELDS)
 
-#define FOR_SlkPktFooterType_FIELDS(DO_TO_FIELD)								\
-	DO_TO_FIELD (0,		UInt16,						crc16)						\
+#define FOR_SysKernelInfoType_FIELDS(DO_TO_FIELD)								\
+	DO_TO_FIELD (0,		UInt8,						selector)					\
+	DO_TO_FIELD (1,		UInt8,						reserved)					\
+	DO_TO_FIELD (2,		UInt32,						id)							\
+	DO_TO_FIELD (6,		kernel_info_task,			task)						\
+	DO_TO_FIELD (6,		kernel_info_semaphore,		semaphore)					\
+	DO_TO_FIELD (6,		kernel_info_timer,			timer)						\
 
 
 // ========================================
-// ===== SlkPktHeaderType =====
+// ===== kernel_info_task =====
 // ========================================
 
-#define FOR_SlkPktHeaderType_STRUCT(DO_TO_STRUCT)								\
-	DO_TO_STRUCT (SlkPktHeaderType, 10, FOR_SlkPktHeaderType_FIELDS)
+#define FOR_kernel_info_task_STRUCT(DO_TO_STRUCT)								\
+	DO_TO_STRUCT (kernel_info_task, 56, FOR_kernel_info_task_FIELDS)
 
-#define FOR_SlkPktHeaderType_FIELDS(DO_TO_FIELD)								\
-	DO_TO_FIELD (0,		UInt16,						signature1)					\
-	DO_TO_FIELD (2,		UInt8,						signature2)					\
-	DO_TO_FIELD (3,		UInt8,						dest)						\
-	DO_TO_FIELD (4,		UInt8,						src)						\
-	DO_TO_FIELD (5,		UInt8,						type)						\
-	DO_TO_FIELD (6,		UInt16,						bodySize)					\
-	DO_TO_FIELD (8,		UInt8,						transId)					\
-	DO_TO_FIELD (9,		SlkPktHeaderChecksum,		checksum)					\
+#define FOR_kernel_info_task_FIELDS(DO_TO_FIELD)								\
+	DO_TO_FIELD (0,		UInt32,						id)							\
+	DO_TO_FIELD (4,		UInt32,						nextID)						\
+	DO_TO_FIELD (8,		UInt32,						tag)						\
+	DO_TO_FIELD (12,	UInt32,						status)						\
+	DO_TO_FIELD (16,	UInt32,						timer)						\
+	DO_TO_FIELD (20,	UInt32,						timeSlice)					\
+	DO_TO_FIELD (24,	Int16,						priority)					\
+	DO_TO_FIELD (26,	UInt32,						attributes)					\
+	DO_TO_FIELD (30,	Int16,						pendingCalls)				\
+	DO_TO_FIELD (32,	UInt32,						senderTaskID)				\
+	DO_TO_FIELD (36,	UInt32,						msgExchangeID)				\
+	DO_TO_FIELD (40,	UInt32,						tcbP)						\
+	DO_TO_FIELD (44,	UInt32,						stackP)						\
+	DO_TO_FIELD (48,	UInt32,						stackStart)					\
+	DO_TO_FIELD (52,	UInt32,						stackSize)					\
+
+
+// ========================================
+// ===== kernel_info_semaphore =====
+// ========================================
+
+#define FOR_kernel_info_semaphore_STRUCT(DO_TO_STRUCT)							\
+	DO_TO_STRUCT (kernel_info_semaphore, 22, FOR_kernel_info_semaphore_FIELDS)
+
+#define FOR_kernel_info_semaphore_FIELDS(DO_TO_FIELD)							\
+	DO_TO_FIELD (0,		UInt32,						id)							\
+	DO_TO_FIELD (4,		UInt32,						nextID)						\
+	DO_TO_FIELD (8,		UInt32,						tag)						\
+	DO_TO_FIELD (12,	Int16,						initValue)					\
+	DO_TO_FIELD (14,	Int16,						curValue)					\
+	DO_TO_FIELD (16,	Int16,						nestLevel)					\
+	DO_TO_FIELD (18,	UInt32,						ownerID)					\
+
+
+// ========================================
+// ===== kernel_info_timer =====
+// ========================================
+
+#define FOR_kernel_info_timer_STRUCT(DO_TO_STRUCT)								\
+	DO_TO_STRUCT (kernel_info_timer, 24, FOR_kernel_info_timer_FIELDS)
+
+#define FOR_kernel_info_timer_FIELDS(DO_TO_FIELD)								\
+	DO_TO_FIELD (0,		UInt32,						id)							\
+	DO_TO_FIELD (4,		UInt32,						nextID)						\
+	DO_TO_FIELD (8,		UInt32,						tag)						\
+	DO_TO_FIELD (12,	UInt32,						ticksLeft)					\
+	DO_TO_FIELD (16,	UInt32,						period)						\
+	DO_TO_FIELD (20,	UInt32,						proc)						\
+
+
+// ========================================
+// ===== SysNVParamsType =====
+// ========================================
+
+#define FOR_SysNVParamsType_STRUCT(DO_TO_STRUCT)								\
+	DO_TO_STRUCT (SysNVParamsType, 30, FOR_SysNVParamsType_FIELDS)
+
+#define FOR_SysNVParamsType_FIELDS(DO_TO_FIELD)									\
+	DO_TO_FIELD (0,		UInt32,						rtcHours)					\
+	DO_TO_FIELD (4,		UInt32,						rtcHourMinSecCopy)			\
+	DO_TO_FIELD (8,		UInt8,						swrLCDContrastValue)		\
+	DO_TO_FIELD (9,		UInt8,						swrLCDBrightnessValue)		\
+	DO_TO_FIELD (10,	emuptr,						splashScreenPtr)			\
+	DO_TO_FIELD (14,	emuptr,						hardResetScreenPtr)			\
+	DO_TO_FIELD (18,	UInt16,						localeLanguage)				\
+	DO_TO_FIELD (20,	UInt16,						localeCountry)				\
+	DO_TO_FIELD (22,	UInt32,						sysNVOEMStorage1)			\
+	DO_TO_FIELD (26,	UInt32,						sysNVOEMStorage2)			\
 
 
 // ========================================
@@ -1872,7 +2645,7 @@
 // ===== SysPktGetTrapConditionsRspType =====
 // ========================================
 
-#define FOR_SysPktGetTrapConditionsRspType_STRUCT(DO_TO_STRUCT)				\
+#define FOR_SysPktGetTrapConditionsRspType_STRUCT(DO_TO_STRUCT)					\
 	DO_TO_STRUCT (SysPktGetTrapConditionsRspType, 12, FOR_SysPktGetTrapConditionsRspType_FIELDS)
 
 #define FOR_SysPktGetTrapConditionsRspType_FIELDS(DO_TO_FIELD)					\
@@ -2469,9 +3242,11 @@
 // ========================================
 // ===== UIGlobalsType =====
 // ========================================
+// Universal type; contains only parts up to where
+// different versions diverge.
 
 #define FOR_UIGlobalsType_STRUCT(DO_TO_STRUCT)									\
-	DO_TO_STRUCT (UIGlobalsType, 168, FOR_UIGlobalsType_FIELDS)
+	DO_TO_STRUCT (UIGlobalsType, 56, FOR_UIGlobalsType_FIELDS)
 
 #define FOR_UIGlobalsType_FIELDS(DO_TO_FIELD)									\
 	DO_TO_FIELD (0,		emuptr,						activeWindow)				\
@@ -2485,7 +3260,324 @@
 	DO_TO_FIELD (28,	GraphicStateTypeV2,			gStateV2)					\
 	DO_TO_FIELD (28,	GraphicStateTypeV3,			gStateV3)					\
 
-#if 0
+
+// ========================================
+// ===== UIGlobalsTypeCommon =====
+// ========================================
+// Mostly Universal type.  Can be used on anything except 1.0.  Skips over
+// a gap if shifting fields between the gState and uiCurrentFontID fields,
+// does include uiCurrentMenuRscID and uiDecimalSeparator, but doesn't
+// include allFormsClosing, uiOptions and menuCmdBarCurrent fields.
+
+#define FOR_UIGlobalsTypeCommon_STRUCT(DO_TO_STRUCT)							\
+	DO_TO_STRUCT (UIGlobalsTypeCommon, 163, FOR_UIGlobalsTypeCommon_FIELDS)
+
+#define FOR_UIGlobalsTypeCommon_FIELDS(DO_TO_FIELD)								\
+	DO_TO_FIELD (0,		emuptr,						activeWindow)				\
+	DO_TO_FIELD (4,		emuptr,						displayWindow)				\
+	DO_TO_FIELD (8,		emuptr,						drawWindow)					\
+	DO_TO_FIELD (12,	emuptr,						firstWindow)				\
+	DO_TO_FIELD (16,	emuptr,						exitWindowID)				\
+	DO_TO_FIELD (20,	emuptr,						enterWindowID)				\
+	DO_TO_FIELD (24,	emuptr,						exitedWindowID)				\
+	DO_TO_FIELD (28,	GraphicStateTypeV1,			gStateV1)					\
+	DO_TO_FIELD (28,	GraphicStateTypeV2,			gStateV2)					\
+	DO_TO_FIELD (28,	GraphicStateTypeV3,			gStateV3)					\
+		/* Gap of shifting fields */											\
+	DO_TO_FIELD (98,	UInt8,						uiCurrentFontID)			\
+	DO_TO_FIELD (99,	Int16,						_unused2)					\
+	DO_TO_FIELD (100,	emuptr,						currentForm)				\
+	DO_TO_FIELD (104,	Boolean,					insPtIsEnabled)				\
+	DO_TO_FIELD (105,	Boolean,					insPtOn)					\
+	DO_TO_FIELD (106,	PointType,					insPtLoc)					\
+	DO_TO_FIELD (110,	Int16,						insPtHeight)				\
+	DO_TO_FIELD (112,	Int32,						insPtLastTick)				\
+	DO_TO_FIELD (116,	emuptr,						insPtBitsBehind)			\
+		/* array of 3 ClipboardItems */											\
+	DO_TO_FIELD (120,	ClipboardItem,				clipboard)					\
+	DO_TO_FIELD (138,	emuptr,						uiCurrentMenu)				\
+	DO_TO_FIELD (142,	UInt16,						uiCurrentMenuRscID)			\
+	DO_TO_FIELD (144,	FieldUndoType,				undoGlobals)				\
+	DO_TO_FIELD (156,	UInt8,						gsiState)					\
+	DO_TO_FIELD (157,	Boolean,					gsiIsEnabled)				\
+	DO_TO_FIELD (158,	PointType,					gsiLocation)				\
+	DO_TO_FIELD (162,	Char,						uiDecimalSeparator)			\
+
+
+// ========================================
+// ===== UIGlobalsTypeV1 =====
+// ========================================
+// Used in Palm OS 1.0.
+
+#define FOR_UIGlobalsTypeV1_STRUCT(DO_TO_STRUCT)								\
+	DO_TO_STRUCT (UIGlobalsTypeV1, 160, FOR_UIGlobalsTypeV1_FIELDS)
+
+#define FOR_UIGlobalsTypeV1_FIELDS(DO_TO_FIELD)									\
+	DO_TO_FIELD (0,		emuptr,						activeWindow)				\
+	DO_TO_FIELD (4,		emuptr,						displayWindow)				\
+	DO_TO_FIELD (8,		emuptr,						drawWindow)					\
+	DO_TO_FIELD (12,	emuptr,						firstWindow)				\
+	DO_TO_FIELD (16,	emuptr,						exitWindowID)				\
+	DO_TO_FIELD (20,	emuptr,						enterWindowID)				\
+	DO_TO_FIELD (24,	emuptr,						exitedWindowID)				\
+	DO_TO_FIELD (28,	GraphicStateTypeV1,			gState)						\
+	DO_TO_FIELD (48,	emuptr,						eventQ)						\
+	DO_TO_FIELD (52,	UInt16,						eventQIndex)				\
+	DO_TO_FIELD (54,	UInt16,						eventQLength)				\
+	DO_TO_FIELD (56,	Int16,						lastScreenX)				\
+	DO_TO_FIELD (58,	Int16,						lastScreenY)				\
+	DO_TO_FIELD (60,	Boolean,					lastPenDown)				\
+	DO_TO_FIELD (61,	UInt8,						_unused1)					\
+	DO_TO_FIELD (62,	Int32,						needNullTickCount)			\
+	DO_TO_FIELD (66,	emuptr,						uiCurrentFontPtr)			\
+		/* array of 7 emuptrs */												\
+	DO_TO_FIELD (70,	emuptr,						uiFontTable)				\
+	DO_TO_FIELD (98,	UInt8,						uiCurrentFontID)			\
+	DO_TO_FIELD (99,	Int16,						_unused2)					\
+	DO_TO_FIELD (100,	emuptr,						currentForm)				\
+	DO_TO_FIELD (104,	Boolean,					insPtIsEnabled)				\
+	DO_TO_FIELD (105,	Boolean,					insPtOn)					\
+	DO_TO_FIELD (106,	PointType,					insPtLoc)					\
+	DO_TO_FIELD (110,	Int16,						insPtHeight)				\
+	DO_TO_FIELD (112,	Int32,						insPtLastTick)				\
+	DO_TO_FIELD (116,	emuptr,						insPtBitsBehind)			\
+		/* array of 3 ClipboardItems */											\
+	DO_TO_FIELD (120,	ClipboardItem,				clipboard)					\
+	DO_TO_FIELD (138,	emuptr,						uiCurrentMenu)				\
+	DO_TO_FIELD (142,	FieldUndoType,				undoGlobals)				\
+	DO_TO_FIELD (154,	UInt8,						gsiState)					\
+	DO_TO_FIELD (155,	Boolean,					gsiIsEnabled)				\
+	DO_TO_FIELD (156,	PointType,					gsiLocation)				\
+
+
+// ========================================
+// ===== UIGlobalsTypeV2 =====
+// ========================================
+// Used in Palm OS 2.0.
+// Inserts uiCurrentMenuRscID and adds uiDecimalSeparator.
+
+#define FOR_UIGlobalsTypeV2_STRUCT(DO_TO_STRUCT)								\
+	DO_TO_STRUCT (UIGlobalsTypeV2, 163, FOR_UIGlobalsTypeV2_FIELDS)
+
+#define FOR_UIGlobalsTypeV2_FIELDS(DO_TO_FIELD)									\
+	DO_TO_FIELD (0,		emuptr,						activeWindow)				\
+	DO_TO_FIELD (4,		emuptr,						displayWindow)				\
+	DO_TO_FIELD (8,		emuptr,						drawWindow)					\
+	DO_TO_FIELD (12,	emuptr,						firstWindow)				\
+	DO_TO_FIELD (16,	emuptr,						exitWindowID)				\
+	DO_TO_FIELD (20,	emuptr,						enterWindowID)				\
+	DO_TO_FIELD (24,	emuptr,						exitedWindowID)				\
+	DO_TO_FIELD (28,	GraphicStateTypeV1,			gState)						\
+	DO_TO_FIELD (48,	emuptr,						eventQ)						\
+	DO_TO_FIELD (52,	UInt16,						eventQIndex)				\
+	DO_TO_FIELD (54,	UInt16,						eventQLength)				\
+	DO_TO_FIELD (56,	Int16,						lastScreenX)				\
+	DO_TO_FIELD (58,	Int16,						lastScreenY)				\
+	DO_TO_FIELD (60,	Boolean,					lastPenDown)				\
+	DO_TO_FIELD (61,	UInt8,						_unused1)					\
+	DO_TO_FIELD (62,	Int32,						needNullTickCount)			\
+	DO_TO_FIELD (66,	emuptr,						uiCurrentFontPtr)			\
+		/* array of 7 emuptrs */												\
+	DO_TO_FIELD (70,	emuptr,						uiFontTable)				\
+	DO_TO_FIELD (98,	UInt8,						uiCurrentFontID)			\
+	DO_TO_FIELD (99,	Int16,						_unused2)					\
+	DO_TO_FIELD (100,	emuptr,						currentForm)				\
+	DO_TO_FIELD (104,	Boolean,					insPtIsEnabled)				\
+	DO_TO_FIELD (105,	Boolean,					insPtOn)					\
+	DO_TO_FIELD (106,	PointType,					insPtLoc)					\
+	DO_TO_FIELD (110,	Int16,						insPtHeight)				\
+	DO_TO_FIELD (112,	Int32,						insPtLastTick)				\
+	DO_TO_FIELD (116,	emuptr,						insPtBitsBehind)			\
+		/* array of 3 ClipboardItems */											\
+	DO_TO_FIELD (120,	ClipboardItem,				clipboard)					\
+	DO_TO_FIELD (138,	emuptr,						uiCurrentMenu)				\
+	DO_TO_FIELD (142,	UInt16,						uiCurrentMenuRscID)			\
+	DO_TO_FIELD (144,	FieldUndoType,				undoGlobals)				\
+	DO_TO_FIELD (156,	UInt8,						gsiState)					\
+	DO_TO_FIELD (157,	Boolean,					gsiIsEnabled)				\
+	DO_TO_FIELD (158,	PointType,					gsiLocation)				\
+	DO_TO_FIELD (162,	Char,						uiDecimalSeparator)			\
+
+
+// ========================================
+// ===== UIGlobalsTypeV3 =====
+// ========================================
+// Used in Palm OS 3.0.
+// Uses V2 GraphicStateType, replaces uiFontTable with uiSysFontTablePtr...uiUnused2.
+
+#define FOR_UIGlobalsTypeV3_STRUCT(DO_TO_STRUCT)								\
+	DO_TO_STRUCT (UIGlobalsTypeV3, 163, FOR_UIGlobalsTypeV3_FIELDS)
+
+#define FOR_UIGlobalsTypeV3_FIELDS(DO_TO_FIELD)									\
+	DO_TO_FIELD (0,		emuptr,						activeWindow)				\
+	DO_TO_FIELD (4,		emuptr,						displayWindow)				\
+	DO_TO_FIELD (8,		emuptr,						drawWindow)					\
+	DO_TO_FIELD (12,	emuptr,						firstWindow)				\
+	DO_TO_FIELD (16,	emuptr,						exitWindowID)				\
+	DO_TO_FIELD (20,	emuptr,						enterWindowID)				\
+	DO_TO_FIELD (24,	emuptr,						exitedWindowID)				\
+	DO_TO_FIELD (28,	GraphicStateTypeV2,			gState)						\
+	DO_TO_FIELD (56,	emuptr,						eventQ)						\
+	DO_TO_FIELD (60,	UInt16,						eventQIndex)				\
+	DO_TO_FIELD (62,	UInt16,						eventQLength)				\
+	DO_TO_FIELD (64,	Int16,						lastScreenX)				\
+	DO_TO_FIELD (66,	Int16,						lastScreenY)				\
+	DO_TO_FIELD (68,	Boolean,					lastPenDown)				\
+	DO_TO_FIELD (69,	UInt8,						_unused1)					\
+	DO_TO_FIELD (70,	Int32,						needNullTickCount)			\
+	DO_TO_FIELD (74,	emuptr,						uiCurrentFontPtr)			\
+	DO_TO_FIELD (78,	emuptr,						uiSysFontTablePtr)			\
+	DO_TO_FIELD (82,	emuptr,						uiAppFontTablePtr)			\
+	DO_TO_FIELD (86,	UInt16,						uiNumSysFonts)				\
+	DO_TO_FIELD (88,	UInt16,						uiNumAppFonts)				\
+	DO_TO_FIELD (90,	UInt32,						uiUnused1)					\
+	DO_TO_FIELD (94,	UInt32,						uiUnused2)					\
+	DO_TO_FIELD (98,	UInt8,						uiCurrentFontID)			\
+	DO_TO_FIELD (99,	Int16,						_unused2)					\
+	DO_TO_FIELD (100,	emuptr,						currentForm)				\
+	DO_TO_FIELD (104,	Boolean,					insPtIsEnabled)				\
+	DO_TO_FIELD (105,	Boolean,					insPtOn)					\
+	DO_TO_FIELD (106,	PointType,					insPtLoc)					\
+	DO_TO_FIELD (110,	Int16,						insPtHeight)				\
+	DO_TO_FIELD (112,	Int32,						insPtLastTick)				\
+	DO_TO_FIELD (116,	emuptr,						insPtBitsBehind)			\
+		/* array of 3 ClipboardItems */											\
+	DO_TO_FIELD (120,	ClipboardItem,				clipboard)					\
+	DO_TO_FIELD (138,	emuptr,						uiCurrentMenu)				\
+	DO_TO_FIELD (142,	UInt16,						uiCurrentMenuRscID)			\
+	DO_TO_FIELD (144,	FieldUndoType,				undoGlobals)				\
+	DO_TO_FIELD (156,	UInt8,						gsiState)					\
+	DO_TO_FIELD (157,	Boolean,					gsiIsEnabled)				\
+	DO_TO_FIELD (158,	PointType,					gsiLocation)				\
+	DO_TO_FIELD (162,	Char,						uiDecimalSeparator)			\
+
+
+// ========================================
+// ===== UIGlobalsTypeV31 =====
+// ========================================
+// Used in Palm OS 3.1.
+// Replaces uiUnused1 with uiFontListPtr.
+
+#define FOR_UIGlobalsTypeV31_STRUCT(DO_TO_STRUCT)								\
+	DO_TO_STRUCT (UIGlobalsTypeV31, 163, FOR_UIGlobalsTypeV31_FIELDS)
+
+#define FOR_UIGlobalsTypeV31_FIELDS(DO_TO_FIELD)								\
+	DO_TO_FIELD (0,		emuptr,						activeWindow)				\
+	DO_TO_FIELD (4,		emuptr,						displayWindow)				\
+	DO_TO_FIELD (8,		emuptr,						drawWindow)					\
+	DO_TO_FIELD (12,	emuptr,						firstWindow)				\
+	DO_TO_FIELD (16,	emuptr,						exitWindowID)				\
+	DO_TO_FIELD (20,	emuptr,						enterWindowID)				\
+	DO_TO_FIELD (24,	emuptr,						exitedWindowID)				\
+	DO_TO_FIELD (28,	GraphicStateTypeV2,			gState)						\
+	DO_TO_FIELD (56,	emuptr,						eventQ)						\
+	DO_TO_FIELD (60,	UInt16,						eventQIndex)				\
+	DO_TO_FIELD (62,	UInt16,						eventQLength)				\
+	DO_TO_FIELD (64,	Int16,						lastScreenX)				\
+	DO_TO_FIELD (66,	Int16,						lastScreenY)				\
+	DO_TO_FIELD (68,	Boolean,					lastPenDown)				\
+	DO_TO_FIELD (69,	UInt8,						_unused1)					\
+	DO_TO_FIELD (70,	Int32,						needNullTickCount)			\
+	DO_TO_FIELD (74,	emuptr,						uiCurrentFontPtr)			\
+	DO_TO_FIELD (78,	emuptr,						uiSysFontTablePtr)			\
+	DO_TO_FIELD (82,	emuptr,						uiAppFontTablePtr)			\
+	DO_TO_FIELD (86,	UInt16,						uiNumSysFonts)				\
+	DO_TO_FIELD (88,	UInt16,						uiNumAppFonts)				\
+	DO_TO_FIELD (90,	UInt32,						uiFontListPtr)				\
+	DO_TO_FIELD (94,	UInt32,						uiUnused2)					\
+	DO_TO_FIELD (98,	UInt8,						uiCurrentFontID)			\
+	DO_TO_FIELD (99,	Int16,						_unused2)					\
+	DO_TO_FIELD (100,	emuptr,						currentForm)				\
+	DO_TO_FIELD (104,	Boolean,					insPtIsEnabled)				\
+	DO_TO_FIELD (105,	Boolean,					insPtOn)					\
+	DO_TO_FIELD (106,	PointType,					insPtLoc)					\
+	DO_TO_FIELD (110,	Int16,						insPtHeight)				\
+	DO_TO_FIELD (112,	Int32,						insPtLastTick)				\
+	DO_TO_FIELD (116,	emuptr,						insPtBitsBehind)			\
+		/* array of 3 ClipboardItems */											\
+	DO_TO_FIELD (120,	ClipboardItem,				clipboard)					\
+	DO_TO_FIELD (138,	emuptr,						uiCurrentMenu)				\
+	DO_TO_FIELD (142,	UInt16,						uiCurrentMenuRscID)			\
+	DO_TO_FIELD (144,	FieldUndoType,				undoGlobals)				\
+	DO_TO_FIELD (156,	UInt8,						gsiState)					\
+	DO_TO_FIELD (157,	Boolean,					gsiIsEnabled)				\
+	DO_TO_FIELD (158,	PointType,					gsiLocation)				\
+	DO_TO_FIELD (162,	Char,						uiDecimalSeparator)			\
+
+
+// ========================================
+// ===== UIGlobalsTypeV32 =====
+// ========================================
+// Used in Palm OS 3.2.
+// Replaces uiUnused2 with rootWindow.
+
+#define FOR_UIGlobalsTypeV32_STRUCT(DO_TO_STRUCT)								\
+	DO_TO_STRUCT (UIGlobalsTypeV32, 163, FOR_UIGlobalsTypeV32_FIELDS)
+
+#define FOR_UIGlobalsTypeV32_FIELDS(DO_TO_FIELD)								\
+	DO_TO_FIELD (0,		emuptr,						activeWindow)				\
+	DO_TO_FIELD (4,		emuptr,						displayWindow)				\
+	DO_TO_FIELD (8,		emuptr,						drawWindow)					\
+	DO_TO_FIELD (12,	emuptr,						firstWindow)				\
+	DO_TO_FIELD (16,	emuptr,						exitWindowID)				\
+	DO_TO_FIELD (20,	emuptr,						enterWindowID)				\
+	DO_TO_FIELD (24,	emuptr,						exitedWindowID)				\
+	DO_TO_FIELD (28,	GraphicStateTypeV2,			gState)						\
+	DO_TO_FIELD (56,	emuptr,						eventQ)						\
+	DO_TO_FIELD (60,	UInt16,						eventQIndex)				\
+	DO_TO_FIELD (62,	UInt16,						eventQLength)				\
+	DO_TO_FIELD (64,	Int16,						lastScreenX)				\
+	DO_TO_FIELD (66,	Int16,						lastScreenY)				\
+	DO_TO_FIELD (68,	Boolean,					lastPenDown)				\
+	DO_TO_FIELD (69,	UInt8,						_unused1)					\
+	DO_TO_FIELD (70,	Int32,						needNullTickCount)			\
+	DO_TO_FIELD (74,	emuptr,						uiCurrentFontPtr)			\
+	DO_TO_FIELD (78,	emuptr,						uiSysFontTablePtr)			\
+	DO_TO_FIELD (82,	emuptr,						uiAppFontTablePtr)			\
+	DO_TO_FIELD (86,	UInt16,						uiNumSysFonts)				\
+	DO_TO_FIELD (88,	UInt16,						uiNumAppFonts)				\
+	DO_TO_FIELD (90,	UInt32,						uiFontListPtr)				\
+	DO_TO_FIELD (94,	UInt32,						rootWindow)					\
+	DO_TO_FIELD (98,	UInt8,						uiCurrentFontID)			\
+	DO_TO_FIELD (99,	Int16,						_unused2)					\
+	DO_TO_FIELD (100,	emuptr,						currentForm)				\
+	DO_TO_FIELD (104,	Boolean,					insPtIsEnabled)				\
+	DO_TO_FIELD (105,	Boolean,					insPtOn)					\
+	DO_TO_FIELD (106,	PointType,					insPtLoc)					\
+	DO_TO_FIELD (110,	Int16,						insPtHeight)				\
+	DO_TO_FIELD (112,	Int32,						insPtLastTick)				\
+	DO_TO_FIELD (116,	emuptr,						insPtBitsBehind)			\
+		/* array of 3 ClipboardItems */											\
+	DO_TO_FIELD (120,	ClipboardItem,				clipboard)					\
+	DO_TO_FIELD (138,	emuptr,						uiCurrentMenu)				\
+	DO_TO_FIELD (142,	UInt16,						uiCurrentMenuRscID)			\
+	DO_TO_FIELD (144,	FieldUndoType,				undoGlobals)				\
+	DO_TO_FIELD (156,	UInt8,						gsiState)					\
+	DO_TO_FIELD (157,	Boolean,					gsiIsEnabled)				\
+	DO_TO_FIELD (158,	PointType,					gsiLocation)				\
+	DO_TO_FIELD (162,	Char,						uiDecimalSeparator)			\
+
+
+// ========================================
+// ===== UIGlobalsTypeV35 =====
+// ========================================
+// Used in Palm OS 3.5.
+// Replaces GraphicStateTypeV2 with GraphicStateTypeV3, uicState, and
+// lastTapTime, replaces _unused1 with tapCount, replaces _unused2 with
+// allFormsClosing, added uiOptions and menuCmdBarCurrent.
+
+#define FOR_UIGlobalsTypeV35_STRUCT(DO_TO_STRUCT)								\
+	DO_TO_STRUCT (UIGlobalsTypeV35, 168, FOR_UIGlobalsTypeV35_FIELDS)
+
+#define FOR_UIGlobalsTypeV35_FIELDS(DO_TO_FIELD)								\
+	DO_TO_FIELD (0,		emuptr,						activeWindow)				\
+	DO_TO_FIELD (4,		emuptr,						displayWindow)				\
+	DO_TO_FIELD (8,		emuptr,						drawWindow)					\
+	DO_TO_FIELD (12,	emuptr,						firstWindow)				\
+	DO_TO_FIELD (16,	emuptr,						exitWindowID)				\
+	DO_TO_FIELD (20,	emuptr,						enterWindowID)				\
+	DO_TO_FIELD (24,	emuptr,						exitedWindowID)				\
+	DO_TO_FIELD (28,	GraphicStateTypeV3,			gState)						\
 	DO_TO_FIELD (40,	UIColorStateType,			uicState)					\
 	DO_TO_FIELD (52,	UInt32,						lastTapTime)				\
 	DO_TO_FIELD (56,	emuptr,						eventQ)						\
@@ -2499,12 +3591,12 @@
 	DO_TO_FIELD (74,	emuptr,						uiCurrentFontPtr)			\
 	DO_TO_FIELD (78,	emuptr,						uiSysFontTablePtr)			\
 	DO_TO_FIELD (82,	emuptr,						uiAppFontTablePtr)			\
-	DO_TO_FIELD (86,	Int16,						uiNumSysFonts)				\
-	DO_TO_FIELD (88,	Int16,						uiNumAppFonts)				\
-	DO_TO_FIELD (90,	emuptr,						uiFontListPtr)				\
-	DO_TO_FIELD (94,	emuptr,						rootWindow)					\
-	DO_TO_FIELD (98,	FontID,						uiCurrentFontID)			\
-	DO_TO_FIELD (99,	Boolean,					allFormsClosing)			\
+	DO_TO_FIELD (86,	UInt16,						uiNumSysFonts)				\
+	DO_TO_FIELD (88,	UInt16,						uiNumAppFonts)				\
+	DO_TO_FIELD (90,	UInt32,						uiFontListPtr)				\
+	DO_TO_FIELD (94,	UInt32,						rootWindow)					\
+	DO_TO_FIELD (98,	UInt8,						uiCurrentFontID)			\
+	DO_TO_FIELD (99,	Int16,						allFormsClosing)			\
 	DO_TO_FIELD (100,	emuptr,						currentForm)				\
 	DO_TO_FIELD (104,	Boolean,					insPtIsEnabled)				\
 	DO_TO_FIELD (105,	Boolean,					insPtOn)					\
@@ -2512,6 +3604,7 @@
 	DO_TO_FIELD (110,	Int16,						insPtHeight)				\
 	DO_TO_FIELD (112,	Int32,						insPtLastTick)				\
 	DO_TO_FIELD (116,	emuptr,						insPtBitsBehind)			\
+		/* array of 3 ClipboardItems */											\
 	DO_TO_FIELD (120,	ClipboardItem,				clipboard)					\
 	DO_TO_FIELD (138,	emuptr,						uiCurrentMenu)				\
 	DO_TO_FIELD (142,	UInt16,						uiCurrentMenuRscID)			\
@@ -2523,7 +3616,6 @@
 	DO_TO_FIELD (163,	UInt8,						uiOptions)					\
 	DO_TO_FIELD (164,	emuptr,						menuCmdBarCurrent)			\
 
-#endif
 
 // ========================================
 // ===== UsbHwrType =====

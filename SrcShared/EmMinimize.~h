@@ -1,0 +1,93 @@
+/* -*- mode: C++; tab-width: 4 -*- */
+/* ===================================================================== *\
+	Copyright (c) 2001 Palm, Inc. or its subsidiaries.
+	All rights reserved.
+
+	This file is part of the Palm OS Emulator.
+
+	This program is free software; you can redistribute it and/or modify
+	it under the terms of the GNU General Public License as published by
+	the Free Software Foundation; either version 2 of the License, or
+	(at your option) any later version.
+\* ===================================================================== */
+
+#ifndef EmMinimize_h
+#define EmMinimize_h
+
+#include "EmStructs.h"			// GremlinEvent
+
+#include "omnithread.h"			// omni_mutex
+
+#include <vector>				// vector
+
+class SessionFile;
+
+class EmMinimize
+{
+	public:
+		static void 			Initialize				(void);
+		static void 			Reset					(void);
+		static void 			Save					(SessionFile&);
+		static void 			Load					(SessionFile&);
+		static void 			Dispose 				(void);
+
+		static void				Start					(void);
+		static void				Stop					(void);
+		static void				TurnOn					(Bool);
+		static Bool				IsOn					(void);
+
+		static void				NoErrorOccurred			(void);
+		static void				ErrorOccurred			(void);
+
+		static uint32			GetPassNumber			(void);
+		static uint32			GetElapsedTime			(void);
+		static void				GetCurrentRange			(uint32&, uint32&);
+		static uint32			GetNumDiscardedEvents	(void);
+		static uint32			GetNumInitialEvents		(void);
+
+	private:
+		static void				MinimizationPassComplete(void);
+		static void				MinimizationComplete	(void);
+		static void				SaveMinimalEvents		(void);
+		static void				OutputEventsAsEnglish	(void);
+		static Bool				MakeAnotherPass			(long oldNumEvents, long newNumEvents);
+		static void				CurrentRange			(long& begin, long& end);
+		static void				InitialLevel			(void);
+		static Bool				SplitCurrentLevel		(void);
+		static void				StartAgain				(void);
+		static void				SplitAndStartAgain		(void);
+		static void				NextSubRange			(Bool forceSplit);
+		static void				LoadInitialState		(void);
+		static void				ComputeMinRange			(void);
+
+	public:
+		static void				RealLoadInitialState	(void);
+
+	private:
+		static void				LoadEvents				(void);
+		static string			CharToString			(char);
+		static long				FindFirstError			(void);
+
+	private:
+		struct EmMinimizeLevel
+		{
+			long	fBegin;
+			long	fEnd;
+		};
+
+		struct EmMinimizeState
+		{
+			vector<EmMinimizeLevel>	fLevels;
+		};
+
+		static omni_mutex		fgMutex;
+		static EmMinimizeState	fgState;
+		static Bool				fgIsOn;
+		static uint32			fgStartTime;
+		static long				fgInitialNumberOfEvents;
+		static long				fgDiscardedNumberOfEvents;
+		static long				fgMinRange;
+		static long				fgPassNumber;
+};
+
+#endif // EmMinimize_h

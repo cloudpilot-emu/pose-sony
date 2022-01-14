@@ -31,62 +31,9 @@
 #include "SonyWin/SonyButtonProc.h"
 #include "SonyShared/SonyChars.h"
 extern	ScaleType		gCurrentScale;
-#endif
+#endif //SONY_ROM
 
-/*
-	EmWindow is the cross-platform object representing the window that
-	displays the emulation.  It is not the actual thing that appears
-	on the monitor as a window, but it is repsonsible for that object's
-	creation, as well as dealing with cross-platform aspects of handling
-	it, such as updating its contents, changing skins, etc.
-
-	EmWindow is part of a group of three objects that together completely
-	manage the Emulator's window.  The other two are EmWindowHostData,
-	and the platform-specific window object--be it an HWND, an LWindow
-	sub-class, or an Fl_Window sub-class.
-
-	The three objects maintain references to each other as follows:
-
-		EmWindow -----> EmWindowHostData -----> host-window
-		   ^ ^                |                     |
-		   | +----------------+                     |
-		   +----------------------------------------+
-
-	EmWindow handles all the cross-platform issues.  It can deal with
-	the upper-level parts of updating the LCD area, wiggling the window
-	if the vibrator is going, change skins, etc.
-
-	EmWindow manages most of the platform-specific aspects by defining
-	HostFoo methods, which are then defined differently on each platform.
-	These HostFoo methods are implemented in EmWindow<Host>
-
-	EmWindowHostData is also defined in EmWindow<Host>, and holds any
-	platform-specific data (such as the HWND on Windows, etc.).  It
-	declares and implements any support functions needed on that particular
-	platform, but which can't be declared in EmWindow because either not
-	all platforms need those functions, or they involve platform-specific
-	types.
-
-	The host window object is whatever makes sense for that platform,
-	and is what one would create if one were programming natively for
-	just that platform.  On Windows, it's an HWND.  On the Mac, it's an
-	LWindow sub-class (which in turn wraps up a Mac OS WindowPtr).  On
-	Unix, it's an Fl_Window sub-class (which in turn wraps up an 
-	X Windows Window.
-
-	One creates a window by calling "window = new EmWindow;" followed by
-	"window->WindowCreate();".  Cross-platform code can then call high-level
-	functions in EmWindow such as HandleUpdate and HandlePen.  Platform-
-	specific code can perform platform-specific operations, getting the
-	host window object by calling "window->GetHostData()->GetHostWindow();".
-	If the platform specific code starts off with the host window object,
-	it can get the cross-platform EmWindow* by calling the GetWindow (host-
-	object) function in EmWindow<Host>.  When it's time to close the window,
-	call "window->WindowDispose;" followed by "delete window;"
-*/
-
-
-EmWindow*	EmWindow::fgWindow;
+EmWindow*	gWindow;
 
 // ---------------------------------------------------------------------------
 //		¥ EmWindow::EmWindow
@@ -95,53 +42,67 @@ EmWindow*	EmWindow::fgWindow;
 // occurs in WindowCreate.
 
 EmWindow::EmWindow (void) :
-	fHostData (NULL),
-	fSkin (),
-	fSkinColors1 (),
-	fSkinColors2 (),
+	fSkinBase (),
+	fSkinCurrent (),
+	fSkinColors (),
 	fSkinRegion (),
 	fPrevLCDColors (),
 	fCurrentButton (kElement_None),
 	fNeedWindowReset (false),
 	fNeedWindowInvalidate (false),
 	fOldLCDOn (false),
+	fOldBacklightOn (false),
 	fOldLEDState (0),
-	fWiggled (false)
+	fWiggled (false),
+	fActive (true),
+	fDebugMode (false),
+	fGremlinMode (false)
 {
-	this->HostConstruct ();
-
-	EmAssert (fgWindow == NULL);
-	fgWindow = this;
+	EmAssert (gWindow == NULL);
+	gWindow = this;
 }
 
 
 // ---------------------------------------------------------------------------
 //		¥ EmWindow::~EmWindow
 // ---------------------------------------------------------------------------
-// Destructor.  Simple resource clean-up.  The heavy stuff occurs in
-// WindowDispose.
+// Dispose of the window and all its data.  Unregister for notification, save
+// the window location, and destroy the host window object.
 
 EmWindow::~EmWindow (void)
 {
-	this->HostDestruct ();
-
-	EmAssert (fgWindow == this);
-	fgWindow = NULL;
+	EmAssert (gWindow == this);
+	gWindow = NULL;
 }
 
 
 // ---------------------------------------------------------------------------
-//		¥ EmWindow::GetWindow
+//		¥ EmWindow::PreDestroy
 // ---------------------------------------------------------------------------
+// Carry out actions to be performed just before the window is closed.  These
+// actions would normally be performed in EmWindow's destructor, except that
+// the host window is already deleted by then.  Therefore, each sub-class of
+// EmWindow needs to call this in *its* destructor before destroying the host
+// window.
 
-EmWindow* EmWindow::GetWindow (void)
+void EmWindow::PreDestroy (void)
 {
-	return fgWindow;
+	gPrefs->RemoveNotification (EmWindow::PrefsChangedCB);
+
+	// Save the window location.
+
+	EmRect	rect (this->HostWindowBoundsGet ());
+
+	if (!rect.IsEmpty ())
+	{
+		Preference <EmPoint>	pref (kPrefKeyWindowLocation);
+		pref = rect.TopLeft ();
+	}
 }
 
 
 // ---------------------------------------------------------------------------
-//		¥ EmWindow::WindowCreate
+//		¥ EmWindow::WindowInit
 // ---------------------------------------------------------------------------
 // Create the LCD window, along with any host data and host window objects.
 // Set the window's skin, register for any notification regarding the window's
@@ -152,12 +113,8 @@ EmWindow* EmWindow::GetWindow (void)
 // This function should be called immediately after the EmWindow object is
 // created.
 
-void EmWindow::WindowCreate (void)
+void EmWindow::WindowInit (void)
 {
-	// Create the Host version of the window.
-
-	this->HostWindowCreate ();
-
 	// Establish the window's skin.
 
 	this->WindowReset ();
@@ -166,7 +123,11 @@ void EmWindow::WindowCreate (void)
 
 	gPrefs->AddNotification (&EmWindow::PrefsChangedCB, kPrefKeySkins, this);
 	gPrefs->AddNotification (&EmWindow::PrefsChangedCB, kPrefKeyScale, this);
+	gPrefs->AddNotification (&EmWindow::PrefsChangedCB, kPrefKeyDimWhenInactive, this);
+	gPrefs->AddNotification (&EmWindow::PrefsChangedCB, kPrefKeyShowDebugMode, this);
+	gPrefs->AddNotification (&EmWindow::PrefsChangedCB, kPrefKeyShowGremlinMode, this);
 	gPrefs->AddNotification (&EmWindow::PrefsChangedCB, kPrefKeyBackgroundColor, this);
+	gPrefs->AddNotification (&EmWindow::PrefsChangedCB, kPrefKeyStayOnTop, this);
 
 	// Restore the window location.
 
@@ -196,34 +157,10 @@ void EmWindow::WindowCreate (void)
 	// Show the window.
 
 	this->HostWindowShow ();
-}
 
+	// Make the window stay on top if it is set as such.
 
-// ---------------------------------------------------------------------------
-//		¥ EmWindow::WindowDispose
-// ---------------------------------------------------------------------------
-// Dispose of the window and all its data.  Unregister for notification, save
-// the window location, and destroy the host window object.
-//
-// This function should be called just before the EmWindow object is deleted.
-
-void EmWindow::WindowDispose (void)
-{
-	gPrefs->RemoveNotification (EmWindow::PrefsChangedCB);
-
-	// Save the window location.
-
-	{
-		EmRect	rect (this->HostWindowBoundsGet ());
-
-		if (!rect.IsEmpty ())
-		{
-			Preference <EmPoint>	pref (kPrefKeyWindowLocation);
-			pref = rect.TopLeft ();
-		}
-	}
-
-	this->HostWindowDispose ();
+	this->HostWindowStayOnTop ();
 }
 
 
@@ -233,7 +170,8 @@ void EmWindow::WindowDispose (void)
 
 void EmWindow::WindowReset (void)
 {
-	// Can only set the skin if we have a session running...
+	// Can only set the skin if we have a session running, so that we can
+	// query it for its configuration.
 
 	if (!gSession)
 		return;
@@ -245,43 +183,37 @@ void EmWindow::WindowReset (void)
 	// Get the specified skin, or the default skin if the specified
 	// one cannot be found.
 
-	if (!this->GetSkin (fSkin))
+	if (!this->GetSkin (fSkinBase))
 	{
-		this->GetDefaultSkin (fSkin);
+		this->GetDefaultSkin (fSkinBase);
 	}
 
-	// Get and cache the colors for the skin.  We'll quantize at two
-	// levels.  One will be used whenever we can get away with it and
-	// will specify as many case colors as possible for an 8-bit host
-	// display.  The other will be more polite, using few colors in order
-	// to allow more for the LCD area if it's in 8- or 16-bit mode.
+	// Create a one-bpp mask of the skin.
 
+	EmPixMap	mask;
+	fSkinBase.CreateMask (mask);
+
+	// Convert it to a region.
+
+	fSkinRegion = mask.CreateRegion ();
+
+	// Clear our color caches.  They'll get filled again on demand.
+
+	for (int ii = 0; ii < (long) countof (fSkinColors); ++ii)
 	{
-		EmQuantizer q (220, 6);	// Leaves 256 - 220 - 20 = 16 for LCD
-		q.ProcessImage (fSkin);
-		q.GetColorTable (fSkinColors1);
+		fSkinColors[ii].clear ();
 	}
 
-	{
-		EmQuantizer q (64, 6);	// Leaves 256 - 64 - 20 = 172 for LCD
-		q.ProcessImage (fSkin);
-		q.GetColorTable (fSkinColors2);
-	}
+	// Clear the image of the skin, altered for its mode.  This image
+	// will get regenerated on demand.
+
+	fSkinCurrent = EmPixMap ();
 
 	// Clear out the previously saved LCD colors.  This will force the
 	// any host palettes to be regenerated, because they'll think the
 	// Palm OS LCD palette has changed.
 
 	fPrevLCDColors.clear ();
-
-	// Create a one-bpp mask of the skin.
-
-	EmPixMap	mask;
-	fSkin.CreateMask (mask);
-
-	// Convert it to a region.
-
-	fSkinRegion = mask.CreateRegion ();
 
 	// Now convert this all to platform-specific data structures.
 	// This will also resize the window.
@@ -301,10 +233,21 @@ void EmWindow::HandlePenEvent (const EmPoint& where, Bool down)
 	SkinElementType	what;
 
 #ifdef SONY_ROM
+
+#ifdef SONY_ROM
+	if ( gSession->GetDevice().GetDeviceType() == kDeviceYSX1230
+		|| gSession->GetDevice().GetDeviceType() == kDeviceYSX1100 )
+	{
+		if (PublicControlButtonForCLIE(where, down))
+			return ;
+	}
+#endif //SONY_ROM
+
 	if (ControlButtonForCLIE(where, down))
 		return ;
-#endif
-	
+
+#endif //SONY_ROM
+
 	// If the mouse button is down and we aren't currently tracking
 	// anything, then find out what the user clicked on.
 
@@ -334,7 +277,7 @@ void EmWindow::HandlePenEvent (const EmPoint& where, Bool down)
 #ifdef SONY_ROM
 		if (!EmHAL::GetLCDScreenOn ())
 			return;	// Power Off ó‘Ô
-#endif
+#endif //SONY_ROM
 
 		EmPoint		whereLCD = ::SkinWindowToTouchscreen (where);
 		EmPenEvent	event (whereLCD, down);
@@ -422,13 +365,68 @@ void EmWindow::HandleDisplayChange (void)
 
 
 // ---------------------------------------------------------------------------
+//		¥ EmWindow::HandleActivate
+// ---------------------------------------------------------------------------
+// Called when the display depth changes.
+
+void EmWindow::HandleActivate (Bool active)
+{
+	if (fActive != active)
+	{
+		fActive = active;
+		this->HostWindowReset ();
+
+		fSkinCurrent = EmPixMap ();
+	}
+}
+
+
+// ---------------------------------------------------------------------------
+//		¥ EmWindow::HandleDebugMode
+// ---------------------------------------------------------------------------
+// Called when the display depth changes.
+
+void EmWindow::HandleDebugMode (Bool debugMode)
+{
+	if (fDebugMode != debugMode)
+	{
+		fDebugMode = debugMode;
+		this->HostWindowReset ();
+
+		fSkinCurrent = EmPixMap ();
+	}
+}
+
+
+// ---------------------------------------------------------------------------
+//		¥ EmWindow::HandleGremlinMode
+// ---------------------------------------------------------------------------
+// Called when the display depth changes.
+
+void EmWindow::HandleGremlinMode (Bool gremlinMode)
+{
+	if (fGremlinMode != gremlinMode)
+	{
+		fGremlinMode = gremlinMode;
+		this->HostWindowReset ();
+
+		fSkinCurrent = EmPixMap ();
+	}
+}
+
+
+// ---------------------------------------------------------------------------
 //		¥ EmWindow::HandleIdle
 // ---------------------------------------------------------------------------
 // Called several times a second to perform idle time events such as
 // refreshing the LCD area and vibrating the window.
 
-void EmWindow::HandleIdle (const EmPoint& where)
+void EmWindow::HandleIdle (void)
 {
+	// Get the current mouse position.
+
+	EmPoint	where = this->HostGetCurrentMouse ();
+
 	// Track the pen if it's down.
 
 	if (fCurrentButton == kElement_Touchscreen)
@@ -527,6 +525,7 @@ void EmWindow::PaintScreen (Bool drawCase, Bool wholeLCD)
 	Bool				drawLED = false;
 	Bool				drawLCD = false;
 	Bool				lcdOn;
+	Bool				backlightOn;
 	uint16				ledState;
 
 	{
@@ -541,6 +540,7 @@ void EmWindow::PaintScreen (Bool drawCase, Bool wholeLCD)
 		// We have to do that if the LCD or LEDs have turned off.
 
 		lcdOn		= EmHAL::GetLCDScreenOn ();
+		backlightOn	= EmHAL::GetLCDBacklightOn ();
 		ledState	= EmHAL::GetLEDState ();
 
 		if (!lcdOn && fOldLCDOn)
@@ -556,7 +556,7 @@ void EmWindow::PaintScreen (Bool drawCase, Bool wholeLCD)
 		// Determine if we have to draw the LCD or LED.  We'd have to do that
 		// if their state has changed or if we had to draw the background.
 
-		if (drawCase || (lcdOn != fOldLCDOn))
+		if (drawCase || (lcdOn != fOldLCDOn) || (backlightOn != fOldBacklightOn))
 		{
 			drawLCD		= lcdOn;
 		}
@@ -572,6 +572,7 @@ void EmWindow::PaintScreen (Bool drawCase, Bool wholeLCD)
 		}
 
 		fOldLCDOn		= lcdOn;
+		fOldBacklightOn	= backlightOn;
 		fOldLEDState	= ledState;
 
 		// If we're going to be drawing the whole LCD, then invalidate
@@ -684,9 +685,9 @@ void EmWindow::PaintLCDFrame (const EmScreenUpdateInfo&)
 
 #ifdef SONY_ROM
 	EmPoint	penSize			(1, 1);
-#else
+#else //!SONY_ROM
 	EmPoint	penSize			(2, 2);
-#endif
+#endif //SONY_ROM
 
 	penSize = ::SkinScaleUp (penSize);
 
@@ -713,12 +714,15 @@ void EmWindow::PaintLCD (const EmScreenUpdateInfo& info)
 	EmRect	destRect;
 	EmPoint	screenSize = info.fImage.GetSize();
 	bool	HiRez = false;
-	HiRez = (( gSession->GetDevice().GetDeviceType() == kDevicePEGT400 
-			|| gSession->GetDevice().GetDeviceType() == kDevicePEGT600 
-			|| gSession->GetDevice().GetDeviceType() == kDevicePEGN700C 
-			|| gSession->GetDevice().GetDeviceType() == kDevicePEGN600C)
-			&& screenSize.fX == 320);
-	
+	HiRez = (((	gSession->GetDevice().GetDeviceType() == kDevicePEGT400 
+				|| gSession->GetDevice().GetDeviceType() == kDevicePEGT600 
+				|| gSession->GetDevice().GetDeviceType() == kDevicePEGN700C 
+				|| gSession->GetDevice().GetDeviceType() == kDevicePEGN600C
+				|| gSession->GetDevice().GetDeviceType() == kDeviceYSX1230
+				|| gSession->GetDevice().GetDeviceType() == kDeviceYSX1100)
+				&& screenSize.fX == 320)
+			);
+
 	if (HiRez)
 	{
 		destRect = lcdRect;
@@ -741,14 +745,14 @@ void EmWindow::PaintLCD (const EmScreenUpdateInfo& info)
 		destRect.fTop		= destRect.fTop + info.fFirstLine;
 		destRect = ::SkinScaleUp (destRect);
 	}
-#else
+#else //!SONY_ROM
 	EmRect	destRect = ::SkinScaleDown (lcdRect);
 
 	destRect.fBottom	= destRect.fTop + info.fLastLine;
 	destRect.fTop		= destRect.fTop + info.fFirstLine;
 
 	destRect = ::SkinScaleUp (destRect);
-#endif
+#endif //SONY_ROM
 
 	// Get the bounds of the area we'll be blitting from.
 
@@ -763,7 +767,7 @@ void EmWindow::PaintLCD (const EmScreenUpdateInfo& info)
 		srcRect.fRight	*= (screenSize.fX / 160) ;
 		srcRect.fLeft	*= (screenSize.fX / 160) ;
 	}
-#endif
+#endif //SONY_ROM
 
 	// Determine if the image needs to be scaled.
 
@@ -790,9 +794,9 @@ void EmWindow::PaintLED (uint16 ledState)
 	{
 #ifdef SONY_ROM
 		ledColor = RGBType (237, 84, 17);	// Orange
-#else
+#else //!SONY_ROM
 		ledColor = RGBType (255, 128, 0);	// Orange
-#endif
+#endif //SONY_ROM
 	}
 	else if ((ledState & kLEDRed) == kLEDRed)
 	{
@@ -858,13 +862,21 @@ void EmWindow::PrefsChangedCB (PrefKeyType key, void* data)
 
 void EmWindow::PrefsChanged (PrefKeyType key)
 {
-	if ((strcmp (key, kPrefKeyScale) == 0) || (strcmp (key, kPrefKeySkins) == 0))
+	if (::PrefKeysEqual (key, kPrefKeyScale) ||
+		::PrefKeysEqual (key, kPrefKeySkins) ||
+		::PrefKeysEqual (key, kPrefKeyShowDebugMode) ||
+		::PrefKeysEqual (key, kPrefKeyShowGremlinMode) ||
+		::PrefKeysEqual (key, kPrefKeyBackgroundColor))
 	{
 		fNeedWindowReset = true;
 	}
-	else if (strcmp (key, kPrefKeyBackgroundColor) == 0)
+	else if (::PrefKeysEqual (key, kPrefKeyBackgroundColor))
 	{
 		fNeedWindowInvalidate = true;
+	}
+	else if (::PrefKeysEqual (key, kPrefKeyStayOnTop))
+	{
+		this->HostWindowStayOnTop ();
 	}
 }
 
@@ -903,6 +915,7 @@ EmRect EmWindow::GetLEDBounds (void)
 {
 	int				ii = 0;
 	SkinElementType	type = kElement_None;
+	Bool			found = false;
 	EmRect			bounds (10, 10, 20, 20);
 
 #if SONY_ROM
@@ -910,32 +923,46 @@ EmRect EmWindow::GetLEDBounds (void)
 	 || SkinGetElementEmRect(kElement_PowerButton, &bounds))  
 	{ 
 	} 
-#else
+#else //!SONY_ROM
 	while (::SkinGetElementInfo (ii++, type, bounds))
 	{
-		if (type == kElement_PowerButton)
+		if (type == kElement_LED)
 		{
-			// Create a square centered in the power button.
-
-			if (bounds.Width () > bounds.Height ())
-			{
-				bounds.fLeft	= bounds.fLeft + (bounds.Width () - bounds.Height ()) / 2;
-				bounds.fRight	= bounds.fLeft + bounds.Height ();
-			}
-			else
-			{
-				bounds.fTop		= bounds.fTop + (bounds.Height () - bounds.Width ()) / 2;
-				bounds.fBottom	= bounds.fTop + bounds.Width ();
-			}
-
-			// Inset it a little -- looks better this way.
-
-			bounds.Inset (2, 2);
-
+			found = true;
 			break;
 		}
 	}
-#endif
+
+	if (!found)
+	{
+		ii = 0;
+		while (::SkinGetElementInfo (ii++, type, bounds))
+		{
+			if (type == kElement_PowerButton)
+			{
+				// Create a square centered in the power button.
+
+				if (bounds.Width () > bounds.Height ())
+				{
+					bounds.fLeft	= bounds.fLeft + (bounds.Width () - bounds.Height ()) / 2;
+					bounds.fRight	= bounds.fLeft + bounds.Height ();
+				}
+				else
+				{
+					bounds.fTop		= bounds.fTop + (bounds.Height () - bounds.Width ()) / 2;
+					bounds.fBottom	= bounds.fTop + bounds.Width ();
+				}
+
+				// Inset it a little -- looks better this way.
+
+				bounds.Inset (2, 2);
+
+				break;
+			}
+		}
+	}
+#endif //SONY_ROM
+
 	return bounds;
 }
 
@@ -979,6 +1006,8 @@ void EmWindow::GetDefaultSkin (EmPixMap& pixMap)
 	this->HostGetDefaultSkin (pixMap, *scalePref);
 }
 
+
+#pragma mark -
 
 // ---------------------------------------------------------------------------
 //		¥ EmWindow::PrevLCDColorsChanged
@@ -1039,8 +1068,8 @@ void EmWindow::GetSystemColors (const EmScreenUpdateInfo& info, RGBList& colors)
 	{
 		colors = info.fImage.GetColorTable ();
 		colors.insert (colors.end (),
-			fSkinColors1.begin (),
-			fSkinColors1.end ());
+			this->GetCurrentSkinColors (false).begin (),
+			this->GetCurrentSkinColors (false).end ());
 	}
 
 	// If this is an 8-bit image, then we have an interesting problem.  We
@@ -1078,8 +1107,8 @@ void EmWindow::GetSystemColors (const EmScreenUpdateInfo& info, RGBList& colors)
 		q.GetColorTable (colors);
 
 		colors.insert (colors.end (),
-			fSkinColors2.begin (),
-			fSkinColors2.end ());
+			this->GetCurrentSkinColors (true).begin (),
+			this->GetCurrentSkinColors (true).end ());
 	}
 
 	// Otherwise, if this is a 16 or 24 bit LCD, then we have to
@@ -1093,17 +1122,360 @@ void EmWindow::GetSystemColors (const EmScreenUpdateInfo& info, RGBList& colors)
 		q.GetColorTable (colors);
 
 		colors.insert (colors.end (),
-			fSkinColors2.begin (),
-			fSkinColors2.end ());
+			this->GetCurrentSkinColors (true).begin (),
+			this->GetCurrentSkinColors (true).end ());
 	}
 }
 
 
 // ---------------------------------------------------------------------------
-//		¥ EmWindow::GetSkinRegion
+//		¥ EmWindow::QuantizeSkinColors
 // ---------------------------------------------------------------------------
 
-EmRegion EmWindow::GetSkinRegion (void)
+void EmWindow::QuantizeSkinColors (const EmPixMap& skin, RGBList& colors, Bool polite)
+{
+	if (polite)
+	{
+		EmQuantizer q (64, 6);	// Leaves 256 - 64 - 20 = 172 for LCD
+		q.ProcessImage (skin);
+		q.GetColorTable (colors);
+	}
+	else
+	{
+		EmQuantizer q (220, 6);	// Leaves 256 - 220 - 20 = 16 for LCD
+		q.ProcessImage (skin);
+		q.GetColorTable (colors);
+	}
+}
+
+
+// ---------------------------------------------------------------------------
+//		¥ EmWindow::GetCurrentSkin
+// ---------------------------------------------------------------------------
+
+const EmPixMap& EmWindow::GetCurrentSkin (void)
+{
+	if (fSkinCurrent.GetSize () == EmPoint (0, 0))
+	{
+		fSkinCurrent = fSkinBase;
+
+		Preference<bool>	prefDimWhenInactive (kPrefKeyDimWhenInactive);
+		Preference<bool>	prefShowDebugMode (kPrefKeyShowDebugMode);
+		Preference<bool>	prefShowGremlinMode (kPrefKeyShowGremlinMode);
+
+		if (!fActive && *prefDimWhenInactive)
+			fSkinCurrent.ChangeTone (40);
+
+		if (fDebugMode && *prefShowDebugMode)
+			fSkinCurrent.ConvertToColor (1);
+
+		else if (fGremlinMode && *prefShowGremlinMode)
+			fSkinCurrent.ConvertToColor (2);
+	}
+
+	return fSkinCurrent;
+}
+
+
+// ---------------------------------------------------------------------------
+//		¥ EmWindow::GetCurrentSkinColors
+// ---------------------------------------------------------------------------
+
+const RGBList& EmWindow::GetCurrentSkinColors (Bool polite)
+{
+	int	index = 0;
+
+	if (fDebugMode)
+		index |= 0x0001;
+
+	else if (fGremlinMode)
+		index |= 0x0002;
+
+	if (fActive)
+		index |= 0x0004;
+
+	if (polite)
+		index |= 0x0008;
+
+	RGBList&	result = fSkinColors[index];
+
+	if (result.empty ())
+	{
+		const EmPixMap&	skin = this->GetCurrentSkin ();
+
+		this->QuantizeSkinColors (skin, result, polite);
+	}
+
+	return result;
+}
+
+
+// ---------------------------------------------------------------------------
+//		¥ EmWindow::GetCurrentSkinRegion
+// ---------------------------------------------------------------------------
+
+const EmRegion& EmWindow::GetCurrentSkinRegion (void)
 {
 	return fSkinRegion;
+}
+
+
+#pragma mark -
+
+// ---------------------------------------------------------------------------
+//		¥ EmWindow::HostWindowReset
+// ---------------------------------------------------------------------------
+// Update the window's appearance due to a skin change.
+
+void EmWindow::HostWindowReset (void)
+{
+	EmAssert (false);
+}
+
+
+// ---------------------------------------------------------------------------
+//		¥ EmWindow::HostMouseCapture
+// ---------------------------------------------------------------------------
+// Capture the mouse so that all mouse events get sent to this window.
+
+void EmWindow::HostMouseCapture (void)
+{
+}
+
+
+// ---------------------------------------------------------------------------
+//		¥ EmWindow::HostMouseRelease
+// ---------------------------------------------------------------------------
+// Release the mouse so that mouse events get sent to the window the
+// cursor is over.
+
+void EmWindow::HostMouseRelease (void)
+{
+}
+
+
+// ---------------------------------------------------------------------------
+//		¥ EmWindow::HostUpdateBegin
+// ---------------------------------------------------------------------------
+// Prepare the host window object for updating.
+
+void EmWindow::HostUpdateBegin (void)
+{
+}
+
+
+// ---------------------------------------------------------------------------
+//		¥ EmWindow::HostUpdateEnd
+// ---------------------------------------------------------------------------
+// Finalize the host window object after it's been updated.
+
+void EmWindow::HostUpdateEnd (void)
+{
+}
+
+
+// ---------------------------------------------------------------------------
+//		¥ EmWindow::HostDrawingBegin
+// ---------------------------------------------------------------------------
+// Prepare the host window object for drawing outside of an update event.
+
+void EmWindow::HostDrawingBegin (void)
+{
+}
+
+
+// ---------------------------------------------------------------------------
+//		¥ EmWindow::HostDrawingEnd
+// ---------------------------------------------------------------------------
+// Finalize the host window object after drawing outside of an update event.
+
+void EmWindow::HostDrawingEnd (void)
+{
+}
+
+
+// ---------------------------------------------------------------------------
+//		¥ EmWindow::HostPaletteSet
+// ---------------------------------------------------------------------------
+// Establish the palette to be used for drawing.
+
+void EmWindow::HostPaletteSet (const EmScreenUpdateInfo&)
+{
+}
+
+
+// ---------------------------------------------------------------------------
+//		¥ EmWindow::HostPaletteRestore
+// ---------------------------------------------------------------------------
+// Clean up after HostPaletteSet.
+
+void EmWindow::HostPaletteRestore (void)
+{
+}
+
+
+// ---------------------------------------------------------------------------
+//		¥ EmWindow::HostWindowMoveBy
+// ---------------------------------------------------------------------------
+// Move the host window object by the given offset.
+
+void EmWindow::HostWindowMoveBy (const EmPoint&)
+{
+	EmAssert (false);
+}
+
+
+// ---------------------------------------------------------------------------
+//		¥ EmWindow::HostWindowMoveTo
+// ---------------------------------------------------------------------------
+// Move the host window object to the given location.
+
+void EmWindow::HostWindowMoveTo (const EmPoint&)
+{
+	EmAssert (false);
+}
+
+
+// ---------------------------------------------------------------------------
+//		¥ EmWindow::HostWindowBoundsGet
+// ---------------------------------------------------------------------------
+// Get the global bounds of the host window object.
+
+EmRect EmWindow::HostWindowBoundsGet (void)
+{
+	EmAssert (false);
+	return EmRect (0, 0, 0, 0);
+}
+
+
+// ---------------------------------------------------------------------------
+//		¥ EmWindow::HostWindowCenter
+// ---------------------------------------------------------------------------
+// Center the window to the main display.
+
+void EmWindow::HostWindowCenter (void)
+{
+	EmAssert (false);
+}
+
+
+// ---------------------------------------------------------------------------
+//		¥ EmWindow::HostWindowShow
+// ---------------------------------------------------------------------------
+// Make the host window object visible.
+
+void EmWindow::HostWindowShow (void)
+{
+	EmAssert (false);
+}
+
+
+// ---------------------------------------------------------------------------
+//		¥ EmWindow::HostWindowStayOnTop
+// ---------------------------------------------------------------------------
+// Make the host window stay on top.
+
+void EmWindow::HostWindowStayOnTop (void)
+{
+}
+
+
+// ---------------------------------------------------------------------------
+//		¥ EmWindow::HostWindowDrag
+// ---------------------------------------------------------------------------
+// The user has clicked in a region of the host window object that causes
+// the window to be dragged.  Drag the window around.
+
+void EmWindow::HostWindowDrag (void)
+{
+}
+
+
+// ---------------------------------------------------------------------------
+//		¥ EmWindow::HostRectFrame
+// ---------------------------------------------------------------------------
+// Draw a rectangle frame with the given width in the given color.
+
+void EmWindow::HostRectFrame (const EmRect&, const EmPoint&, const RGBType&)
+{
+	EmAssert (false);
+}
+
+
+// ---------------------------------------------------------------------------
+//		¥ EmWindow::HostOvalPaint
+// ---------------------------------------------------------------------------
+// Fill an oval with the given color.
+
+void EmWindow::HostOvalPaint (const EmRect&, const RGBType&)
+{
+	EmAssert (false);
+}
+
+
+// ---------------------------------------------------------------------------
+//		¥ EmWindow::HostPaintCase
+// ---------------------------------------------------------------------------
+// Draw the skin.
+
+void EmWindow::HostPaintCase (const EmScreenUpdateInfo&)
+{
+	EmAssert (false);
+}
+
+
+// ---------------------------------------------------------------------------
+//		¥ EmWindow::HostPaintLCD
+// ---------------------------------------------------------------------------
+// Draw the LCD area.
+
+void EmWindow::HostPaintLCD (const EmScreenUpdateInfo&, const EmRect&,
+						  const EmRect&, Bool)
+{
+	EmAssert (false);
+}
+
+
+// ---------------------------------------------------------------------------
+//		¥ EmWindow::HostPalette
+// ---------------------------------------------------------------------------
+// Tell the system about the palette we want to use.  Called when Windows
+// is updating its system palette.
+
+void EmWindow::HostPalette (void)
+{
+}
+
+
+// ---------------------------------------------------------------------------
+//		¥ EmWindow::HostDisplayChange
+// ---------------------------------------------------------------------------
+// Respond to the display's bit depth changing.  All we do here is flush our
+// caches of the skin information.  It will get regenerated when it's needed.
+
+void EmWindow::HostDisplayChange (void)
+{
+}
+
+
+// ---------------------------------------------------------------------------
+//		¥ EmWindow::HostGetDefaultSkin
+// ---------------------------------------------------------------------------
+// Get the default (built-in) skin image.
+
+void EmWindow::HostGetDefaultSkin (EmPixMap&, int)
+{
+	EmAssert (false);
+}
+
+
+// ---------------------------------------------------------------------------
+//		¥ EmWindow::HostGetCurrentMouse
+// ---------------------------------------------------------------------------
+// Get the current mouse location.
+
+EmPoint EmWindow::HostGetCurrentMouse (void)
+{
+	EmAssert (false);
+	return EmPoint (0, 0);
 }

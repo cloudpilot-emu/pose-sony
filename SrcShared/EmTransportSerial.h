@@ -31,17 +31,21 @@ class EmTransportSerial : public EmTransport
 		typedef long	DataBits;
 		typedef long	HwrHandshake;
 
-		typedef vector<PortName>		PortNameList;
-		typedef vector<Baud>			BaudList;
-		typedef vector<StopBits>		StopBitsList;
-		typedef vector<DataBits>		DataBitsList;
-		typedef vector<HwrHandshake>	HwrHandshakeList;
+		typedef vector<PortName>	PortNameList;
+		typedef vector<Baud>		BaudList;
 
 		enum Parity
 		{
 			kNoParity,
 			kOddParity,
 			kEvenParity
+		};
+
+		enum RTSControl
+		{
+			kRTSOff,
+			kRTSOn,
+			kRTSAuto
 		};
 
 		// Note: this used to be named "Config", but that runs
@@ -68,6 +72,7 @@ class EmTransportSerial : public EmTransport
 
 	public:
 								EmTransportSerial		(void);
+								EmTransportSerial		(const EmTransportDescriptor&);
 								EmTransportSerial		(const ConfigSerial&);
 		virtual					~EmTransportSerial		(void);
 
@@ -79,13 +84,21 @@ class EmTransportSerial : public EmTransport
 
 		virtual Bool			CanRead					(void);
 		virtual Bool			CanWrite				(void);
-		virtual long			BytesInBuffer			(void);
+		virtual long			BytesInBuffer			(long minBytes);
+		virtual string			GetSpecificName			(void);
 
 		ErrCode					SetConfig				(const ConfigSerial&);
 		void					GetConfig				(ConfigSerial&);
 
+		void					SetRTS					(RTSControl state);
+		void					SetDTR					(Bool state);
+		void					SetBreak				(Bool state);
+
+		Bool					GetCTS					(void);
+		Bool					GetDSR					(void);
+
 		static EmTransportSerial*	GetTransport		(const ConfigSerial&);
-		static void				GetPortNameList			(PortNameList&);
+		static void				GetDescriptorList		(EmTransportDescriptorList&);
 		static void				GetSerialBaudList		(BaudList&);
 
 	private:
@@ -97,12 +110,19 @@ class EmTransportSerial : public EmTransport
 
 		ErrCode					HostRead				(long&, void*);
 		ErrCode					HostWrite				(long&, const void*);
-		long					HostBytesInBuffer		(void);
+		long					HostBytesInBuffer		(long minBytes);
 
 		ErrCode					HostSetConfig			(const ConfigSerial&);
 
-		static void				HostGetSerialPortNameList	(PortNameList&);
-		static void				HostGetSerialBaudList		(BaudList&);
+		void					HostSetRTS				(RTSControl state);
+		void					HostSetDTR				(Bool state);
+		void					HostSetBreak			(Bool state);
+
+		Bool					HostGetCTS				(void);
+		Bool					HostGetDSR				(void);
+
+		static void				HostGetPortNameList		(PortNameList&);
+		static void				HostGetSerialBaudList	(BaudList&);
 
 		EmHostTransportSerial*	fHost;
 		ConfigSerial			fConfig;

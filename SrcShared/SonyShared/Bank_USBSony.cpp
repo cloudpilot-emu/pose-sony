@@ -332,7 +332,9 @@ void EmRegsUsbCLIE::UnsupportedWrite (emuptr address, int size, uint32 value)
 // ---------------------------------------------------------------------------
 
 EmRegsUSBforPegN700C::EmRegsUSBforPegN700C (emuptr baseAddr) :
-	fBaseAddr (baseAddr)
+	fBaseAddr (baseAddr),
+	fSecondFlg (false),
+	fSecondCnt (0)
 {
 }
 
@@ -409,6 +411,9 @@ void EmRegsUSBforPegN700C::Reset (Bool hardwareReset)
 		memset (&fRegs, 0, sizeof(fRegs));
 		fRegs.USB0C06 = 0xFC;
 		fRegs.USB0C07 = 0x00;
+
+		fSecondFlg = false;
+		fSecondCnt = 0;
 	}
 }
 
@@ -573,8 +578,9 @@ uint32 EmRegsUSBforPegN700C::GetAddressRange (void)
 //		¥ EmRegsCFMemCard::Write
 // ---------------------------------------------------------------------------
 void EmRegsUSBforPegN700C::Write(emuptr address, int size, uint32 value)
+
 {
-	if (address == 0x10800C06 && size == 2)
+	if (address == (GetAddressStart()+0x0C06) && size == 2)
 	{
 		if (this->StdReadBE (address, size) == 0xFC00)
 			value = 0x0001;
@@ -586,9 +592,32 @@ void EmRegsUSBforPegN700C::Write(emuptr address, int size, uint32 value)
 // ---------------------------------------------------------------------------
 //		¥ EmRegsUSBforPegN700C::Read
 // ---------------------------------------------------------------------------
+
 uint32 EmRegsUSBforPegN700C::Read(emuptr address, int size)
 {
 	uint32	rstValue = this->StdReadBE (address, size);
+
+	if (address == (GetAddressStart()+0x0C06) && size == 2)
+	{
+		if(fSecondFlg == true) {
+			switch(fSecondCnt) {
+			case 0:
+				fSecondCnt+=1;
+				rstValue = 0xFC00;
+				break;
+			case 1:
+				fSecondCnt+=1;
+				rstValue = 0x0001;
+				break;
+			default:
+				fSecondCnt+=1;
+				rstValue = 0x0000;
+				break;
+			}
+		}
+		if(rstValue == 0x0000 && fSecondFlg == false)
+			fSecondFlg = true;
+	}
 
 	return	rstValue;
 }
@@ -615,6 +644,7 @@ uint32 EmRegsUSBforPegN700C::ReadFromAddr0x8000 (emuptr address, int size)
 	// hardware, the ROM will check this flag in order to write the CLUT
 	// registers.
 	return	this->StdReadBE (address, size);
+
 }
 
 

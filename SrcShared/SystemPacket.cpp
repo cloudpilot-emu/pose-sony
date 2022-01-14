@@ -20,6 +20,7 @@
 #include "EmCPU68K.h"			// gCPU68K->UpdateRegistersFromSR
 #include "EmErrCodes.h"			// kError_NoError
 #include "EmLowMem.h"			// EmLowMem_GetGlobal
+#include "EmMemory.h"			// EmMem_memcpy
 #include "EmPalmFunction.h"		// FindFunctionName
 #include "EmPalmStructs.h"		// EmSysPktRPCType, etc
 #include "EmRPC.h"				// slkSocketRPC
@@ -28,7 +29,9 @@
 #include "Logging.h"			// LogAppendMsg
 #include "Platform.h"			// Platform::ExitDebugger
 #include "SLP.h"				// SLP
-#include "UAE_Utils.h"			// uae_memcpy
+
+#include <ctype.h>				// isalpha
+
 
 /*
 	This module implements the handling of all "serial link" packets.
@@ -300,7 +303,7 @@ ErrCode SystemPacket::ReadMem (SLP& slp)
 
 	if (len > 0 && EmMemCheckAddress (src, 1) && EmMemCheckAddress (src + len - 1, 1))
 	{
-		uae_memcpy (dest, src, len);
+		EmMem_memcpy (dest, src, len);
 	}
 
 	EXIT_PACKET ("ReadMem", sysPktReadMemRsp,
@@ -330,7 +333,7 @@ ErrCode SystemPacket::WriteMem (SLP& slp)
 
 	if (len > 0 && EmMemCheckAddress (dest, 1) && EmMemCheckAddress (dest + len - 1, 1))
 	{
-		uae_memcpy (dest, src, len);
+		EmMem_memcpy (dest, src, len);
 	}
 
 	// If we just altered low memory, recalculate the low-memory checksum.
@@ -730,8 +733,7 @@ ErrCode SystemPacket::RPC2 (SLP& slp)
 	{
 		if ((mask & packet.DRegMask) != 0)
 		{
-			UInt32	reg = *regsP++;
-			Canonical (reg);
+			EmAliasUInt32<LAS> reg (regsP++);
 			trap.SetNewDReg (regNum, reg);
 		}
 
@@ -748,8 +750,7 @@ ErrCode SystemPacket::RPC2 (SLP& slp)
 	{
 		if ((mask & packet.ARegMask) != 0)
 		{
-			UInt32	reg = *regsP++;
-			Canonical (reg);
+			EmAliasUInt32<LAS> reg (regsP++);
 			trap.SetNewAReg (regNum, reg);
 		}
 
@@ -759,8 +760,8 @@ ErrCode SystemPacket::RPC2 (SLP& slp)
 
 	// Extract any stack-based parameters from the packet.
 
-	UInt16	numParams = *(UInt16*) regsP;
-	Canonical (numParams);
+	EmAliasUInt16<LAS> numParamsP (regsP);
+	UInt16	numParams = numParamsP;
 
 	void*	paramStart	= ((char*) regsP) + sizeof (UInt16);
 	void*	paramPtr	= paramStart;

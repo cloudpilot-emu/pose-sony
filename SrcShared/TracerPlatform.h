@@ -45,7 +45,7 @@ public:
 	virtual void		GetTracerCapabilities		(char* buffer, size_t* bufferLen);
 	virtual void		SetCurrentTracerTypeIndex	(unsigned short tracerType, Bool paramChange = false);
 
-#ifdef PLATFORM_WINDOWS
+#if PLATFORM_WINDOWS
 	// Connection control
 	virtual void		CheckPeerStatus 			(void);
 #endif

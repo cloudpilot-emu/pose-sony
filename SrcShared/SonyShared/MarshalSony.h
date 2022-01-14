@@ -19,10 +19,22 @@
 		inline static void GetParamVal (long loc, ExpCardInfoType& v)	// for Sony & ExpansionMgr
 			{ v = GetCardInfoBufType (loc); }
 
+		inline static void PutParamRef (long loc, ExpCardInfoType& v)	// for Sony & ExpansionMgr
+			{ PutCardInfoBufType (loc, v); }
+
+		inline static void GetParamRef (long loc, ExpCardInfoType& v)	// for Sony & ExpansionMgr
+			{ v = GetCardInfoBufType (loc); }
+
 		inline static void PutParamVal (long loc, VolumeInfoType& v)	// for Sony & ExpansionMgr
 			{ PutVolumeInfoBufType (loc, v); }
 
 		inline static void GetParamVal (long loc, VolumeInfoType& v)	// for Sony & ExpansionMgr
+			{ v = GetVolumeInfoBufType (loc); }
+
+		inline static void PutParamRef (long loc, VolumeInfoType& v)	// for Sony & ExpansionMgr
+			{ PutVolumeInfoBufType (loc, v); }
+
+		inline static void GetParamRef (long loc, VolumeInfoType& v)	// for Sony & ExpansionMgr
 			{ v = GetVolumeInfoBufType (loc); }
 
 		inline static void PutParamVal (long loc, FileInfoType& v)		// for Sony & VFSMgr
@@ -31,14 +43,32 @@
 		inline static void GetParamVal (long loc, FileInfoType& v)		// for Sony & VFSMgr
 			{ v = GetFileInfoBufType (loc); }
 
+		inline static void PutParamRef (long loc, FileInfoType& v)		// for Sony & VFSMgr
+			{ PutFileInfoBufType (loc, v); }
+
+		inline static void GetParamRef (long loc, FileInfoType& v)		// for Sony & VFSMgr
+			{ v = GetFileInfoBufType (loc); }
+
 		inline static void PutParamVal (long loc, VFSAnyMountParamType& v)		// for Sony & VFSMgr
 			{ PutVFSAnyMountParamType (loc, v); }
 
 		inline static void GetParamVal (long loc, VFSAnyMountParamType& v)		// for Sony & VFSMgr
 			{ v = GetVFSAnyMountParamType (loc); }
 
+		inline static void PutParamRef (long loc, VFSAnyMountParamType& v)		// for Sony & VFSMgr
+			{ PutVFSAnyMountParamType (loc, v); }
+
+		inline static void GetParamRef (long loc, VFSAnyMountParamType& v)		// for Sony & VFSMgr
+			{ v = GetVFSAnyMountParamType (loc); }
+
 		inline static void PutParamVal (long loc, CardMetricsType& v)		// for Sony & SlotDriver Lib
 			{ PutCardMetricsType (loc, v); }
 
 		inline static void GetParamVal (long loc, CardMetricsType& v)		// for Sony & SlotDriver Lib
+			{ v = GetCardMetricsType (loc); }
+
+		inline static void PutParamRef (long loc, CardMetricsType& v)		// for Sony & SlotDriver Lib
+			{ PutCardMetricsType (loc, v); }
+
+		inline static void GetParamRef (long loc, CardMetricsType& v)		// for Sony & SlotDriver Lib
 			{ v = GetCardMetricsType (loc); }

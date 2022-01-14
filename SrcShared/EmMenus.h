@@ -143,6 +143,28 @@ class EmMenuItem
 };
 
 
+// An EmMenu is a top-level menu.  It is the same as an EmMenuItemList,
+// with the addition of a changecount used as a timestamp.  This
+// changecount is used to determine if the menu needs to be updated in
+// the face of any changes (such as the MRU lists changing).
+
+class EmMenu : public EmMenuItemList
+{
+	public:
+								EmMenu	(void) : EmMenuItemList () {}
+								EmMenu	(const EmMenuItemList& o) : EmMenuItemList (o) {}
+								~EmMenu	(void) {}
+
+		unsigned long			GetChangeCount	(void)				{ return fChangeCount; };
+		void					SetChangeCount	(unsigned long v)	{ fChangeCount = v; }
+
+	private:
+		unsigned long			fChangeCount;
+};
+
+
+
+
 enum EmMenuID
 {
 	kMenuNone,
@@ -159,10 +181,10 @@ enum EmMenuID
 };
 
 void			MenuInitialize					(Bool alternateLayout);
-EmMenuItemList*	MenuFindMenu					(EmMenuID);
+EmMenu*			MenuFindMenu					(EmMenuID);
 EmMenuItem*		MenuFindMenuItemByCommandID		(EmMenuItemList&, EmCommandID, Bool recurse);
 EmMenuItemList* MenuFindMenuContainingCommandID	(EmMenuItemList&, EmCommandID);
-void			MenuUpdateMruMenus				(EmMenuItemList&);
-void			MenuUpdateMenuItemStatus		(EmMenuItemList& menu);
+void			MenuUpdateMruMenus				(EmMenu&);
+void			MenuUpdateMenuItemStatus		(EmMenuItemList&);
 
 #endif	// EmMenus_h

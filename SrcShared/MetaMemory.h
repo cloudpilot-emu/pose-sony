@@ -119,6 +119,13 @@ class MetaMemory
 		static Bool				InRAMOSComponent		(emuptr pc);
 		static void				ChunkUnlocked			(emuptr addr);
 
+		static void				RegisterBitmapHandle	(MemHandle);
+		static void				RegisterBitmapPointer	(MemPtr);
+		static Bool				IsBitmapHandle			(MemHandle);
+		static Bool				IsBitmapPointer			(MemPtr);
+		static void				UnregisterBitmapHandle	(MemHandle);
+		static void				UnregisterBitmapPointer	(MemPtr);
+
 		// Accessors for getting ranges of memory.
 
 		static emuptr			GetLowMemoryBegin		(void);
@@ -363,9 +370,6 @@ inline Bool MetaMemory::IsScreenBuffer (uint8* metaAddress, uint32 size)
 	else if (size == 2)
 	{
 		const uint16 kMask = META_BITS_16 (kScreenBuffer);
-// maki-DEBUG
-		uint16 value = META_VALUE_16 (metaAddress);
-// --------->
 
 		return (META_VALUE_16 (metaAddress) & kMask) != 0;
 	}
@@ -373,9 +377,6 @@ inline Bool MetaMemory::IsScreenBuffer (uint8* metaAddress, uint32 size)
 	{
 		const uint32 kMask = META_BITS_32 (kScreenBuffer);
 
-// maki-DEBUG
-		uint16 value = META_VALUE_16 (metaAddress);
-// --------->
 		return (META_VALUE_32 (metaAddress) & kMask) != 0;
 	}
 
@@ -430,11 +431,11 @@ inline Bool MetaMemory::IsCPUBreak (uint8* metaLocation)
 
 #define META_CHECK(metaAddress, address, op, size, forRead)		\
 do {															\
-	if (EmBankROM::IsPCInRAM ())								\
+	if (Memory::IsPCInRAM ())								\
 	{															\
 		if (!MetaMemory::CanApp##op (metaAddress))				\
 		{														\
-			if (!MetaMemory::InRAMOSComponent (m68k_getpc ()))	\
+			if (!MetaMemory::InRAMOSComponent (gCPU->GetPC ()))	\
 			{													\
 				ProbableCause (address, sizeof (size), forRead);\
 			}													\
@@ -444,7 +445,7 @@ do {															\
 			}													\
 		}														\
 	}															\
-	else if (Patches::IsPCInMemMgr ())							\
+	else if (EmPatchState::IsPCInMemMgr ())						\
 	{															\
 		if (!MetaMemory::CanMemMgr##op (metaAddress))			\
 		{														\
@@ -453,15 +454,15 @@ do {															\
 	}															\
 } while (0)
 
-#else
+#else //!SONY_ROM
 
 #define META_CHECK(metaAddress, address, op, size, forRead)		\
 do {															\
-	if (EmBankROM::IsPCInRAM ())								\
+	if (Memory::IsPCInRAM ())									\
 	{															\
 		if (!MetaMemory::CanApp##op (metaAddress))				\
 		{														\
-			if (!MetaMemory::InRAMOSComponent (m68k_getpc ()))	\
+			if (!MetaMemory::InRAMOSComponent (gCPU->GetPC ()))	\
 			{													\
 				ProbableCause (address, sizeof (size), forRead);\
 			}													\
@@ -471,7 +472,7 @@ do {															\
 			}													\
 		}														\
 	}															\
-	else if (Patches::IsPCInMemMgr ())							\
+	else if (EmPatchState::IsPCInMemMgr ())						\
 	{															\
 		if (!MetaMemory::CanMemMgr##op (metaAddress))			\
 		{														\
@@ -488,7 +489,6 @@ do {															\
 } while (0)
 
 #endif	// SONY_ROM
-
 
 // ---------------------------------------------------------------------------
 //		¥ MetaMemory::MarkTotalAccess

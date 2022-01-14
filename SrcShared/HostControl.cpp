@@ -15,15 +15,20 @@
 #include "HostControl.h"
 #include "HostControlPrv.h"
 
+#include "DebugMgr.h"			// gDebuggerGlobals
+#include "EmApplication.h"		// gApplication, ScheduleQuit
 #include "EmBankMapped.h"		// EmBankMapped::GetEmulatedAddress
 #include "EmCPU68K.h"			// gCPU68K, gStackHigh, etc.
 #include "EmDirRef.h"			// EmDirRefList
 #include "EmDlg.h"				// DoGetFile, DoPutFile, DoGetDirectory
+#include "EmDocument.h"			// gDocument, HostSaveScreen, ScheduleNewHorde
 #include "EmErrCodes.h"			// kError_NoError
 #include "EmExgMgr.h"			// EmExgMgr::GetExgMgr
 #include "EmFileImport.h"		// EmFileImport::LoadPalmFileList
 #include "EmFileRef.h"			// EmFileRefList
+#include "EmMemory.h"			// EmMem_strlen, EmMem_strcpy
 #include "EmPalmStructs.h"		// EmAliasErr
+#include "EmPatchState.h"		// EmPatchState::UIInitialized
 #include "EmRPC.h"				// RPC::HandlingPacket, RPC::DeferCurrentPacket
 #include "EmSession.h"			// ResumeByExternal
 #include "EmStreamFile.h"		// EmStreamFile
@@ -35,14 +40,22 @@
 #include "Platform.h"			// Platform::GetShortVersionString
 #include "Profiling.h"			// ProfileInit, ProfileStart, ProfileStop, etc.
 #include "ROMStubs.h"			// EvtWakeup
-#include "Startup.h"			// Startup::ScheduleNewHorde
 #include "Strings.r.h"			// kStr_ProfileResults
-#include "UAE.h"				// m68k_areg, m68k_dreg, regs
-#include "UAE_Utils.h"			// uae_strlen, uae_strcpy
+
+#include <ctype.h>				// isdigit
 
 #if HAS_TRACER
 #include "TracerPlatform.h"		// Tracer
 #endif
+
+
+#include "EmSubroutine.h"
+#include "Marshal.h"
+
+#define CALLED_GET_PARAM_FILE(name)					\
+	CALLED_GET_PARAM_VAL (emuptr, name);			\
+													\
+	FILE*	fh	= PrvToFILE (name)
 
 
 #if PLATFORM_WINDOWS
@@ -65,8 +78,9 @@ typedef struct _utimbuf _utimbuf_;
 #include "fcntl.h"				// O_RDWR
 #include "utime.h"				// utime
 #include <time.h>				// asctime, clock, clock_t, etc.
+#include "errno.h"				// EACCES
 
-#define _O_BINARY	O_BINARY
+
 #define _O_RDWR		O_RDWR
 
 typedef struct stat		_stat_;
@@ -127,33 +141,32 @@ struct MyDIR
 
 typedef void		(*HostHandler) (void);
 
-static HostHandler	HostGetHandler (HostControlSelectorType selector);
+static HostHandler	PrvHostGetHandler		(HostControlSelectorType selector);
 
-static Bool 		CollectParameters (int stackOffset, const string& fmt, ByteList& stackData, StringList& stringData);
-static void 		PushShort (int& callerStackOffset, ByteList& stackData);
-static void 		PushLong (int& callerStackOffset, ByteList& stackData);
-static void 		PushDouble (int& callerStackOffset, ByteList& stackData);
-static void 		PushLongDouble (int& callerStackOffset, ByteList& stackData);
-static void 		PushString (int& callerStackOffset, ByteList& stackData, StringList& stringData);
+static Bool 		PrvCollectParameters	(EmSubroutine& sub, const string& fmt,
+											 ByteList& stackData, StringList& stringData);
+static void 		PrvPushShort			(EmSubroutine& sub, ByteList& stackData);
+static void 		PrvPushLong				(EmSubroutine& sub, ByteList& stackData);
+static void 		PrvPushDouble			(EmSubroutine& sub, ByteList& stackData);
+static void 		PrvPushLongDouble		(EmSubroutine& sub, ByteList& stackData);
+static void 		PrvPushString			(EmSubroutine& sub, ByteList& stackData,
+											 StringList& stringData);
 
-static string		ToString (emuptr);
-static FILE*		ToFILE (emuptr);
+static FILE*		PrvToFILE				(emuptr);
 
-static void			GetHostTmType (HostTmType& dest, emuptr src);
-static void			PutHostTmType (emuptr dest, const HostTmType& src);
-static void			TmFromHostTm (struct tm& dest, const HostTmType& src);
-static void			HostTmFromTm (HostTmType& dest, const struct tm& src);
+static void			PrvTmFromHostTm			(struct tm& dest, const HostTmType& src);
+static void			PrvHostTmFromTm			(EmProxyHostTmType& dest, const struct tm& src);
 
-static void			MapAndReturn (const void* p, long size);
-static void			MapAndReturn (string& s);
-static void			PrvReturnString (const char* p);
-static void			PrvReturnString (const string& s);
+static void			PrvMapAndReturn			(const void* p, long size, EmSubroutine& sub);
+static void			PrvMapAndReturn			(const string& s, EmSubroutine& sub);
+static void			PrvReturnString			(const char* p, EmSubroutine& sub);
+static void			PrvReturnString			(const string& s, EmSubroutine& sub);
 
-static void			PrvReleaseAllResources (void);
+static void			PrvReleaseAllResources	(void);
 
-static emuptr		PrvMalloc (long size);
-static emuptr		PrvRealloc (emuptr p, long size);
-static void			PrvFree (emuptr p);
+static emuptr		PrvMalloc				(long size);
+static emuptr		PrvRealloc				(emuptr p, long size);
+static void			PrvFree					(emuptr p);
 
 
 // Write to this "file" if you want to intertwine your
@@ -164,20 +177,7 @@ static void			PrvFree (emuptr p);
 #define hostLogFILE ((FILE*) -1)
 
 
-// Macros for extracting parameters from the emulated stack
-
-#define PARAMETER_SIZE(x)	\
-	(sizeof (((StackFrame*) 0)->x))
-
-#define PARAMETER_OFFSET(x) \
-	(m68k_areg (regs, 7) + sizeof (HostControlSelectorType) + offsetof (StackFrame, x))
-
-#define GET_PARAMETER(x)		\
-	((PARAMETER_SIZE(x) == sizeof (char)) ? EmMemGet8 (PARAMETER_OFFSET(x)) :	\
-	 (PARAMETER_SIZE(x) == sizeof (short)) ? EmMemGet16 (PARAMETER_OFFSET(x)) :	\
-											EmMemGet32 (PARAMETER_OFFSET(x)))
-
-inline int __fclose (FILE* f)
+inline int x_fclose (FILE* f)
 {
 	if (f == hostLogFILE)
 	{
@@ -187,17 +187,17 @@ inline int __fclose (FILE* f)
 	return fclose (f);
 }
 
-inline int __feof (FILE* f)
+inline int x_feof (FILE* f)
 {
 	return feof (f);
 }
 
-inline int __ferror (FILE* f)
+inline int x_ferror (FILE* f)
 {
 	return ferror (f);
 }
 
-inline int __fflush (FILE* f)
+inline int x_fflush (FILE* f)
 {
 	if (f == hostLogFILE)
 	{
@@ -208,7 +208,7 @@ inline int __fflush (FILE* f)
 	return fflush (f);
 }
 
-inline int __fgetc (FILE* f)
+inline int x_fgetc (FILE* f)
 {
 	if (f == hostLogFILE)
 	{
@@ -218,7 +218,7 @@ inline int __fgetc (FILE* f)
 	return fgetc (f);
 }
 
-inline char* __fgets (char* s, int n, FILE* f)
+inline char* x_fgets (char* s, int n, FILE* f)
 {
 	if (f == hostLogFILE)
 	{
@@ -228,7 +228,7 @@ inline char* __fgets (char* s, int n, FILE* f)
 	return fgets (s, n, f);
 }
 
-inline int __vfprintf (FILE* f, const char* fmt, va_list args)
+inline int x_vfprintf (FILE* f, const char* fmt, va_list args)
 {
 	if (f == hostLogFILE)
 	{
@@ -238,7 +238,7 @@ inline int __vfprintf (FILE* f, const char* fmt, va_list args)
 	return vfprintf (f, fmt, args);
 }
 
-inline int __fputc (int c, FILE* f)
+inline int x_fputc (int c, FILE* f)
 {
 	if (f == hostLogFILE)
 	{
@@ -248,7 +248,7 @@ inline int __fputc (int c, FILE* f)
 	return fputc (c, f);
 }
 
-inline int __fputs (const char* s, FILE* f)
+inline int x_fputs (const char* s, FILE* f)
 {
 	if (f == hostLogFILE)
 	{
@@ -258,7 +258,7 @@ inline int __fputs (const char* s, FILE* f)
 	return fputs (s, f);
 }
 
-inline size_t __fread (void* buffer, size_t size, size_t count, FILE* f)
+inline size_t x_fread (void* buffer, size_t size, size_t count, FILE* f)
 {
 	if (f == hostLogFILE)
 	{
@@ -268,7 +268,7 @@ inline size_t __fread (void* buffer, size_t size, size_t count, FILE* f)
 	return fread (buffer, size, count, f);
 }
 
-inline int __fseek (FILE* f, long offset, int origin)
+inline int x_fseek (FILE* f, long offset, int origin)
 {
 	if (f == hostLogFILE)
 	{
@@ -278,7 +278,7 @@ inline int __fseek (FILE* f, long offset, int origin)
 	return fseek (f, offset, origin);
 }
 
-inline long __ftell (FILE* f)
+inline long x_ftell (FILE* f)
 {
 	if (f == hostLogFILE)
 	{
@@ -288,7 +288,7 @@ inline long __ftell (FILE* f)
 	return ftell (f);
 }
 
-inline size_t __fwrite (const void* buffer, size_t size, size_t count, FILE* f)
+inline size_t x_fwrite (const void* buffer, size_t size, size_t count, FILE* f)
 {
 	if (f == hostLogFILE)
 	{
@@ -298,7 +298,7 @@ inline size_t __fwrite (const void* buffer, size_t size, size_t count, FILE* f)
 	return fwrite (buffer, size, count, f);
 }
 
-static int translate_err_no(int err_no)
+static int translate_err_no (int err_no)
 {
 	switch (err_no)
 	{
@@ -327,26 +327,15 @@ static int translate_err_no(int err_no)
 	}
 }
 
-// The following functions define a bunch of StackFrame structs.
-// These structs need to mirror the format of parameters pushed
-// onto the stack by the emulated code, and so need to be packed
-// to 2-byte boundaries.
-//
-// The pragmas are reversed at the end of the file.
+HostHandler			gHandlerTable [hostSelectorLastTrapNumber];
 
-#include "PalmPack.h"
-
-
-
-HostHandler		gHandlerTable [hostSelectorLastTrapNumber];
-
-vector<FILE*>	gOpenFiles;
-vector<MyDIR*>	gOpenDirs;
-vector<void*>	gAllocatedBlocks;
-HostDirEntType	gHostDirEnt;
-string			gResultString;
-HostTmType		gGMTime;
-HostTmType		gLocalTime;
+vector<FILE*>		gOpenFiles;
+vector<MyDIR*>		gOpenDirs;
+vector<void*>		gAllocatedBlocks;
+HostDirEntType		gHostDirEnt;
+string				gResultString;
+EmProxyHostTmType	gGMTime;
+EmProxyHostTmType	gLocalTime;
 
 
 // ---------------------------------------------------------------------------
@@ -355,8 +344,11 @@ HostTmType		gLocalTime;
 
 CallROMType HandleHostControlCall (void)
 {
-	HostControlSelectorType selector = EmMemGet16 (m68k_areg (regs, 7) + 0);
-	HostHandler				fn = HostGetHandler (selector);
+	CALLED_SETUP ("UInt4", "HostControlSelectorType selector");
+
+	CALLED_GET_PARAM_VAL (HostControlSelectorType, selector);
+
+	HostHandler	fn = PrvHostGetHandler (selector);
 
 	if (fn)
 	{
@@ -364,9 +356,7 @@ CallROMType HandleHostControlCall (void)
 	}
 	else
 	{
-		// Return NULL/0 for unknown selectors
-		m68k_areg (regs, 0) = 0;
-		m68k_dreg (regs, 0) = 0;
+		// !!! Display an "unknown function" error message.
 	}
 
 	return kSkipROM;
@@ -381,11 +371,9 @@ CallROMType HandleHostControlCall (void)
 
 static void _HostGetHostVersion (void)
 {
-	// long HostHostGetVersion (void)
+	// long HostGetHostVersion (void)
 
-	struct StackFrame
-	{
-	};
+	CALLED_SETUP_HC ("Int32", "void");
 
 	enum { kMajor, kMinor, kFix, kBuild };
 
@@ -460,7 +448,10 @@ static void _HostGetHostVersion (void)
 
 VersionParseDone:
 	
-	m68k_dreg (regs, 0) = sysMakeROMVersion (major, minor, fix, stage, buildNum);
+	// Return the result.
+
+	Int32	result = sysMakeROMVersion (major, minor, fix, stage, buildNum);
+	PUT_RESULT_VAL (Int32, result);
 }
 
 
@@ -470,13 +461,13 @@ VersionParseDone:
 
 static void _HostGetHostID (void)
 {
-	// HostHostID HostHostGetID (void)
+	// HostIDType HostGetHostID (void)
 
-	struct StackFrame
-	{
-	};
+	CALLED_SETUP_HC ("HostIDType", "void");
 
-	m68k_dreg (regs, 0) = hostIDPalmOSEmulator;
+	// Return the result.
+
+	PUT_RESULT_VAL (HostIDType, hostIDPalmOSEmulator);
 }
 
 
@@ -486,18 +477,18 @@ static void _HostGetHostID (void)
 
 static void _HostGetHostPlatform (void)
 {
-	// HostPlatform HostHostGetPlatform (void)
+	// HostPlatformType HostGetHostPlatform (void)
 
-	struct StackFrame
-	{
-	};
+	CALLED_SETUP_HC ("HostPlatformType", "void");
+
+	// Return the result.
 
 #if PLATFORM_WINDOWS
-	m68k_dreg (regs, 0) = hostPlatformWindows;
+	PUT_RESULT_VAL (HostPlatformType, hostPlatformWindows);
 #elif PLATFORM_MAC
-	m68k_dreg (regs, 0) = hostPlatformMacintosh;
+	PUT_RESULT_VAL (HostPlatformType, hostPlatformMacintosh);
 #elif PLATFORM_UNIX
-	m68k_dreg (regs, 0) = hostPlatformUnix;
+	PUT_RESULT_VAL (HostPlatformType, hostPlatformUnix);
 #else
 	#error "Unsupported platform"
 #endif
@@ -510,17 +501,17 @@ static void _HostGetHostPlatform (void)
 
 static void _HostIsSelectorImplemented (void)
 {
-	// HostBoolType HostHostIsSelectorImplemented (long)
+	// HostBoolType HostIsSelectorImplemented (long selector)
 
-	struct StackFrame
-	{
-		long	selector;
-	};
+	CALLED_SETUP_HC ("HostBoolType", "long selector");
 
-	HostControlSelectorType	selector = GET_PARAMETER (selector);
-	HostHandler				fn = HostGetHandler (selector);
+	CALLED_GET_PARAM_VAL (long, selector);
 
-	m68k_dreg (regs, 0) = (fn != NULL);
+	HostHandler fn = PrvHostGetHandler ((HostControlSelectorType) selector);
+
+	// Return the result.
+
+	PUT_RESULT_VAL (HostBoolType, (fn != NULL));
 }
 
 
@@ -530,15 +521,13 @@ static void _HostIsSelectorImplemented (void)
 
 static void _HostGestalt (void)
 {
-	// HostErr HostHostGestalt (long gestSel, long* response)
+	// HostErrType HostGestalt (long gestSel, long* response)
 
-	struct StackFrame
-	{
-		long	gestSel;
-		long*	response;
-	};
+	CALLED_SETUP_HC ("HostErrType", "long gestSel, long* response");
 
-	m68k_dreg (regs, 0) = hostErrUnknownGestaltSelector;
+	// Return the result.
+
+	PUT_RESULT_VAL (HostErrType, hostErrUnknownGestaltSelector);
 }
 
 
@@ -550,11 +539,11 @@ static void _HostIsCallingTrap (void)
 {
 	// HostBoolType HostIsCallingTrap (void)
 
-	struct StackFrame
-	{
-	};
+	CALLED_SETUP_HC ("HostBoolType", "void");
 
-	m68k_dreg (regs, 0) = gSession->IsNested ();
+	// Return the result.
+
+	PUT_RESULT_VAL (HostBoolType, gSession->IsNested ());
 }
 
 
@@ -567,26 +556,28 @@ static void _HostIsCallingTrap (void)
 
 static void _HostProfileInit (void)
 {
-	// HostErr HostProfileInit (long maxCalls, long maxDepth)
+	// HostErrType HostProfileInit (long maxCalls, long maxDepth)
 
-	struct StackFrame
-	{
-		long	maxCalls;
-		long	maxDepth;
-	};
+	CALLED_SETUP_HC ("HostErrType", "long maxCalls, long maxDepth");
 
 	if (!::ProfileCanInit ())
 	{
-		m68k_dreg (regs, 0) = hostErrProfilingNotReady;
+		PUT_RESULT_VAL (HostErrType, hostErrProfilingNotReady);
 		return;
 	}
 
-	long	maxCalls = GET_PARAMETER (maxCalls);
-	long	maxDepth = GET_PARAMETER (maxDepth);
+	// Get the caller's parameters.
+
+	CALLED_GET_PARAM_VAL (long, maxCalls);
+	CALLED_GET_PARAM_VAL (long, maxDepth);
+
+	// Call the function.
 
 	::ProfileInit (maxCalls, maxDepth);
 
-	m68k_dreg (regs, 0) = hostErrNone;
+	// Return the result.
+
+	PUT_RESULT_VAL (HostErrType, hostErrNone);
 }
 
 #endif
@@ -599,21 +590,23 @@ static void _HostProfileInit (void)
 
 static void _HostProfileStart (void)
 {
-	// HostErr HostProfileStart (void)
+	// HostErrType HostProfileStart (void)
 
-	struct StackFrame
-	{
-	};
+	CALLED_SETUP_HC ("HostErrType", "void");
 
 	if (!::ProfileCanStart ())
 	{
-		m68k_dreg (regs, 0) = hostErrProfilingNotReady;
+		PUT_RESULT_VAL (HostErrType, hostErrProfilingNotReady);
 		return;
 	}
 
+	// Call the function.
+
 	::ProfileStart ();
 
-	m68k_dreg (regs, 0) = hostErrNone;
+	// Return the result.
+
+	PUT_RESULT_VAL (HostErrType, hostErrNone);
 }
 
 #endif
@@ -626,21 +619,23 @@ static void _HostProfileStart (void)
 
 static void _HostProfileStop (void)
 {
-	// HostErr HostProfileStop (void)
+	// HostErrType HostProfileStop (void)
 
-	struct StackFrame
-	{
-	};
+	CALLED_SETUP_HC ("HostErrType", "void");
 
 	if (!::ProfileCanStop ())
 	{
-		m68k_dreg (regs, 0) = hostErrProfilingNotReady;
+		PUT_RESULT_VAL (HostErrType, hostErrProfilingNotReady);
 		return;
 	}
 
+	// Call the function.
+
 	::ProfileStop ();
 
-	m68k_dreg (regs, 0) = hostErrNone;
+	// Return the result.
+
+	PUT_RESULT_VAL (HostErrType, hostErrNone);
 }
 
 #endif
@@ -653,38 +648,27 @@ static void _HostProfileStop (void)
 
 static void _HostProfileDump (void)
 {
-	// HostErr HostProfileDump (const char* filename)
+	// HostErrType HostProfileDump (const char* filenameP)
 
-	struct StackFrame
-	{
-		const char*	fileNameP;
-	};
+	CALLED_SETUP_HC ("HostErrType", "const char* filenameP");
 
 	if (!::ProfileCanDump ())
 	{
-		m68k_dreg (regs, 0) = hostErrProfilingNotReady;
+		PUT_RESULT_VAL (HostErrType, hostErrProfilingNotReady);
 		return;
 	}
 
 	// Get the caller's parameters.
 
-	emuptr fileNameP = GET_PARAMETER (fileNameP);
+	CALLED_GET_PARAM_STR (char, filenameP);
 
-	// Check the parameters.
+	// Call the function.
 
-	if (fileNameP)
-	{
-		string	fileName;
-		fileName = ToString (fileNameP);
-		::ProfileDump (fileName.c_str ());
-	}
-	else
-	{
-		::ProfileDump (NULL);
-	}
+	::ProfileDump (filenameP);
 
+	// Return the result.
 
-	m68k_dreg (regs, 0) = 0;	// !!! TBD
+	PUT_RESULT_VAL (HostErrType, hostErrNone);
 }
 
 #endif
@@ -697,22 +681,26 @@ static void _HostProfileDump (void)
 
 static void _HostProfileCleanup (void)
 {
-	// HostErr HostProfileCleanup (void)
+	// HostErrType HostProfileCleanup (void)
 
-	struct StackFrame
-	{
-	};
+	CALLED_SETUP_HC ("HostErrType", "void");
 
 	if (!::ProfileCanInit ())
 	{
-		m68k_dreg (regs, 0) = hostErrProfilingNotReady;
+		PUT_RESULT_VAL (HostErrType, hostErrProfilingNotReady);
 		return;
 	}
+
+	// Get the caller's parameters.
+
+	// Call the function.
 
 	// ProfileCleanup is now performed at the end of a dump.
 //	::ProfileCleanup ();
 
-	m68k_dreg (regs, 0) = hostErrNone;
+	// Return the result.
+
+	PUT_RESULT_VAL (HostErrType, hostErrNone);
 }
 
 #endif
@@ -725,20 +713,22 @@ static void _HostProfileCleanup (void)
 
 static void _HostProfileDetailFn (void)
 {
-	// HostErr _HostProfileDetailFn (void* addr, HostBoolType logDetails)
+	// HostErrType _HostProfileDetailFn (void* addr, HostBoolType logDetails)
 
-	struct StackFrame
-	{
-		void*			addr;
-		HostBoolType	logInstructions;
-	};
+	CALLED_SETUP_HC ("HostErrType", "void* addr, HostBoolType logDetails");
 
-	emuptr	addr = GET_PARAMETER (addr);
-	Bool	logInstructions = GET_PARAMETER (logInstructions);
+	// Get the caller's parameters.
 
-	ProfileDetailFn (addr, logInstructions);
+	CALLED_GET_PARAM_VAL (emuptr, addr);
+	CALLED_GET_PARAM_VAL (HostBoolType, logDetails);
 
-	m68k_dreg (regs, 0) = hostErrNone;
+	// Call the function.
+
+	ProfileDetailFn (addr, logDetails);
+
+	// Return the result.
+
+	PUT_RESULT_VAL (HostErrType, hostErrNone);
 }
 
 #endif
@@ -753,11 +743,13 @@ static void _HostProfileGetCycles (void)
 {
 	// long	HostProfileGetCycles(void)
 
-	struct StackFrame
-	{
-	};
+	CALLED_SETUP_HC ("long", "void");
 
-	m68k_dreg (regs, 0) = gClockCycles;
+	// Get the caller's parameters.
+
+	// Return the result.
+
+	PUT_RESULT_VAL (long, gClockCycles);
 }
 
 #endif
@@ -773,13 +765,13 @@ static void _HostErrNo (void)
 {
 	// long HostErrNo (void)
 
-	struct StackFrame
-	{
-	};
+	CALLED_SETUP_HC ("long", "void");
+
+	// Get the caller's parameters.
 
 	// Return the result.
 
-	m68k_dreg (regs, 0) = (uint32) translate_err_no(errno);
+	PUT_RESULT_VAL (long, translate_err_no (errno));
 }
 
 
@@ -791,34 +783,31 @@ static void _HostErrNo (void)
 
 static void _HostFClose (void)
 {
-	// long HostFClose (HostFILEType*)
+	// long HostFClose (HostFILEType* fileP)
 
-	struct StackFrame
-	{
-		HostFILEType*	f;
-	};
+	CALLED_SETUP_HC ("long", "HostFILEType* fileP");
 
 	// Get the caller's parameters.
 
-	FILE*	f = ToFILE (GET_PARAMETER (f));
+	CALLED_GET_PARAM_FILE (fileP);
 
 	// Check the parameters.
 
-	if (!f)
+	if (!fh)
 	{
-		m68k_dreg (regs, 0) = (uint32) EOF;
+		PUT_RESULT_VAL (long, EOF);
 		errno = hostErrInvalidParameter;
 		return;
 	}
 
 	// Call the function.
 
-	int 	result = __fclose (f);
+	int 	result = x_fclose (fh);
 
 	vector<FILE*>::iterator	iter = gOpenFiles.begin ();
 	while (iter != gOpenFiles.end ())
 	{
-		if (*iter == f)
+		if (*iter == fh)
 		{
 			gOpenFiles.erase (iter);
 			break;
@@ -829,7 +818,7 @@ static void _HostFClose (void)
 
 	// Return the result.
 
-	m68k_dreg (regs, 0) = result;
+	PUT_RESULT_VAL (long, result);
 }
 
 
@@ -839,32 +828,29 @@ static void _HostFClose (void)
 
 static void _HostFEOF (void)
 {
-	// long HostFEOF (HostFILEType*)
+	// long HostFEOF (HostFILEType* fileP)
 
-	struct StackFrame
-	{
-		HostFILEType*	f;
-	};
+	CALLED_SETUP_HC ("long", "HostFILEType* fileP");
 
 	// Get the caller's parameters.
 
-	FILE*	f = ToFILE (GET_PARAMETER (f));
+	CALLED_GET_PARAM_FILE (fileP);
 
 	// Check the parameters.
 
-	if (!f)
+	if (!fh)
 	{
-		m68k_dreg (regs, 0) = 1;	// At end of file (right choice?)
+		PUT_RESULT_VAL (long, 1);	// At end of file (right choice?)
 		return;
 	}
 
 	// Call the function.
 
-	int 	result = __feof (f);
+	int 	result = x_feof (fh);
 
 	// Return the result.
 
-	m68k_dreg (regs, 0) = result;
+	PUT_RESULT_VAL (long, result);
 }
 
 
@@ -874,32 +860,29 @@ static void _HostFEOF (void)
 
 static void _HostFError (void)
 {
-	// long HostFError (HostFILEType*)
+	// long HostFError (HostFILEType* fileP)
 
-	struct StackFrame
-	{
-		HostFILEType*	f;
-	};
+	CALLED_SETUP_HC ("long", "HostFILEType* fileP");
 
 	// Get the caller's parameters.
 
-	FILE*	f = ToFILE (GET_PARAMETER (f));
+	CALLED_GET_PARAM_FILE (fileP);
 
 	// Check the parameters.
 
-	if (!f)
+	if (!fh)
 	{
-		m68k_dreg (regs, 0) = hostErrInvalidParameter;
+		PUT_RESULT_VAL (long, hostErrInvalidParameter);
 		return;
 	}
 
 	// Call the function.
 
-	int 	result = __ferror (f);
+	int 	result = x_ferror (fh);
 
 	// Return the result.
 
-	m68k_dreg (regs, 0) = translate_err_no(result);
+	PUT_RESULT_VAL (long, translate_err_no (result));
 }
 
 
@@ -909,33 +892,30 @@ static void _HostFError (void)
 
 static void _HostFFlush (void)
 {
-	// long HostFFlush (HostFILEType*)
+	// long HostFFlush (HostFILEType* fileP)
 
-	struct StackFrame
-	{
-		HostFILEType*	f;
-	};
+	CALLED_SETUP_HC ("long", "HostFILEType* fileP");
 
 	// Get the caller's parameters.
 
-	FILE*	f = ToFILE (GET_PARAMETER (f));
+	CALLED_GET_PARAM_FILE (fileP);
 
 	// Check the parameters.
 
-	if (!f)
+	if (!fh)
 	{
-		m68k_dreg (regs, 0) = (uint32) EOF;
+		PUT_RESULT_VAL (long, EOF);
 		errno = hostErrInvalidParameter;
 		return;
 	}
 
 	// Call the function.
 
-	int 	result = __fflush (f);
+	int 	result = x_fflush (fh);
 
 	// Return the result.
 
-	m68k_dreg (regs, 0) = result;
+	PUT_RESULT_VAL (long, result);
 }
 
 
@@ -945,33 +925,30 @@ static void _HostFFlush (void)
 
 static void _HostFGetC (void)
 {
-	// long HostFGetC (HostFILEType*)
+	// long HostFGetC (HostFILEType* fileP)
 
-	struct StackFrame
-	{
-		HostFILEType*	f;
-	};
+	CALLED_SETUP_HC ("long", "HostFILEType* fileP");
 
 	// Get the caller's parameters.
 
-	FILE*	f = ToFILE (GET_PARAMETER (f));
+	CALLED_GET_PARAM_FILE (fileP);
 
 	// Check the parameters.
 
-	if (!f)
+	if (!fh)
 	{
-		m68k_dreg (regs, 0) = (uint32) EOF;	// No file, no data...
+		PUT_RESULT_VAL (long, EOF);	// No file, no data...
 		errno = hostErrInvalidParameter;
 		return;
 	}
 
 	// Call the function.
 
-	int 	result = __fgetc (f);
+	int 	result = x_fgetc (fh);
 
 	// Return the result.
 
-	m68k_dreg (regs, 0) = result;
+	PUT_RESULT_VAL (long, result);
 }
 
 
@@ -981,43 +958,40 @@ static void _HostFGetC (void)
 
 static void _HostFGetPos (void)
 {
-	// long HostFGetPos (HostFILEType*, long*)
+	// long HostFGetPos (HostFILEType* fileP, long* posP)
 
-	struct StackFrame
-	{
-		HostFILEType*	f;
-		long*			posP;
-	};
+	CALLED_SETUP_HC ("long", "HostFILEType* fileP, long* posP");
 
 	// Get the caller's parameters.
 
-	FILE*	f		= ToFILE (GET_PARAMETER (f));
-	emuptr	posP	= GET_PARAMETER (posP);
+	CALLED_GET_PARAM_FILE (fileP);
+	CALLED_GET_PARAM_REF (long, posP, Marshal::kInput);
 
 	// Check the parameters.
 
-	if (!f || !posP)
+	if (!fh || posP == EmMemNULL)
 	{
-		m68k_dreg (regs, 0) = 1;
+		PUT_RESULT_VAL (long, 1);
 		errno = hostErrInvalidParameter;
 		return;
 	}
 
 	// Call the function.
 
-	long	pos = __ftell (f);
+	long	pos = x_ftell (fh);
 
 	// If the function succeeded, return the position in
 	// the memory location pointed to by "posP".
 
 	if (pos >= 0)	// success
 	{
-		EmMemPut32 (posP, pos);
+		*posP = pos;
+		CALLED_PUT_PARAM_REF (posP);
 	}
 
 	// Return the result.
 
-	m68k_dreg (regs, 0) = pos == -1 ? 1 : 0;
+	PUT_RESULT_VAL (long, (pos == -1 ? 1 : 0));
 }
 
 
@@ -1027,59 +1001,49 @@ static void _HostFGetPos (void)
 
 static void _HostFGetS (void)
 {
-	// char* HostFGetS (char*, long n, HostFILEType*)
+	// char* HostFGetS (char* s, long n, HostFILEType* fileP)
 
-	struct StackFrame
-	{
-		char*			s;
-		long			n;
-		HostFILEType*	f;
-	};
+	CALLED_SETUP_HC ("char*", "char* s, long n, HostFILEType* fileP");
 
 	// Get the caller's parameters.
 
-	emuptr	s = GET_PARAMETER (s);
-	uint32	n = GET_PARAMETER (n);
-	FILE*	f = ToFILE (GET_PARAMETER (f));
+	CALLED_GET_PARAM_VAL (uint32, n);
+	CALLED_GET_PARAM_PTR (char, s, n, Marshal::kOutput);
+	CALLED_GET_PARAM_FILE (fileP);
 
 	// Check the parameters.
 
-	if (!f || !s)
+	if (!fh || s == EmMemNULL)
 	{
-		m68k_dreg (regs, 0) = EmMemNULL;
+		PUT_RESULT_VAL (emuptr, EmMemNULL);
 		errno = hostErrInvalidParameter;
 		return;
 	}
 
-	// Create a temporary string and read the data into it
-	// so that we can later sort out the wordswapping.
+	// Call the function.
+
+	emuptr	returnVal = EmMemNULL;
 
 	if (n > 0)
 	{
-		string	tempString (n, 'a');
-
-		// Call the function.
-
-		char*	result = __fgets (&tempString[0], (int) n, f);
+		char*	result = x_fgets (s, (int) n, fh);
 
 		// If we were able to read the string, copy it into the
-		// user's buffer (using uae_strcpy to take care of real
+		// user's buffer (using EmMem_strcpy to take care of real
 		// <-> emulated memory mapping.  If the read failed,
 		// return NULL.
 
-		if (result != 0)
+		if (result != NULL)
 		{
-			uae_strcpy (s, tempString.c_str ());
-		}
-		else
-		{
-			s = EmMemNULL;
+			CALLED_PUT_PARAM_REF (s);
+
+			returnVal = (emuptr) s;
 		}
 	}
 
 	// Return the result.
 
-	m68k_areg (regs, 0) = s;
+	PUT_RESULT_VAL (emuptr, returnVal);
 }
 
 
@@ -1089,38 +1053,27 @@ static void _HostFGetS (void)
 
 static void _HostFOpen (void)
 {
-	// HostFILEType* HostFOpen (const char*, const char*)
+	// HostFILEType* HostFOpen (const char* name, const char* mode)
 
-	struct StackFrame
-	{
-		const char*	name;
-		const char*	mode;
-	};
+	CALLED_SETUP_HC ("HostFILEType*", "const char* name, const char* mode");
 
 	// Get the caller's parameters.
 
-	emuptr	name = GET_PARAMETER (name);
-	emuptr	mode = GET_PARAMETER (mode);
+	CALLED_GET_PARAM_STR (char, name);
+	CALLED_GET_PARAM_STR (char, mode);
 
 	// Check the parameters.
 
-	if (!name || !mode)
+	if (name == EmMemNULL || mode == EmMemNULL)
 	{
-		m68k_areg (regs, 0) = EmMemNULL;
+		PUT_RESULT_VAL (emuptr, EmMemNULL);
 		errno = hostErrInvalidParameter;
 		return;
 	}
 
-	// Copy the strings from emulated memory into real
-	// memory; that way, we un-wordswap the strings
-	// on little-endian platforms.
-
-	string	name2 (ToString (name));
-	string	mode2 (ToString (mode));
-
 	// Call the function.
 
-	FILE*	result = fopen (name2.c_str (), mode2.c_str ());
+	FILE*	result = fopen (name, mode);
 
 	if (result)
 	{
@@ -1129,7 +1082,7 @@ static void _HostFOpen (void)
 
 	// Return the result.
 
-	m68k_areg (regs, 0) = (uint32) result;
+	PUT_RESULT_VAL (emuptr, result);
 }
 
 
@@ -1139,33 +1092,23 @@ static void _HostFOpen (void)
 
 static void _HostFPrintF (void)
 {
-	// long HostFPrintF (HostFILEType*, const char*, ...)
+	// long HostFPrintF (HostFILEType* fileP, const char* fmt, ...)
 
-	struct StackFrame
-	{
-		HostFILEType*	f;
-		const char*		fmt;
-	};
+	CALLED_SETUP_STDARG_HC ("long", "HostFILEType* fileP, const char* fmt");
 
 	// Get the caller's parameters.
 
-	FILE*	f	= ToFILE (GET_PARAMETER (f));
-	emuptr	fmt = GET_PARAMETER (fmt);
+	CALLED_GET_PARAM_FILE (fileP);
+	CALLED_GET_PARAM_STR (char, fmt);
 
 	// Check the parameters.
 
-	if (!f || !fmt)
+	if (!fh || fmt == EmMemNULL)
 	{
-		m68k_dreg (regs, 0) = (uint32) EOF;
+		PUT_RESULT_VAL (long, EOF);
 		errno = hostErrInvalidParameter;
 		return;
 	}
-
-	// Make a copy of the format string. We'll need it eventually
-	// when we call vfprintf, and getting it now will allow us to
-	// access the format string characters more quickly.
-
-	string	fmt2 (ToString (fmt));
 
 	// Collect the specified parameters. We need to make copies of everything
 	// so that it's in the right endian order and to reverse any effects
@@ -1176,22 +1119,20 @@ static void _HostFPrintF (void)
 	ByteList	stackData;
 	StringList stringData;
 
-	if (!::CollectParameters (	sizeof (HostControlSelectorType) +
-								sizeof (HostFILEType*) +
-								sizeof (char*), fmt2, stackData, stringData))
+	if (!::PrvCollectParameters (sub, string (fmt), stackData, stringData))
 	{
-		m68k_dreg (regs, 0) = (uint32) EOF;
+		PUT_RESULT_VAL (long, EOF);
 		errno = hostErrInvalidParameter;
 		return;
 	}
 
 	// Write everything out to the file using vfprintf.
 
-	int 	result = __vfprintf (f, fmt2.c_str (), (va_list) &stackData[0]);
+	int 	result = x_vfprintf (fh, fmt, (va_list) &stackData[0]);
 
 	// Return the result.
 
-	m68k_dreg (regs, 0) = result;
+	PUT_RESULT_VAL (long, result);
 }
 
 
@@ -1201,35 +1142,31 @@ static void _HostFPrintF (void)
 
 static void _HostFPutC (void)
 {
-	// long HostFPutC (long c, HostFILEType*)
+	// long HostFPutC (long c, HostFILEType* fileP)
 
-	struct StackFrame
-	{
-		long			c;
-		HostFILEType*	f;
-	};
+	CALLED_SETUP_HC ("long", "long c, HostFILEType* fileP");
 
 	// Get the caller's parameters.
 
-	uint32	ch	= GET_PARAMETER (c);
-	FILE*	f	= ToFILE (GET_PARAMETER (f));
+	CALLED_GET_PARAM_VAL (long, c);
+	CALLED_GET_PARAM_FILE (fileP);
 
 	// Check the parameters.
 
-	if (!f)
+	if (!fh)
 	{
-		m68k_dreg (regs, 0) = (uint32) EOF;
+		PUT_RESULT_VAL (long, EOF);
 		errno = hostErrInvalidParameter;
 		return;
 	}
 
 	// Call the function.
 
-	int 	result = __fputc ((int) ch, f);
+	int 	result = x_fputc ((int) c, fh);
 
 	// Return the result.
 
-	m68k_dreg (regs, 0) = result;
+	PUT_RESULT_VAL (long, result);
 }
 
 
@@ -1239,41 +1176,31 @@ static void _HostFPutC (void)
 
 static void _HostFPutS (void)
 {
-	// long HostFPutS (const char*, HostFILEType*)
+	// long HostFPutS (const char* s, HostFILEType* fileP)
 
-	struct StackFrame
-	{
-		const char*		s;
-		HostFILEType*	f;
-	};
+	CALLED_SETUP_HC ("long", "const char* s, HostFILEType* fileP");
 
 	// Get the caller's parameters.
 
-	emuptr	str = GET_PARAMETER (s);
-	FILE*	f	= ToFILE (GET_PARAMETER (f));
+	CALLED_GET_PARAM_STR (char, s);
+	CALLED_GET_PARAM_FILE (fileP);
 
 	// Check the parameters.
 
-	if (!f || !str)
+	if (!fh || s == EmMemNULL)
 	{
-		m68k_dreg (regs, 0) = (uint32) EOF;
+		PUT_RESULT_VAL (long, EOF);
 		errno = hostErrInvalidParameter;
 		return;
 	}
 
-	// Copy the string from emulated memory into real
-	// memory; that way, we un-wordswap the string
-	// on little-endian platforms.
-
-	string	str2 (ToString (str));
-
 	// Call the function.
 
-	int 	result = __fputs (str2.c_str (), f);
+	int 	result = x_fputs (s, fh);
 
 	// Return the result.
 
-	m68k_dreg (regs, 0) = result;
+	PUT_RESULT_VAL (long, result);
 }
 
 
@@ -1283,54 +1210,40 @@ static void _HostFPutS (void)
 
 static void _HostFRead (void)
 {
-	// long HostFRead (void*, long, long, HostFILEType*)
+	// long HostFRead (void* buffer, long size, long count, HostFILEType* fileP)
 
-	struct StackFrame
-	{
-		void*			buffer;
-		long			size;
-		long			count;
-		HostFILEType*	f;
-	};
+	CALLED_SETUP_HC ("long", "void* buffer, long size, long count, HostFILEType* fileP");
 
 	// Get the caller's parameters.
 
-	emuptr	buffer	= GET_PARAMETER (buffer);
-	uint32	size	= GET_PARAMETER (size);
-	uint32	count	= GET_PARAMETER (count);
-	FILE*	f		= ToFILE (GET_PARAMETER (f));
+	CALLED_GET_PARAM_VAL (long, size);
+	CALLED_GET_PARAM_VAL (long, count);
+	CALLED_GET_PARAM_PTR (void, buffer, size * count, Marshal::kOutput);
+	CALLED_GET_PARAM_FILE (fileP);
 
 	// Check the parameters.
 
-	if (!f || !buffer)
+	if (!fh || buffer == EmMemNULL)
 	{
-		m68k_dreg (regs, 0) = 0;
+		PUT_RESULT_VAL (long, 0);
 		errno = hostErrInvalidParameter;
 		return;
 	}
 
-	// Allocate a temporary buffer to hold the data read from
-	// disk. We use a temporary buffer so that we can sort out
-	// real <-> emulated memory mapping issues with uae_memcpy.
-
-	void*	tempBuffer = malloc (size * count);
-
 	// Call the function.
 
-	size_t	result = __fread (tempBuffer, size, count, f);
+	size_t	result = x_fread (buffer, size, count, fh);
 
 	// If the read succeeded, copy the data into the user's buffer.
-	
+
 	if (result)
 	{
-		uae_memcpy (buffer, tempBuffer, size * result);
+		CALLED_PUT_PARAM_REF (buffer);
 	}
-	
-	free (tempBuffer);
 
 	// Return the result.
 
-	m68k_dreg (regs, 0) = result;
+	PUT_RESULT_VAL (long, result);
 }
 
 
@@ -1362,37 +1275,32 @@ static void _HostFScanF (void)
 
 static void _HostFSeek (void)
 {
-	// long HostFSeek (HostFILEType*, long offset, long origin)
+	// long HostFSeek (HostFILEType* fileP, long offset, long origin)
 
-	struct StackFrame
-	{
-		HostFILEType*	f;
-		long			offset;
-		long			origin;
-	};
+	CALLED_SETUP_HC ("long", "HostFILEType* fileP, long offset, long origin");
 
 	// Get the caller's parameters.
 
-	FILE*	f		= ToFILE (GET_PARAMETER (f));
-	uint32	offset	= GET_PARAMETER (offset);
-	uint32	origin	= GET_PARAMETER (origin);
+	CALLED_GET_PARAM_FILE (fileP);
+	CALLED_GET_PARAM_VAL (long, offset);
+	CALLED_GET_PARAM_VAL (long, origin);
 
 	// Check the parameters.
 
-	if (!f)
+	if (!fh)
 	{
-		m68k_dreg (regs, 0) = (uint32) -1;
+		PUT_RESULT_VAL (long, -1);
 		errno = hostErrInvalidParameter;
 		return;
 	}
 
 	// Call the function.
 
-	int 	result	= __fseek (f, offset, (int) origin);
+	int 	result	= x_fseek (fh, offset, (int) origin);
 
 	// Return the result.
 
-	m68k_dreg (regs, 0) = result;
+	PUT_RESULT_VAL (long, result);
 }
 
 
@@ -1402,37 +1310,31 @@ static void _HostFSeek (void)
 
 static void _HostFSetPos (void)
 {
-	// long HostFSetPos (HostFILEType*, long)
+	// long HostFSetPos (HostFILEType* fileP, long* posP)
 
-	struct StackFrame
-	{
-		HostFILEType*		f;
-		long*				posP;
-	};
+	CALLED_SETUP_HC ("long", "HostFILEType* fileP, long* posP");
 
 	// Get the caller's parameters.
 
-	FILE*	f		= ToFILE (GET_PARAMETER (f));
-	emuptr	posP	= GET_PARAMETER (posP);
-
-	long	pos		= EmMemGet32 (posP);
+	CALLED_GET_PARAM_FILE (fileP);
+	CALLED_GET_PARAM_REF (long, posP, Marshal::kInput);
 
 	// Check the parameters.
 
-	if (!f)
+	if (!fh)
 	{
-		m68k_dreg (regs, 0) = 1;
+		PUT_RESULT_VAL (long, 1);
 		errno = hostErrInvalidParameter;
 		return;
 	}
 
 	// Call the function.
 
-	int 	result = __fseek (f, pos, SEEK_SET);
+	int 	result = x_fseek (fh, *posP, SEEK_SET);
 
 	// Return the result.
 
-	m68k_dreg (regs, 0) = result;
+	PUT_RESULT_VAL (long, result);
 }
 
 
@@ -1442,33 +1344,30 @@ static void _HostFSetPos (void)
 
 static void _HostFTell (void)
 {
-	// long HostFTell (HostFILEType*)
+	// long HostFTell (HostFILEType* fileP)
 
-	struct StackFrame
-	{
-		HostFILEType*	f;
-	};
+	CALLED_SETUP_HC ("long", "HostFILEType* fileP");
 
 	// Get the caller's parameters.
 
-	FILE*	f = ToFILE (GET_PARAMETER (f));
+	CALLED_GET_PARAM_FILE (fileP);
 
 	// Check the parameters.
 
-	if (!f)
+	if (!fh)
 	{
-		m68k_dreg (regs, 0) = (uint32) -1;
+		PUT_RESULT_VAL (long, -1);
 		errno = hostErrInvalidParameter;
 		return;
 	}
 
 	// Call the function.
 
-	long	result = __ftell (f);
+	long	result = x_ftell (fh);
 
 	// Return the result.
 
-	m68k_dreg (regs, 0) = result;
+	PUT_RESULT_VAL (long, result);
 }
 
 
@@ -1478,48 +1377,33 @@ static void _HostFTell (void)
 
 static void _HostFWrite (void)
 {
-	// long HostFWrite (const void*, long, long, HostFILEType*)
+	// long HostFWrite (const void* buffer, long size, long count, HostFILEType* fileP)
 
-	struct StackFrame
-	{
-		const void*		buffer;
-		long			size;
-		long			count;
-		HostFILEType*	f;
-	};
+	CALLED_SETUP_HC ("long", "const void* buffer, long size, long count, HostFILEType* fileP");
 
 	// Get the caller's parameters.
 
-	emuptr	buffer	= GET_PARAMETER (buffer);
-	uint32	size	= GET_PARAMETER (size);
-	uint32	count	= GET_PARAMETER (count);
-	FILE*	f		= ToFILE (GET_PARAMETER (f));
+	CALLED_GET_PARAM_VAL (long, size);
+	CALLED_GET_PARAM_VAL (long, count);
+	CALLED_GET_PARAM_PTR (void, buffer, size * count, Marshal::kInput);
+	CALLED_GET_PARAM_FILE (fileP);
 
 	// Check the parameters.
 
-	if (!f || !buffer)
+	if (!fh || buffer == EmMemNULL)
 	{
-		m68k_dreg (regs, 0) = 0;
+		PUT_RESULT_VAL (long, 0);
 		errno = hostErrInvalidParameter;
 		return;
 	}
 
-	// Allocate a temporary buffer to hold the data being written
-	// to disk. We use a temporary buffer so that we can sort out
-	// real <-> emulated memory mapping issues with uae_memcpy.
-
-	void*	tempBuffer = malloc (size * count);
-	uae_memcpy (tempBuffer, buffer, size * count);
-
 	// Call the function.
 
-	size_t	result = __fwrite (tempBuffer, size, count, f);
-
-	free (tempBuffer);
+	size_t	result = x_fwrite (buffer, size, count, fh);
 
 	// Return the result.
 
-	m68k_dreg (regs, 0) = result;
+	PUT_RESULT_VAL (long, result);
 }
 
 
@@ -1529,24 +1413,13 @@ static void _HostFWrite (void)
 
 static void _HostRemove (void)
 {
-	// long			HostRemove(const char* name)
+	// long HostRemove(const char* nameP)
 
-	struct StackFrame
-	{
-		const char*	name;
-	};
+	CALLED_SETUP_HC ("long", "const char* nameP");
 
 	// Get the caller's parameters.
 
-	emuptr		name = GET_PARAMETER (name);
-	const char*	nameP = NULL;
-	string		nameStr;
-
-	if (name)
-	{
-		nameStr = ToString (name);
-		nameP = nameStr.c_str ();
-	}
+	CALLED_GET_PARAM_STR (char, nameP);
 
 	// Call the function.
 
@@ -1554,7 +1427,7 @@ static void _HostRemove (void)
 
 	// Return the result.
 
-	m68k_dreg (regs, 0) = result;
+	PUT_RESULT_VAL (long, result);
 }
 
 
@@ -1564,35 +1437,14 @@ static void _HostRemove (void)
 
 static void _HostRename (void)
 {
-	// long			HostRename(const char* oldName, const char* newName)
+	// long HostRename(const char* oldNameP, const char* newNameP)
 
-	struct StackFrame
-	{
-		const char*	oldName;
-		const char*	newName;
-	};
+	CALLED_SETUP_HC ("long", "const char* oldNameP, const char* newNameP");
 
 	// Get the caller's parameters.
 
-	emuptr		oldName = GET_PARAMETER (oldName);
-	const char*	oldNameP = NULL;
-	string		oldNameStr;
-
-	if (oldName)
-	{
-		oldNameStr = ToString (oldName);
-		oldNameP = oldNameStr.c_str ();
-	}
-
-	emuptr		newName = GET_PARAMETER (newName);
-	const char*	newNameP = NULL;
-	string		newNameStr;
-
-	if (newName)
-	{
-		newNameStr = ToString (newName);
-		newNameP = newNameStr.c_str ();
-	}
+	CALLED_GET_PARAM_STR (char, oldNameP);
+	CALLED_GET_PARAM_STR (char, newNameP);
 
 	// Call the function.
 
@@ -1600,7 +1452,7 @@ static void _HostRename (void)
 
 	// Return the result.
 
-	m68k_dreg (regs, 0) = result;
+	PUT_RESULT_VAL (long, result);
 }
 
 
@@ -1612,9 +1464,7 @@ static void _HostTmpFile (void)
 {
 	// HostFILEType* HostTmpFile (void)
 
-	struct StackFrame
-	{
-	};
+	CALLED_SETUP_HC ("HostFILEType*", "void");
 
 	// Get the caller's parameters.
 
@@ -1624,7 +1474,7 @@ static void _HostTmpFile (void)
 
 	// Return the result.
 
-	m68k_areg (regs, 0) = (uint32) result;
+	PUT_RESULT_VAL (emuptr, result);
 }
 
 
@@ -1634,29 +1484,82 @@ static void _HostTmpFile (void)
 
 static void _HostTmpNam (void)
 {
-	struct StackFrame
+	// char* HostTmpNam (char* nameP)
+
+	CALLED_SETUP_HC ("char*", "char* nameP");
+
+	// Get the caller's parameters.
+
+	CALLED_GET_PARAM_PTR (char, nameP, HOST_NAME_MAX, Marshal::kOutput);
+
+	// Check the parameters.
+
+	// Call the function.
+
+#if HAVE_MKSTEMP
+
+	// Try to find a good home for this file...
+
+	char*	result = NULL;
+	char*	env = NULL;
+	char	temp_buff[HOST_NAME_MAX];
+
+	if (!env)
+		env = getenv ("TMPDIR");
+
+	if (!env)
+		env = getenv ("TEMP");
+
+#if defined (P_tmpdir)
+	if (!env)
+		env = P_tmpdir;
+#else
+	if (!env)
+		env = "/tmp";
+#endif
+
+	strcpy (temp_buff, env);
+	strcat (temp_buff, "/pose.XXXXXX");
+
+	// Create the temporary file name.
+
+	int fd = mkstemp (temp_buff);
+
+	// If that succeeded, close the file that was created
+	// and remember the file name.
+
+	if (fd > 0 && !close (fd))
 	{
-		char*	nameP;
-	};
+		result = temp_buff;
 
-	emuptr	nameP = GET_PARAMETER (nameP);
+		if (nameP != EmMemNULL)
+		{
+			strcpy ((char*) nameP, temp_buff);
+		}
+	}
 
-	char*	result = tmpnam (NULL);
+#else
+
+	char*	result = tmpnam (nameP);
+
+#endif
+
+	// Return the result.
 
 	if (!result)
 	{
-		m68k_areg (regs, 0) = EmMemNULL;
+		PUT_RESULT_VAL (emuptr, EmMemNULL);
 	}
 	else
 	{
-		if (nameP)
+		if (nameP != EmMemNULL)
 		{
-			uae_strcpy (nameP, result);
-			m68k_areg (regs, 0) = nameP;
+			CALLED_PUT_PARAM_REF (nameP);
+			PUT_RESULT_VAL (emuptr, nameP);
 		}
 		else
 		{
-			::PrvReturnString (result);
+			::PrvReturnString (result, sub);
 		}
 	}
 }
@@ -1668,37 +1571,30 @@ static void _HostTmpNam (void)
 
 static void _HostGetEnv (void)
 {
-	// char* HostGetEnv (const char*)
+	// char* HostGetEnv (const char* nameP)
 
-	struct StackFrame
-	{
-		const char*	name;
-	};
+	CALLED_SETUP_HC ("char*", "char* nameP");
 
 	// Get the caller's parameters.
 
-	emuptr	name	= GET_PARAMETER (name);
+	CALLED_GET_PARAM_STR (char, nameP);
 
 	// Check the parameters.
 
-	if (!name)
+	if (nameP == EmMemNULL)
 	{
-		m68k_areg (regs, 0) = EmMemNULL;
+		PUT_RESULT_VAL (emuptr, EmMemNULL);
 		errno = hostErrInvalidParameter;
 		return;
 	}
 
-	// Copy the string from emulated memory into real
-	// memory; that way, we un-wordswap the string
-	// on little-endian platforms.
-
-	string	name2 (ToString (name));
-
 	// Call the function.
 
-	char*	value = getenv (name2.c_str ());
+	char*	value = getenv (nameP);
 
-	::PrvReturnString (value);
+	// Return the result.
+
+	::PrvReturnString (value, sub);
 }
 
 
@@ -1712,16 +1608,19 @@ static void _HostMalloc (void)
 {
 	// void* HostMalloc(long size)
 
-	struct StackFrame
-	{
-		long	size;
-	};
+	CALLED_SETUP_HC ("void*", "long size");
 
 	// Get the caller's parameters.
 
-	long	size = GET_PARAMETER (size);
+	CALLED_GET_PARAM_VAL (long, size);
 
-	m68k_areg (regs, 0) = ::PrvMalloc (size);
+	// Call the function.
+
+	emuptr	result = ::PrvMalloc (size);
+
+	// Return the result.
+
+	PUT_RESULT_VAL (emuptr, result);
 }
 
 
@@ -1733,31 +1632,34 @@ static void _HostRealloc (void)
 {
 	// void* HostRealloc(void* p, long size)
 
-
-	struct StackFrame
-	{
-		void*	p;
-		long	size;
-	};
+	CALLED_SETUP_HC ("void*", "void* p, long size");
 
 	// Get the caller's parameters.
 
-	emuptr	p = GET_PARAMETER (p);
-	long	size = GET_PARAMETER (size);
+	CALLED_GET_PARAM_VAL (emuptr, p);
+	CALLED_GET_PARAM_VAL (long, size);
+
+	// Call the function.
+
+	emuptr	result;
 
 	if (!p)
 	{
-		m68k_areg (regs, 0) = ::PrvMalloc (size);
+		result = ::PrvMalloc (size);
 	}
 	else if (!size)
 	{
 		::PrvFree (p);
-		m68k_areg (regs, 0) = EmMemNULL;
+		result = EmMemNULL;
 	}
 	else
 	{
-		m68k_areg (regs, 0) = ::PrvRealloc (p, size);
+		result = ::PrvRealloc (p, size);
 	}
+
+	// Return the result.
+
+	PUT_RESULT_VAL (emuptr, result);
 }
 
 
@@ -1769,14 +1671,13 @@ static void _HostFree (void)
 {
 	// void HostFree(void* p)
 
-	struct StackFrame
-	{
-		void*	p;
-	};
+	CALLED_SETUP_HC ("void", "void* p");
 
 	// Get the caller's parameters.
 
-	emuptr	p = GET_PARAMETER (p);
+	CALLED_GET_PARAM_VAL (emuptr, p);
+
+	// Call the function.
 
 	::PrvFree (p);
 }
@@ -1788,21 +1689,25 @@ static void _HostFree (void)
 
 static void _HostAscTime (void)
 {
-	struct StackFrame
-	{
-		const HostTmType*	tm;
-	};
+	// char* HostAscTime(const HostTmType* hisTmP)
 
-	emuptr		hisTmP = GET_PARAMETER (tm);
-	HostTmType	hisTm;
+	CALLED_SETUP_HC ("char*", "HostTmType* hisTmP");
+
+	// Get the caller's parameters.
+
+	CALLED_GET_PARAM_REF (HostTmType, hisTmP, Marshal::kInput);
+
 	struct tm	myTm;
 
-	GetHostTmType (hisTm, hisTmP);
-	TmFromHostTm (myTm, hisTm);
+	::PrvTmFromHostTm (myTm, *hisTmP);
+
+	// Call the function.
 
 	char*	result = asctime (&myTm);
 
-	::PrvReturnString (result);
+	// Return the result.
+
+	::PrvReturnString (result, sub);
 }
 
 
@@ -1812,13 +1717,19 @@ static void _HostAscTime (void)
 
 static void _HostClock (void)
 {
-	struct StackFrame
-	{
-	};
+	// HostClockType HostClock(void)
+
+	CALLED_SETUP_HC ("HostClockType", "void");
+
+	// Get the caller's parameters.
+
+	// Call the function.
 
 	clock_t	result = clock ();
 
-	m68k_dreg (regs, 0) = (HostClockType) result;
+	// Return the result.
+
+	PUT_RESULT_VAL (HostClockType, result);
 }
 
 
@@ -1828,18 +1739,23 @@ static void _HostClock (void)
 
 static void _HostCTime (void)
 {
-	struct StackFrame
-	{
-		const HostTimeType*	time;
-	};
+	// char* HostCTime(const HostTimeType*)
 
-	emuptr	timeP = GET_PARAMETER (time);
+	CALLED_SETUP_HC ("char*", "HostTimeType* timeP");
 
-	time_t	myTime = EmMemGet32 (timeP);
+	// Get the caller's parameters.
+
+	CALLED_GET_PARAM_REF (HostTimeType, timeP, Marshal::kInput);
+
+	time_t	myTime = *timeP;
+
+	// Call the function.
 
 	char*	result = ctime (&myTime);
 
-	::PrvReturnString (result);
+	// Return the result.
+
+	::PrvReturnString (result, sub);
 }
 
 
@@ -1860,30 +1776,25 @@ static void _HostDiffTime (void)
 
 static void _HostGMTime (void)
 {
-	struct StackFrame
-	{
-		const HostTimeType*	time;
-	};
+	// HostTmType* HostGMTime(const HostTimeType* timeP)
 
-	emuptr	timeP = GET_PARAMETER (time);
+	CALLED_SETUP_HC ("void*", "HostTimeType* timeP");
 
-	time_t	myTime = EmMemGet32 (timeP);
+	// Get the caller's parameters.
+
+	CALLED_GET_PARAM_REF (HostTimeType, timeP, Marshal::kInput);
+
+	time_t	myTime = *timeP;
+
+	// Call the function.
 
 	struct tm*	result = gmtime (&myTime);
 
-	HostTmFromTm (gGMTime, *result);
+	::PrvHostTmFromTm (gGMTime, *result);
 
-	Canonical (gGMTime.tm_sec_);
-	Canonical (gGMTime.tm_min_);
-	Canonical (gGMTime.tm_hour_);
-	Canonical (gGMTime.tm_mday_);
-	Canonical (gGMTime.tm_mon_);
-	Canonical (gGMTime.tm_year_);
-	Canonical (gGMTime.tm_wday_);
-	Canonical (gGMTime.tm_yday_);
-	Canonical (gGMTime.tm_isdst_);
+	// Return the result.
 
-	MapAndReturn (&gGMTime, sizeof (gGMTime));
+	::PrvMapAndReturn (&gGMTime, sizeof (gGMTime), sub);
 }
 
 
@@ -1893,30 +1804,25 @@ static void _HostGMTime (void)
 
 static void _HostLocalTime (void)
 {
-	struct StackFrame
-	{
-		const HostTimeType*	time;
-	};
+	// HostTmType* HostLocalTime(const HostTimeType* timeP)
 
-	emuptr	timeP = GET_PARAMETER (time);
+	CALLED_SETUP_HC ("HostTmType*", "HostTimeType* timeP");
 
-	time_t	myTime = EmMemGet32 (timeP);
+	// Get the caller's parameters.
+
+	CALLED_GET_PARAM_REF (HostTimeType, timeP, Marshal::kInput);
+
+	time_t	myTime = *timeP;
+
+	// Call the function.
 
 	struct tm*	result = localtime (&myTime);
 
-	HostTmFromTm (gLocalTime, *result);
+	::PrvHostTmFromTm (gLocalTime, *result);
 
-	Canonical (gLocalTime.tm_sec_);
-	Canonical (gLocalTime.tm_min_);
-	Canonical (gLocalTime.tm_hour_);
-	Canonical (gLocalTime.tm_mday_);
-	Canonical (gLocalTime.tm_mon_);
-	Canonical (gLocalTime.tm_year_);
-	Canonical (gLocalTime.tm_wday_);
-	Canonical (gLocalTime.tm_yday_);
-	Canonical (gLocalTime.tm_isdst_);
+	// Return the result.
 
-	MapAndReturn (&gLocalTime, sizeof (gLocalTime));
+	::PrvMapAndReturn (&gLocalTime, sizeof (gLocalTime), sub);
 }
 
 
@@ -1926,21 +1832,25 @@ static void _HostLocalTime (void)
 
 static void _HostMkTime (void)
 {
-	struct StackFrame
-	{
-		const HostTmType*	tm;
-	};
+	// HostTimeType HostMkTime(HostTmType* timeP)
 
-	emuptr		hisTmP = GET_PARAMETER (tm);
-	HostTmType	hisTm;
+	CALLED_SETUP_HC ("HostTimeType", "HostTmType* timeP");
+
+	// Get the caller's parameters.
+
+	CALLED_GET_PARAM_REF (HostTmType, timeP, Marshal::kInput);
+
 	struct tm	myTm;
 
-	GetHostTmType (hisTm, hisTmP);
-	TmFromHostTm (myTm, hisTm);
+	::PrvTmFromHostTm (myTm, *timeP);
+
+	// Call the function.
 
 	time_t	result = mktime (&myTm);
 
-	m68k_dreg (regs, 0) = (HostTimeType) result;
+	// Return the result.
+
+	PUT_RESULT_VAL (HostTimeType, result);
 }
 
 
@@ -1950,42 +1860,37 @@ static void _HostMkTime (void)
 
 static void _HostStrFTime (void)
 {
-	struct StackFrame
-	{
-		char*				strDest;
-		HostSizeType		maxsize;
-		const char*			format;
-		const HostTmType*	timeptr;
-	};
+	// HostSizeType HostStrFTime(char*, HostSizeType, const char*, const HostTmType*)
 
-	emuptr			strDest	= GET_PARAMETER (strDest);
-	HostSizeType	maxsize	= GET_PARAMETER (maxsize);
-	emuptr			format	= GET_PARAMETER (format);
-	emuptr			timeptr	= GET_PARAMETER (timeptr);
+	CALLED_SETUP_HC ("HostSizeType", "char* strDest, HostSizeType maxsize, const char* format,"
+							"const HostTmType* timeP");
 
-	if (!strDest || !format || !timeptr)
+	// Get the caller's parameters.
+
+	CALLED_GET_PARAM_VAL (HostSizeType, maxsize);
+	CALLED_GET_PARAM_PTR (char, strDest, maxsize, Marshal::kOutput);
+	CALLED_GET_PARAM_STR (char, format);
+	CALLED_GET_PARAM_REF (HostTmType, timeP, Marshal::kInput);
+
+	if (strDest == EmMemNULL || format == EmMemNULL || timeP == EmMemNULL)
 	{
-		m68k_dreg (regs, 0) = 0;
+		PUT_RESULT_VAL (HostSizeType, 0);
 		return;
 	}
 
-	void*	myDest = malloc (maxsize);
-
-	string	formatStr (ToString (format));
-	
-	HostTmType	hisTime;
 	struct tm	myTime;
 
-	GetHostTmType (hisTime, timeptr);
-	TmFromHostTm (myTime, hisTime);
+	::PrvTmFromHostTm (myTime, *timeP);
 
-	size_t	result = strftime ((char*) myDest, maxsize, formatStr.c_str (), &myTime);
+	// Call the function.
 
-	uae_memcpy (strDest, myDest, maxsize);
+	size_t	result = strftime (strDest, maxsize, format, &myTime);
 
-	free (myDest);
+	CALLED_PUT_PARAM_REF (strDest);
 
-	m68k_dreg (regs, 0) = (HostSizeType) result;
+	// Return the result.
+
+	PUT_RESULT_VAL (HostSizeType, result);
 }
 
 
@@ -1995,22 +1900,28 @@ static void _HostStrFTime (void)
 
 static void _HostTime (void)
 {
-	struct StackFrame
-	{
-		HostTimeType*	timeP;
-	};
+	// HostTimeType HostTime(HostTimeType*)
 
-	emuptr	timeP = GET_PARAMETER (timeP);
+	CALLED_SETUP_HC ("HostTimeType", "HostTimeType* timeP");
+
+	// Get the caller's parameters.
+
+	CALLED_GET_PARAM_REF (HostTimeType, timeP, Marshal::kOutput);
+
+	// Call the function.
 
 	time_t	result2;
 	time_t	result = time (&result2);
 
 	if (timeP)
 	{
-		EmMemPut32 (timeP, result2);
+		*timeP = result2;
+		CALLED_PUT_PARAM_REF (timeP);
 	}
 
-	m68k_dreg (regs, 0) = (HostTimeType) result;
+	// Return the result.
+
+	PUT_RESULT_VAL (HostTimeType, result);
 }
 
 
@@ -2020,26 +1931,13 @@ static void _HostTime (void)
 
 static void _HostMkDir (void)
 {
-	// int HostMkDir (const char*)
+	// long HostMkDir (const char* nameP)
 
-	struct StackFrame
-	{
-		const char*	name;
-	};
+	CALLED_SETUP_HC ("long", "char* nameP");
 
 	// Get the caller's parameters.
 
-	emuptr		name = GET_PARAMETER (name);
-	string		nameStr;
-	const char*	nameP = NULL;
-
-	// Check the parameters.
-
-	if (name)
-	{
-		nameStr = ToString (name);
-		nameP = nameStr.c_str ();
-	}
+	CALLED_GET_PARAM_STR (char, nameP);
 
 	// Call the function.
 
@@ -2047,7 +1945,7 @@ static void _HostMkDir (void)
 
 	// Return the result.
 
-	m68k_dreg (regs, 0) = result;
+	PUT_RESULT_VAL (long, result);
 }
 
 
@@ -2057,26 +1955,13 @@ static void _HostMkDir (void)
 
 static void _HostRmDir (void)
 {
-	// int HostRmDir (const char*)
+	// long HostRmDir (const char* nameP)
 
-	struct StackFrame
-	{
-		const char*	name;
-	};
+	CALLED_SETUP_HC ("long", "char* nameP");
 
 	// Get the caller's parameters.
 
-	emuptr		name = GET_PARAMETER (name);
-	string		nameStr;
-	const char*	nameP = NULL;
-
-	// Check the parameters.
-
-	if (name)
-	{
-		nameStr = ToString (name);
-		nameP = nameStr.c_str ();
-	}
+	CALLED_GET_PARAM_STR (char, nameP);
 
 	// Call the function.
 
@@ -2084,7 +1969,7 @@ static void _HostRmDir (void)
 
 	// Return the result.
 
-	m68k_dreg (regs, 0) = result;
+	PUT_RESULT_VAL (long, result);
 }
 
 
@@ -2096,31 +1981,18 @@ static void _HostOpenDir (void)
 {
 	// HostDIRType* HostOpenDir(const char*)
 
-	struct StackFrame
-	{
-		const char*	name;
-	};
+	CALLED_SETUP_HC ("HostDIRType*", "char* nameP");
 
 	// Get the caller's parameters.
 
-	emuptr		name = GET_PARAMETER (name);
-	string		nameStr;
-	const char*	nameP = NULL;
-
-	// Check the parameters.
-
-	if (name)
-	{
-		nameStr = ToString (name);
-		nameP = nameStr.c_str ();
-	}
+	CALLED_GET_PARAM_STR (char, nameP);
 
 	// See if the directory exists.
 
 	EmDirRef	dirRef (nameP);
 	if (!dirRef.Exists ())
 	{
-		m68k_areg (regs, 0) = EmMemNULL;
+		PUT_RESULT_VAL (emuptr, EmMemNULL);
 		return;
 	}
 
@@ -2129,7 +2001,7 @@ static void _HostOpenDir (void)
 	MyDIR*	dir = new MyDIR;
 	if (!dir)
 	{
-		m68k_areg (regs, 0) = EmMemNULL;
+		PUT_RESULT_VAL (emuptr, EmMemNULL);
 		return;
 	}
 
@@ -2143,7 +2015,9 @@ static void _HostOpenDir (void)
 
 	gOpenDirs.push_back (dir);
 
-	m68k_areg (regs, 0) = (uint32) dir;
+	// Return the result.
+
+	PUT_RESULT_VAL (emuptr, dir);
 }
 
 
@@ -2153,14 +2027,15 @@ static void _HostOpenDir (void)
 
 static void _HostReadDir(void)
 {
-	// HostDirEntType* HostReadDir(HostDIRType*)
+	// HostDirEntType* HostReadDir(HostDIRType* dirP)
 
-	struct StackFrame
-	{
-		HostDIRType*	hostDir;
-	};
+	CALLED_SETUP_HC ("HostDIRType*", "HostDIRType* dirP");
 
-	MyDIR*	dir = (MyDIR*) GET_PARAMETER (hostDir);
+	// Get the caller's parameters.
+
+	CALLED_GET_PARAM_VAL (emuptr, dirP);
+
+	MyDIR*	dir = (MyDIR*) (emuptr) dirP;
 
 	// Make sure dir is valid.
 
@@ -2176,7 +2051,7 @@ static void _HostReadDir(void)
 
 	// hostDir was not on our list.  Return NULL.
 
-	m68k_areg (regs, 0) = EmMemNULL;
+	PUT_RESULT_VAL (emuptr, EmMemNULL);
 	return;
 
 FoundIt:
@@ -2227,7 +2102,7 @@ FoundIt:
 		// No longer iterating. Just return NULL.
 
 		case 3:
-			m68k_areg (regs, 0) = EmMemNULL;
+			PUT_RESULT_VAL (emuptr, EmMemNULL);
 			break;
 	}
 
@@ -2243,7 +2118,7 @@ FoundIt:
 			result = EmBankMapped::GetEmulatedAddress (&gHostDirEnt);
 		}
 
-		m68k_areg (regs, 0) = result;
+		PUT_RESULT_VAL (emuptr, result);
 	}
 }
 
@@ -2256,12 +2131,13 @@ static void _HostCloseDir (void)
 {
 	// long HostCloseDir(HostDIRType*)
 
-	struct StackFrame
-	{
-		HostDIRType*	hostDir;
-	};
+	CALLED_SETUP_HC ("long", "HostDIRType* dirP");
 
-	MyDIR*	dir = (MyDIR*) GET_PARAMETER (hostDir);
+	// Get the caller's parameters.
+
+	CALLED_GET_PARAM_VAL (emuptr, dirP);
+
+	MyDIR*	dir = (MyDIR*) (emuptr) dirP;
 
 	// Make sure dir is valid.
 
@@ -2290,7 +2166,7 @@ static void _HostCloseDir (void)
 
 	// Return no error (should we return an error if DIR was not found?)
 
-	m68k_dreg (regs, 0) = 0;
+	PUT_RESULT_VAL (long, 0);
 }
 
 
@@ -2300,66 +2176,61 @@ static void _HostCloseDir (void)
 
 static void _HostStat(void)
 {
-	// long	HostStat(const char*, HostStat*)
+	// long	HostStat(const char*, HostStatType*)
 
-	struct StackFrame
-	{
-		const char*		nameP;
-		HostStatType*	statP;
-	};
+	CALLED_SETUP_HC ("long", "const char* nameP, HostStatType* statP");
 
 	// Get the caller's parameters.
 
-	emuptr	nameP	= GET_PARAMETER (nameP);
-	emuptr	statP	= GET_PARAMETER (statP);
+	CALLED_GET_PARAM_STR (char, nameP);
+	CALLED_GET_PARAM_REF (HostStatType, statP, Marshal::kOutput);
 
 	// Check the parameters.
 
-	if (!nameP || !statP)
+	if (nameP == EmMemNULL || statP == EmMemNULL)
 	{
-		m68k_dreg (regs, 0) = hostErrInvalidParameter;
+		PUT_RESULT_VAL (long, hostErrInvalidParameter);
 		return;
 	}
 
-	// Copy the string from emulated memory into real
-	// memory; that way, we un-wordswap the string
-	// on little-endian platforms.
-
-	string	nameStr (ToString (nameP));
-
 	_stat_	local_stat;
-	int	result = _stat (nameStr.c_str (), &local_stat);
+	int	result = _stat (nameP, &local_stat);
 
 	if (result == 0)
 	{
-		EmMemPut32 (statP + offsetof (HostStatType, st_dev_),			local_stat.st_dev);
-		EmMemPut32 (statP + offsetof (HostStatType, st_ino_),			local_stat.st_ino);
-		EmMemPut32 (statP + offsetof (HostStatType, st_mode_),		local_stat.st_mode);
-		EmMemPut32 (statP + offsetof (HostStatType, st_nlink_),		local_stat.st_nlink);
-		EmMemPut32 (statP + offsetof (HostStatType, st_uid_),			local_stat.st_uid);
-		EmMemPut32 (statP + offsetof (HostStatType, st_gid_),			local_stat.st_gid);
-		EmMemPut32 (statP + offsetof (HostStatType, st_rdev_),		local_stat.st_rdev);
-		EmMemPut32 (statP + offsetof (HostStatType, st_atime_),		local_stat.st_atime);
-		EmMemPut32 (statP + offsetof (HostStatType, st_mtime_),		local_stat.st_mtime);
-		EmMemPut32 (statP + offsetof (HostStatType, st_ctime_),		local_stat.st_ctime);
-		EmMemPut32 (statP + offsetof (HostStatType, st_size_),		local_stat.st_size);
+		(*statP).st_dev_		= local_stat.st_dev;
+		(*statP).st_ino_		= local_stat.st_ino;
+		(*statP).st_mode_		= local_stat.st_mode;
+		(*statP).st_nlink_		= local_stat.st_nlink;
+		(*statP).st_uid_		= local_stat.st_uid;
+		(*statP).st_gid_		= local_stat.st_gid;
+		(*statP).st_rdev_		= local_stat.st_rdev;
+		(*statP).st_atime_		= local_stat.st_atime;
+		(*statP).st_mtime_		= local_stat.st_mtime;
+		(*statP).st_ctime_		= local_stat.st_ctime;
+		(*statP).st_size_		= local_stat.st_size;
 #if PLATFORM_WINDOWS
-		EmMemPut32 (statP + offsetof (HostStatType, st_blksize_),		0);
-		EmMemPut32 (statP + offsetof (HostStatType, st_blocks_),		0);
-		EmMemPut32 (statP + offsetof (HostStatType, st_flags_),		0);
+		(*statP).st_blksize_	= 0;
+		(*statP).st_blocks_		= 0;
+		(*statP).st_flags_		= 0;
 #elif PLATFORM_MAC
-		EmMemPut32 (statP + offsetof (HostStatType, st_blksize_),		local_stat.st_blksize);
-		EmMemPut32 (statP + offsetof (HostStatType, st_blocks_),		local_stat.st_blocks);
-		EmMemPut32 (statP + offsetof (HostStatType, st_flags_),		local_stat.st_flags);
+		(*statP).st_blksize_	= local_stat.st_blksize;
+		(*statP).st_blocks_		= local_stat.st_blocks;
+		(*statP).st_flags_		= local_stat.st_flags;
 #else
-		EmMemPut32 (statP + offsetof (HostStatType, st_blksize_),		local_stat.st_blksize);
-		EmMemPut32 (statP + offsetof (HostStatType, st_blocks_),		local_stat.st_blocks);
-		EmMemPut32 (statP + offsetof (HostStatType, st_flags_),		0);
+		(*statP).st_blksize_	= local_stat.st_blksize;
+		(*statP).st_blocks_		= local_stat.st_blocks;
+		(*statP).st_flags_		= 0;
 #endif
+
+		CALLED_PUT_PARAM_REF (statP);
 	}
 
-	m68k_dreg (regs, 0) = result;
+	// Return the result.
+
+	PUT_RESULT_VAL (long, result);
 }
+
 
 // ---------------------------------------------------------------------------
 //		¥ _HostTruncate
@@ -2369,36 +2240,26 @@ static void _HostTruncate (void)
 {
 	// long HostTruncate(const char*, long)
 
-	struct StackFrame
-	{
-		const char*		nameP;
-		long			size;
-	};
+	CALLED_SETUP_HC ("long", "char* nameP, long size");
 
 	// Get the caller's parameters.
 
-	emuptr	nameP	= GET_PARAMETER (nameP);
-	long	size	= GET_PARAMETER (size);
+	CALLED_GET_PARAM_STR (char, nameP);
+	CALLED_GET_PARAM_VAL (long, size);
 
 	// Check the parameters.
 
-	if (!nameP || size < 0)
+	if (nameP == EmMemNULL || size < 0)
 	{
-		m68k_dreg (regs, 0) = hostErrInvalidParameter;
+		PUT_RESULT_VAL (long, hostErrInvalidParameter);
 		return;
 	}
-
-	// Copy the string from emulated memory into real
-	// memory; that way, we un-wordswap the string
-	// on little-endian platforms.
-
-	string	nameStr (ToString (nameP));
 
 	// Make the call
 
 	int	result;
 
-	int	fd = _open (nameStr.c_str (), _O_BINARY | _O_RDWR);
+	int	fd = _open (nameP, _O_RDWR);
 	if (fd)
 	{
 		result = _chsize (fd, size);
@@ -2409,7 +2270,9 @@ static void _HostTruncate (void)
 		result = errno;
 	}
 
-	m68k_dreg (regs, 0) = result;
+	// Return the result.
+
+	PUT_RESULT_VAL (long, result);
 }
 
 
@@ -2419,39 +2282,41 @@ static void _HostTruncate (void)
 
 static void _HostUTime (void)
 {
-	struct StackFrame
-	{
-		const char*		name;
-		HostUTimeType*	time;
-	};
+	// long HostUTime (const char*, HostUTimeType*)
 
-	emuptr	nameP = GET_PARAMETER (name);
-	emuptr	timeP = GET_PARAMETER (time);
+	CALLED_SETUP_HC ("long", "char* nameP, HostUTimeType* timeP");
 
-	if (!nameP)
+	// Get the caller's parameters.
+
+	CALLED_GET_PARAM_STR (char, nameP);
+	CALLED_GET_PARAM_REF (HostUTimeType, timeP, Marshal::kOutput);
+
+	if (nameP == EmMemNULL || timeP == EmMemNULL)
 	{
-		m68k_dreg (regs, 0) = (uint32) -1;
+		PUT_RESULT_VAL (long, -1);
 		errno = hostErrInvalidParameter;
 		return;
 	}
-
-	string	name = ToString (nameP);
 
 	_utimbuf_	buf;
 	_utimbuf_*	bufP = NULL;
 
 	if (timeP)
 	{
-//		buf.crtime	= EmMemGet32 (timeP + offsetof (HostUTimeType, crtime_));
-		buf.actime	= EmMemGet32 (timeP + offsetof (HostUTimeType, actime_));
-		buf.modtime	= EmMemGet32 (timeP + offsetof (HostUTimeType, modtime_));
+//		buf.crtime	= (*timeP).crtime_;
+		buf.actime	= (*timeP).actime_;
+		buf.modtime	= (*timeP).modtime_;
 
 		bufP = &buf;
 	}
 
-	int	result = _utime (name.c_str (), bufP);
+	// Make the call
 
-	m68k_dreg (regs, 0) = result;
+	int	result = _utime (nameP, bufP);
+
+	// Return the result.
+
+	PUT_RESULT_VAL (long, result);
 }
 
 
@@ -2463,42 +2328,40 @@ static void _HostGetFileAttr(void)
 {
 	// long	HostGetFileAttr(const char*, unsigned long * attr)
 
-	struct StackFrame
-	{
-		const char*		nameP;
-		unsigned long *	attrP;
-	};
+	CALLED_SETUP_HC ("long", "char* nameP, unsigned long * attrP");
 
 	// Get the caller's parameters.
 
-	emuptr	nameP	= GET_PARAMETER (nameP);
-	emuptr	attrP	= GET_PARAMETER (attrP);
+	CALLED_GET_PARAM_STR (char, nameP);
+	CALLED_GET_PARAM_REF (unsigned long, attrP, Marshal::kOutput);
 
 	// Check the parameters.
 
-	if (!nameP || !attrP)
+	if (nameP == EmMemNULL || attrP == EmMemNULL)
 	{
-		m68k_dreg (regs, 0) = hostErrInvalidParameter;
+		PUT_RESULT_VAL (long, hostErrInvalidParameter);
 		return;
 	}
 
-	// Copy the string from emulated memory into real
-	// memory; that way, we un-wordswap the string
-	// on little-endian platforms.
+	// Make the call
 
-	string	nameStr (ToString (nameP));
+	EmFileRef fRef (nameP);
 
-	m68k_dreg (regs, 0) = hostErrNone;
-	
-	EmFileRef fRef(nameStr.c_str());
-	
 	int attr = 0;
-	errno = fRef.GetAttr(&attr);
-	
+	errno = fRef.GetAttr (&attr);
+
+	// Return the result.
+
 	if (errno != 0)
-		m68k_dreg (regs, 0) = (uint32) -1;
-	
-	EmMemPut32 (attrP, attr);
+	{
+		PUT_RESULT_VAL (long, -1);
+		return;
+	}
+
+	*attrP = attr;
+	CALLED_PUT_PARAM_REF (attrP);
+
+	PUT_RESULT_VAL (long, hostErrNone);
 }
 
 
@@ -2510,39 +2373,36 @@ static void _HostSetFileAttr(void)
 {
 	// long	HostSetFileAttr(const char*, unsigned long attr)
 
-	struct StackFrame
-	{
-		const char*		nameP;
-		unsigned long attr;
-	};
+	CALLED_SETUP_HC ("long", "char* nameP, unsigned long attr");
 
 	// Get the caller's parameters.
 
-	emuptr	nameP	= GET_PARAMETER (nameP);
-	unsigned long attr = GET_PARAMETER (attr);
+	CALLED_GET_PARAM_STR (char, nameP);
+	CALLED_GET_PARAM_VAL (unsigned long, attr);
 
 	// Check the parameters.
 
-	if (!nameP)
+	if (nameP == EmMemNULL)
 	{
-		m68k_dreg (regs, 0) = hostErrInvalidParameter;
+		PUT_RESULT_VAL (long, hostErrInvalidParameter);
 		return;
 	}
-
-	// Copy the string from emulated memory into real
-	// memory; that way, we un-wordswap the string
-	// on little-endian platforms.
-
-	string	nameStr (ToString (nameP));
-
-	m68k_dreg (regs, 0) = hostErrNone;
 	
-	EmFileRef fRef(nameStr.c_str());
+	// Make the call
+
+	EmFileRef fRef(nameP);
 	
 	errno = fRef.SetAttr(attr);
 	
+	// Return the result.
+
 	if (errno != 0)
-		m68k_dreg (regs, 0) = (uint32) -1;
+	{
+		PUT_RESULT_VAL (long, -1);
+		return;
+	}
+
+	PUT_RESULT_VAL (long, hostErrNone);
 }
 
 
@@ -2556,11 +2416,9 @@ static void _HostGremlinIsRunning (void)
 {
 	// HostBoolType HostGremlinIsRunning (void)
 
-	struct StackFrame
-	{
-	};
+	CALLED_SETUP_HC ("HostBoolType", "void");
 
-	m68k_dreg (regs, 0) = Hordes::IsOn () ? 1 : 0;
+	PUT_RESULT_VAL (HostBoolType, (Hordes::IsOn () ? 1 : 0));
 }
 
 
@@ -2572,11 +2430,9 @@ static void _HostGremlinNumber (void)
 {
 	// long HostGremlinNumber (void)
 
-	struct StackFrame
-	{
-	};
+	CALLED_SETUP_HC ("long", "void");
 
-	m68k_dreg (regs, 0) = Hordes::GremlinNumber ();
+	PUT_RESULT_VAL (long, Hordes::GremlinNumber ());
 }
 
 
@@ -2588,11 +2444,9 @@ static void _HostGremlinCounter (void)
 {
 	// long HostGremlinCounter (void)
 
-	struct StackFrame
-	{
-	};
+	CALLED_SETUP_HC ("long", "void");
 
-	m68k_dreg (regs, 0) = Hordes::EventCounter ();
+	PUT_RESULT_VAL (long, Hordes::EventCounter ());
 }
 
 
@@ -2604,11 +2458,9 @@ static void _HostGremlinLimit (void)
 {
 	// long HostGremlinLimit (void)
 
-	struct StackFrame
-	{
-	};
+	CALLED_SETUP_HC ("long", "void");
 
-	m68k_dreg (regs, 0) = Hordes::EventLimit ();
+	PUT_RESULT_VAL (long, Hordes::EventLimit ());
 }
 
 
@@ -2618,24 +2470,23 @@ static void _HostGremlinLimit (void)
 
 static void _HostGremlinNew (void)
 {
-	// HostErr HostGremlinNew (void)
+	// HostErrType HostGremlinNew (const HostGremlinInfoType*)
 
-	struct StackFrame
-	{
-		const HostGremlinInfoType*	info;
-	};
+	CALLED_SETUP_HC ("HostErrType", "const HostGremlinInfoType* infoP");
 
-	emuptr		infoP		= GET_PARAMETER (info);
+	// Get the caller's parameters.
+
+	CALLED_GET_PARAM_REF (HostGremlinInfoType, infoP, Marshal::kInput);
 
 	// Get the easy parts.
 
 	HordeInfo	info;
 
-	info.fStartNumber		= EmMemGet32 (infoP + offsetof(HostGremlinInfoType, fFirstGremlin));
-	info.fStopNumber		= EmMemGet32 (infoP + offsetof(HostGremlinInfoType, fLastGremlin));
-	info.fSaveFrequency		= EmMemGet32 (infoP + offsetof(HostGremlinInfoType, fSaveFrequency));
-	info.fSwitchDepth		= EmMemGet32 (infoP + offsetof(HostGremlinInfoType, fSwitchDepth));
-	info.fMaxDepth 			= EmMemGet32 (infoP + offsetof(HostGremlinInfoType, fMaxDepth));
+	info.fStartNumber		= (*infoP).fFirstGremlin;
+	info.fStopNumber		= (*infoP).fLastGremlin;
+	info.fSaveFrequency		= (*infoP).fSaveFrequency;
+	info.fSwitchDepth		= (*infoP).fSwitchDepth;
+	info.fMaxDepth 			= (*infoP).fMaxDepth;
 
 	info.OldToNew ();	// Transfer the old fields to the new fields.
 
@@ -2649,7 +2500,7 @@ static void _HostGremlinNew (void)
 	// string into a list of individual names, and check to see if the whole
 	// thing was preceded by a '-'.
 
-	string		appNames	= ToString (infoP + offsetof(HostGremlinInfoType, fAppNames));
+	string		appNames ((*infoP).fAppNames);
 
 	Bool		exclude = false;
 	if (appNames[0] == '-')
@@ -2692,11 +2543,12 @@ static void _HostGremlinNew (void)
 
 	// Start up the gremlin sub-system.
 
-//	Hordes::New (info);
+	EmAssert (gDocument);
+	gDocument->ScheduleNewHorde (info);
 
-	Startup::ScheduleNewHorde (info, StringList());
+	// Return the result.
 
-	m68k_dreg (regs, 0) = errNone;
+	PUT_RESULT_VAL (HostErrType, errNone);
 }
 
 
@@ -2708,30 +2560,24 @@ static void _HostGremlinNew (void)
 
 static void _HostImportFile (void)
 {
-	// HostErr HostImportFile (const char* fileName)
+	// HostErrType HostImportFile (const char* fileName, long cardNum)
 
-	struct StackFrame
-	{
-		const char*	fileName;
-	};
+	CALLED_SETUP_HC ("HostErrType", "const char* fileName, long cardNum");
 
 	// Get the caller's parameters.
 
-	emuptr	str = GET_PARAMETER (fileName);
+	CALLED_GET_PARAM_STR (char, fileName);
+//	CALLED_GET_PARAM_VAL (long, cardNum);
 
 	// Check the parameters.
 
-	if (!str)
+	if (fileName == NULL)
 	{
-		m68k_dreg (regs, 0) = hostErrInvalidParameter;
+		PUT_RESULT_VAL (HostErrType, hostErrInvalidParameter);
 		return;
 	}
 
-	// Copy the string from emulated memory into real
-	// memory; that way, we un-wordswap the string
-	// on little-endian platforms.
-
-	string	fileName (ToString (str));
+	// Make the call
 
 	ErrCode result = kError_NoError;
 	try
@@ -2739,14 +2585,72 @@ static void _HostImportFile (void)
 		EmFileRef		fileRef (fileName);
 		EmFileRefList	fileList;
 		fileList.push_back (fileRef);
-		EmFileImport::LoadPalmFileList (fileList, kMethodBest);
+
+		vector<LocalID> idList;
+		EmFileImport::LoadPalmFileList (fileList, kMethodBest, idList);
 	}
 	catch (ErrCode errCode)
 	{
 		result = errCode;
 	}
 
-	m68k_dreg (regs, 0) = result;
+	// Return the result.
+
+	PUT_RESULT_VAL (HostErrType, result);
+}
+
+
+// ---------------------------------------------------------------------------
+//		¥ _HostImportFileWithID
+// ---------------------------------------------------------------------------
+
+static void _HostImportFileWithID (void)
+{
+	// HostErrType HostImportFileWithID (const char* fileName, long cardNum, LocalID *newIDP)
+
+	CALLED_SETUP_HC ("HostErrType", "const char* fileName, long cardNum, LocalID *newIDP");
+
+	// Get the caller's parameters.
+
+	CALLED_GET_PARAM_STR (char, fileName);
+//	CALLED_GET_PARAM_VAL (long, cardNum);
+	CALLED_GET_PARAM_REF (LocalID, newIDP, Marshal::kOutput);
+
+	// Check the parameters.
+
+	if (fileName == NULL)
+	{
+		PUT_RESULT_VAL (HostErrType, hostErrInvalidParameter);
+		return;
+	}
+
+	// Make the call
+
+	ErrCode result = kError_NoError;
+	*newIDP = 0;
+
+	try
+	{
+		EmFileRef		fileRef (fileName);
+		EmFileRefList	fileList;
+		fileList.push_back (fileRef);
+
+		vector<LocalID> idList;
+		EmFileImport::LoadPalmFileList (fileList, kMethodBest, idList);
+
+		EmAssert (idList.size () == fileList.size ());
+
+		*newIDP = idList.front ();
+	}
+	catch (ErrCode errCode)
+	{
+		result = errCode;
+	}
+
+	// Return the result.
+
+	CALLED_PUT_PARAM_REF(newIDP);
+	PUT_RESULT_VAL (HostErrType, result);
 }
 
 
@@ -2756,35 +2660,25 @@ static void _HostImportFile (void)
 
 static void _HostExportFile (void)
 {
-	// HostErr HostExportFile (const char* dbName, long cardNum, const char* fileName)
+	// HostErrType HostExportFile (const char* dbNameP, long cardNum, const char* fileNameP)
 
-	struct StackFrame
-	{
-		const char*	fileName;
-		long		cardNum;
-		const char*	dbName;
-	};
+	CALLED_SETUP_HC ("HostErrType", "const char* fileName, long cardNum, const char* dbName");
 
 	// Get the caller's parameters.
 
-	emuptr	fName	= GET_PARAMETER (fileName);
-	long	cardNum = GET_PARAMETER (cardNum);
-	emuptr	dbName	= GET_PARAMETER (dbName);
+	CALLED_GET_PARAM_STR (char, fileName);
+	CALLED_GET_PARAM_VAL (long, cardNum);
+	CALLED_GET_PARAM_STR (char, dbName);
 
 	// Check the parameters.
 
-	if (!fName || !dbName)
+	if (fileName == NULL || dbName == NULL)
 	{
-		m68k_dreg (regs, 0) = hostErrInvalidParameter;
+		PUT_RESULT_VAL (HostErrType, hostErrInvalidParameter);
 		return;
 	}
 
-	// Copy the string from emulated memory into real
-	// memory; that way, we un-wordswap the string
-	// on little-endian platforms.
-
-	string	fileName (ToString (fName));
-	string	databaseName (ToString (dbName));
+	// Make the call
 
 	ErrCode result = kError_NoError;
 	try
@@ -2792,14 +2686,16 @@ static void _HostExportFile (void)
 		EmFileRef		ref (fileName);
 		EmStreamFile	stream (ref, kCreateOrEraseForUpdate,
 								kFileCreatorInstaller, kFileTypePalmApp);
-		::SavePalmFile (stream, cardNum, databaseName.c_str ());
+		::SavePalmFile (stream, cardNum, dbName);
 	}
 	catch (ErrCode errCode)
 	{
 		result = errCode;
 	}
 
-	m68k_dreg (regs, 0) = result;
+	// Return the result.
+
+	PUT_RESULT_VAL (HostErrType, result);
 }
 
 
@@ -2809,44 +2705,40 @@ static void _HostExportFile (void)
 
 static void _HostSaveScreen (void)
 {
-	// HostErr HostSaveScreen (const char* fileName)
+	// HostErrType HostSaveScreen (const char* fileNameP)
 
-	struct StackFrame
-	{
-		const char*	fileName;
-	};
+	CALLED_SETUP_HC ("HostErrType", "char* fileNameP");
 
 	// Get the caller's parameters.
 
-	emuptr	fName	= GET_PARAMETER (fileName);
+	CALLED_GET_PARAM_STR (char, fileNameP);
 
 	// Check the parameters.
 
-	if (!fName)
+	if (fileNameP == NULL)
 	{
-		m68k_dreg (regs, 0) = hostErrInvalidParameter;
+		PUT_RESULT_VAL (HostErrType, hostErrInvalidParameter);
 		return;
 	}
 
-	// Copy the string from emulated memory into real
-	// memory; that way, we un-wordswap the string
-	// on little-endian platforms.
-
-	string	fileName (ToString (fName));
+	// Make the call
 
 	ErrCode result = kError_NoError;
 	try
 	{
-		EmFileRef		ref (fileName);
-		
-		Platform::SaveScreen(ref);
+		EmFileRef	ref (fileNameP);
+
+		EmAssert (gDocument);
+		gDocument->HostSaveScreen (ref);
 	}
 	catch (ErrCode errCode)
 	{
 		result = errCode;
 	}
 
-	m68k_dreg (regs, 0) = result;
+	// Return the result.
+
+	PUT_RESULT_VAL (HostErrType, result);
 }
 
 
@@ -2862,26 +2754,28 @@ static void _HostExgLibOpen (void)
 {
 	// Err ExgLibOpen (UInt16 libRefNum)
 
-	struct StackFrame
-	{
-		UInt16	libRefNum;
-	};
+	CALLED_SETUP_HC ("Err", "UInt16 libRefNum");
 
 	// Get the caller's parameters.
 
-	UInt16	libRefNum	= GET_PARAMETER (libRefNum);
+	CALLED_GET_PARAM_VAL (UInt16, libRefNum);
 
 	// Check the parameters.
 
 	EmExgMgr*	exgMgr	= EmExgMgr::GetExgMgr (libRefNum);
 	if (!exgMgr)
 	{
-		m68k_dreg (regs, 0) = exgErrBadData;
+		PUT_RESULT_VAL (Err, exgErrBadData);
 		return;
 	}
 
+	// Make the call
+
 	Err	result = exgMgr->ExgLibOpen (libRefNum);
-	m68k_dreg (regs, 0) = result;
+
+	// Return the result.
+
+	PUT_RESULT_VAL (Err, result);
 }
 
 
@@ -2893,26 +2787,28 @@ static void _HostExgLibClose (void)
 {
 	// Err ExgLibClose (UInt16 libRefNum)
 
-	struct StackFrame
-	{
-		UInt16	libRefNum;
-	};
+	CALLED_SETUP_HC ("Err", "UInt16 libRefNum");
 
 	// Get the caller's parameters.
 
-	UInt16	libRefNum	= GET_PARAMETER (libRefNum);
+	CALLED_GET_PARAM_VAL (UInt16, libRefNum);
 
 	// Check the parameters.
 
 	EmExgMgr*	exgMgr	= EmExgMgr::GetExgMgr (libRefNum);
 	if (!exgMgr)
 	{
-		m68k_dreg (regs, 0) = exgErrBadData;
+		PUT_RESULT_VAL (Err, exgErrBadData);
 		return;
 	}
 
+	// Make the call
+
 	Err	result = exgMgr->ExgLibClose (libRefNum);
-	m68k_dreg (regs, 0) = result;
+
+	// Return the result.
+
+	PUT_RESULT_VAL (Err, result);
 }
 
 
@@ -2924,26 +2820,28 @@ static void _HostExgLibSleep (void)
 {
 	// Err ExgLibSleep (UInt16 libRefNum)
 
-	struct StackFrame
-	{
-		UInt16	libRefNum;
-	};
+	CALLED_SETUP_HC ("Err", "UInt16 libRefNum");
 
 	// Get the caller's parameters.
 
-	UInt16	libRefNum	= GET_PARAMETER (libRefNum);
+	CALLED_GET_PARAM_VAL (UInt16, libRefNum);
 
 	// Check the parameters.
 
 	EmExgMgr*	exgMgr	= EmExgMgr::GetExgMgr (libRefNum);
 	if (!exgMgr)
 	{
-		m68k_dreg (regs, 0) = exgErrBadData;
+		PUT_RESULT_VAL (Err, exgErrBadData);
 		return;
 	}
 
+	// Make the call
+
 	Err	result = exgMgr->ExgLibSleep (libRefNum);
-	m68k_dreg (regs, 0) = result;
+
+	// Return the result.
+
+	PUT_RESULT_VAL (Err, result);
 }
 
 
@@ -2955,26 +2853,28 @@ static void _HostExgLibWake (void)
 {
 	// Err ExgLibWake (UInt16 libRefNum)
 
-	struct StackFrame
-	{
-		UInt16	libRefNum;
-	};
+	CALLED_SETUP_HC ("Err", "UInt16 libRefNum");
 
 	// Get the caller's parameters.
 
-	UInt16	libRefNum	= GET_PARAMETER (libRefNum);
+	CALLED_GET_PARAM_VAL (UInt16, libRefNum);
 
 	// Check the parameters.
 
 	EmExgMgr*	exgMgr	= EmExgMgr::GetExgMgr (libRefNum);
 	if (!exgMgr)
 	{
-		m68k_dreg (regs, 0) = exgErrBadData;
+		PUT_RESULT_VAL (Err, exgErrBadData);
 		return;
 	}
 
+	// Make the call
+
 	Err	result = exgMgr->ExgLibWake (libRefNum);
-	m68k_dreg (regs, 0) = result;
+
+	// Return the result.
+
+	PUT_RESULT_VAL (Err, result);
 }
 
 
@@ -2986,28 +2886,29 @@ static void _HostExgLibHandleEvent (void)
 {
 	// Boolean ExgLibHandleEvent (UInt16 libRefNum, void* eventP)
 
-	struct StackFrame
-	{
-		UInt16	libRefNum;
-		void*	eventP;
-	};
+	CALLED_SETUP_HC ("Boolean", "UInt16 libRefNum, void* eventP");
 
 	// Get the caller's parameters.
 
-	UInt16	libRefNum	= GET_PARAMETER (libRefNum);
-	emuptr	eventP		= GET_PARAMETER (eventP);
+	CALLED_GET_PARAM_VAL (UInt16, libRefNum);
+	CALLED_GET_PARAM_VAL (emuptr, eventP);
 
 	// Check the parameters.
 
 	EmExgMgr*	exgMgr	= EmExgMgr::GetExgMgr (libRefNum);
 	if (!exgMgr)
 	{
-		m68k_dreg (regs, 0) = exgErrBadData;
+		PUT_RESULT_VAL (Err, exgErrBadData);
 		return;
 	}
 
+	// Make the call
+
 	Boolean	result = exgMgr->ExgLibHandleEvent (libRefNum, eventP);
-	m68k_dreg (regs, 0) = result;
+
+	// Return the result.
+
+	PUT_RESULT_VAL (Boolean, result);
 }
 
 
@@ -3019,28 +2920,29 @@ static void _HostExgLibConnect (void)
 {
 	// Err ExgLibConnect (UInt16 libRefNum, void* exgSocketP)
 
-	struct StackFrame
-	{
-		UInt16	libRefNum;
-		void*	exgSocketP;
-	};
+	CALLED_SETUP_HC ("Err", "UInt16 libRefNum, void* exgSocketP");
 
 	// Get the caller's parameters.
 
-	UInt16	libRefNum	= GET_PARAMETER (libRefNum);
-	emuptr	exgSocketP	= GET_PARAMETER (exgSocketP);
+	CALLED_GET_PARAM_VAL (UInt16, libRefNum);
+	CALLED_GET_PARAM_VAL (emuptr, exgSocketP);
 
 	// Check the parameters.
 
 	EmExgMgr*	exgMgr	= EmExgMgr::GetExgMgr (libRefNum);
 	if (!exgMgr)
 	{
-		m68k_dreg (regs, 0) = exgErrBadData;
+		PUT_RESULT_VAL (Err, exgErrBadData);
 		return;
 	}
 
+	// Make the call
+
 	Err	result = exgMgr->ExgLibConnect (libRefNum, exgSocketP);
-	m68k_dreg (regs, 0) = result;
+
+	// Return the result.
+
+	PUT_RESULT_VAL (Err, result);
 }
 
 
@@ -3052,28 +2954,29 @@ static void _HostExgLibAccept (void)
 {
 	// Err ExgLibAccept (UInt16 libRefNum, void* exgSocketP)
 
-	struct StackFrame
-	{
-		UInt16	libRefNum;
-		void*	exgSocketP;
-	};
+	CALLED_SETUP_HC ("Err", "UInt16 libRefNum, void* exgSocketP");
 
 	// Get the caller's parameters.
 
-	UInt16	libRefNum	= GET_PARAMETER (libRefNum);
-	emuptr	exgSocketP	= GET_PARAMETER (exgSocketP);
+	CALLED_GET_PARAM_VAL (UInt16, libRefNum);
+	CALLED_GET_PARAM_VAL (emuptr, exgSocketP);
 
 	// Check the parameters.
 
 	EmExgMgr*	exgMgr	= EmExgMgr::GetExgMgr (libRefNum);
 	if (!exgMgr)
 	{
-		m68k_dreg (regs, 0) = exgErrBadData;
+		PUT_RESULT_VAL (Err, exgErrBadData);
 		return;
 	}
 
+	// Make the call
+
 	Err	result = exgMgr->ExgLibAccept (libRefNum, exgSocketP);
-	m68k_dreg (regs, 0) = result;
+
+	// Return the result.
+
+	PUT_RESULT_VAL (Err, result);
 }
 
 
@@ -3085,30 +2988,30 @@ static void _HostExgLibDisconnect (void)
 {
 	// Err ExgLibDisconnect (UInt16 libRefNum, void* exgSocketP, Err error)
 
-	struct StackFrame
-	{
-		UInt16	libRefNum;
-		void*	exgSocketP;
-		Err		err;
-	};
+	CALLED_SETUP_HC ("Err", "UInt16 libRefNum, void* exgSocketP, Err error");
 
 	// Get the caller's parameters.
 
-	UInt16	libRefNum	= GET_PARAMETER (libRefNum);
-	emuptr	exgSocketP	= GET_PARAMETER (exgSocketP);
-	Err		err			= GET_PARAMETER (err);
+	CALLED_GET_PARAM_VAL (UInt16, libRefNum);
+	CALLED_GET_PARAM_VAL (emuptr, exgSocketP);
+	CALLED_GET_PARAM_VAL (Err, error);
 
 	// Check the parameters.
 
 	EmExgMgr*	exgMgr	= EmExgMgr::GetExgMgr (libRefNum);
 	if (!exgMgr)
 	{
-		m68k_dreg (regs, 0) = exgErrBadData;
+		PUT_RESULT_VAL (Err, exgErrBadData);
 		return;
 	}
 
-	Err	result = exgMgr->ExgLibDisconnect (libRefNum, exgSocketP, err);
-	m68k_dreg (regs, 0) = result;
+	// Make the call
+
+	Err	result = exgMgr->ExgLibDisconnect (libRefNum, exgSocketP, error);
+
+	// Return the result.
+
+	PUT_RESULT_VAL (Err, result);
 }
 
 
@@ -3120,28 +3023,29 @@ static void _HostExgLibPut (void)
 {
 	// Err ExgLibPut (UInt16 libRefNum, void* exgSocketP)
 
-	struct StackFrame
-	{
-		UInt16	libRefNum;
-		void*	exgSocketP;
-	};
+	CALLED_SETUP_HC ("Err", "UInt16 libRefNum, void* exgSocketP");
 
 	// Get the caller's parameters.
 
-	UInt16	libRefNum	= GET_PARAMETER (libRefNum);
-	emuptr	exgSocketP	= GET_PARAMETER (exgSocketP);
+	CALLED_GET_PARAM_VAL (UInt16, libRefNum);
+	CALLED_GET_PARAM_VAL (emuptr, exgSocketP);
 
 	// Check the parameters.
 
 	EmExgMgr*	exgMgr	= EmExgMgr::GetExgMgr (libRefNum);
 	if (!exgMgr)
 	{
-		m68k_dreg (regs, 0) = exgErrBadData;
+		PUT_RESULT_VAL (Err, exgErrBadData);
 		return;
 	}
 
+	// Make the call
+
 	Err	result = exgMgr->ExgLibPut (libRefNum, exgSocketP);
-	m68k_dreg (regs, 0) = result;
+
+	// Return the result.
+
+	PUT_RESULT_VAL (Err, result);
 }
 
 
@@ -3153,28 +3057,29 @@ static void _HostExgLibGet (void)
 {
 	// Err ExgLibGet (UInt16 libRefNum, void* exgSocketP)
 
-	struct StackFrame
-	{
-		UInt16	libRefNum;
-		void*	exgSocketP;
-	};
+	CALLED_SETUP_HC ("Err", "UInt16 libRefNum, void* exgSocketP");
 
 	// Get the caller's parameters.
 
-	UInt16	libRefNum	= GET_PARAMETER (libRefNum);
-	emuptr	exgSocketP	= GET_PARAMETER (exgSocketP);
+	CALLED_GET_PARAM_VAL (UInt16, libRefNum);
+	CALLED_GET_PARAM_VAL (emuptr, exgSocketP);
 
 	// Check the parameters.
 
 	EmExgMgr*	exgMgr	= EmExgMgr::GetExgMgr (libRefNum);
 	if (!exgMgr)
 	{
-		m68k_dreg (regs, 0) = exgErrBadData;
+		PUT_RESULT_VAL (Err, exgErrBadData);
 		return;
 	}
 
+	// Make the call
+
 	Err	result = exgMgr->ExgLibGet (libRefNum, exgSocketP);
-	m68k_dreg (regs, 0) = result;
+
+	// Return the result.
+
+	PUT_RESULT_VAL (Err, result);
 }
 
 
@@ -3187,42 +3092,36 @@ static void _HostExgLibSend (void)
 	// UInt32 ExgLibSend (UInt16 libRefNum, void* exgSocketP,
 	//			const void* const bufP, const UInt32 bufLen, Err* errP)
 
-	struct StackFrame
-	{
-		UInt16	libRefNum;
-		void*	exgSocketP;
-		void*	bufP;
-		UInt32	bufLen;
-		Err*	errP;
-	};
+	CALLED_SETUP_HC ("UInt32", "UInt16 libRefNum, void* exgSocketP,"
+				"const void* const bufP, const UInt32 bufLen, Err* errP");
 
 	// Get the caller's parameters.
 
-	UInt16	libRefNum	= GET_PARAMETER (libRefNum);
-	emuptr	exgSocketP	= GET_PARAMETER (exgSocketP);
-	emuptr	bufP		= GET_PARAMETER (bufP);
-	UInt32	bufLen		= GET_PARAMETER (bufLen);
-	emuptr	errP		= GET_PARAMETER (errP);
+	CALLED_GET_PARAM_VAL (UInt16, libRefNum);
+	CALLED_GET_PARAM_VAL (emuptr, exgSocketP);
+	CALLED_GET_PARAM_VAL (UInt32, bufLen);
+	CALLED_GET_PARAM_PTR (void, bufP, bufLen, Marshal::kInput);
+	CALLED_GET_PARAM_REF (Err, errP, Marshal::kOutput);
 
 	// Check the parameters.
 
 	EmExgMgr*	exgMgr	= EmExgMgr::GetExgMgr (libRefNum);
 	if (!exgMgr)
 	{
-		m68k_dreg (regs, 0) = exgErrBadData;
+		*errP = exgErrBadData;
+		PUT_RESULT_VAL (UInt32, 0);
 		return;
 	}
 
-	StMemory	buffer (bufLen);
-	Err			myErr;
+	// Make the call
 
-	uae_memcpy ((void*) buffer.Get (), bufP, bufLen);
+	UInt32	result = exgMgr->ExgLibSend (libRefNum, exgSocketP, bufP, bufLen, errP);
 
-	UInt32	result = exgMgr->ExgLibSend (libRefNum, exgSocketP, buffer.Get (), bufLen, &myErr);
-	m68k_dreg (regs, 0) = result;
+	// Return the result.
 
-	EmAliasErr<PAS>	err (errP);
-	err = myErr;
+	CALLED_PUT_PARAM_REF (errP);
+
+	PUT_RESULT_VAL (UInt32, result);
 }
 
 
@@ -3235,42 +3134,37 @@ static void _HostExgLibReceive (void)
 	// UInt32 ExgLibReceive (UInt16 libRefNum, void* exgSocketP,
 	//			void* bufP, const UInt32 bufLen, Err* errP)
 
-	struct StackFrame
-	{
-		UInt16	libRefNum;
-		void*	exgSocketP;
-		void*	bufP;
-		UInt32	bufLen;
-		Err*	errP;
-	};
+	CALLED_SETUP_HC ("UInt32", "UInt16 libRefNum, void* exgSocketP,"
+				"const void* const bufP, const UInt32 bufLen, Err* errP");
 
 	// Get the caller's parameters.
 
-	UInt16	libRefNum	= GET_PARAMETER (libRefNum);
-	emuptr	exgSocketP	= GET_PARAMETER (exgSocketP);
-	emuptr	bufP		= GET_PARAMETER (bufP);
-	UInt32	bufLen		= GET_PARAMETER (bufLen);
-	emuptr	errP		= GET_PARAMETER (errP);
+	CALLED_GET_PARAM_VAL (UInt16, libRefNum);
+	CALLED_GET_PARAM_VAL (emuptr, exgSocketP);
+	CALLED_GET_PARAM_VAL (UInt32, bufLen);
+	CALLED_GET_PARAM_PTR (void, bufP, bufLen, Marshal::kOutput);
+	CALLED_GET_PARAM_REF (Err, errP, Marshal::kOutput);
 
 	// Check the parameters.
 
 	EmExgMgr*	exgMgr	= EmExgMgr::GetExgMgr (libRefNum);
 	if (!exgMgr)
 	{
-		m68k_dreg (regs, 0) = exgErrBadData;
+		*errP = exgErrBadData;
+		PUT_RESULT_VAL (UInt32, 0);
 		return;
 	}
 
-	StMemory	buffer (bufLen);
-	Err			myErr;
+	// Make the call
 
-	UInt32	result = exgMgr->ExgLibReceive (libRefNum, exgSocketP, buffer.Get (), bufLen, &myErr);
-	m68k_dreg (regs, 0) = result;
+	UInt32	result = exgMgr->ExgLibReceive (libRefNum, exgSocketP, bufP, bufLen, errP);
 
-	uae_memcpy (bufP, (const void*) buffer.Get (), bufLen);
+	// Return the result.
 
-	EmAliasErr<PAS>	err (errP);
-	err = myErr;
+	CALLED_PUT_PARAM_REF (bufP);
+	CALLED_PUT_PARAM_REF (errP);
+
+	PUT_RESULT_VAL (UInt32, result);
 }
 
 
@@ -3283,32 +3177,29 @@ static void _HostExgLibControl (void)
 	// Err ExgLibControl (UInt16 libRefNum, UInt16 op,
 	//							 void* valueP, UInt16* valueLenP)
 
-	struct StackFrame
-	{
-		UInt16	libRefNum;
-		UInt16	op;
-		void*	valueP;
-		UInt16*	valueLenP;
-	};
+	CALLED_SETUP_HC ("Err", "UInt16 libRefNum, UInt16 op, void* valueP, UInt16* valueLenP");
 
-	// Get the caller's parameters.
-
-	UInt16	libRefNum	= GET_PARAMETER (libRefNum);
-	UInt16	op			= GET_PARAMETER (op);
-	emuptr	valueP		= GET_PARAMETER (valueP);
-	emuptr	valueLenP	= GET_PARAMETER (valueLenP);
+	CALLED_GET_PARAM_VAL (UInt16, libRefNum);
+	CALLED_GET_PARAM_VAL (UInt16, op);
+	CALLED_GET_PARAM_VAL (emuptr, valueP);
+	CALLED_GET_PARAM_VAL (emuptr, valueLenP);
 
 	// Check the parameters.
 
 	EmExgMgr*	exgMgr	= EmExgMgr::GetExgMgr (libRefNum);
 	if (!exgMgr)
 	{
-		m68k_dreg (regs, 0) = exgErrBadData;
+		PUT_RESULT_VAL (Err, exgErrBadData);
 		return;
 	}
 
+	// Make the call
+
 	Err	result = exgMgr->ExgLibControl (libRefNum, op, valueP, valueLenP);
-	m68k_dreg (regs, 0) = result;
+
+	// Return the result.
+
+	PUT_RESULT_VAL (Err, result);
 }
 
 
@@ -3320,28 +3211,29 @@ static void _HostExgLibRequest (void)
 {
 	// Err ExgLibRequest (UInt16 libRefNum, void* exgSocketP)
 
-	struct StackFrame
-	{
-		UInt16	libRefNum;
-		void*	exgSocketP;
-	};
+	CALLED_SETUP_HC ("Err", "UInt16 libRefNum, void* exgSocketP");
 
 	// Get the caller's parameters.
 
-	UInt16	libRefNum	= GET_PARAMETER (libRefNum);
-	emuptr	exgSocketP	= GET_PARAMETER (exgSocketP);
+	CALLED_GET_PARAM_VAL (UInt16, libRefNum);
+	CALLED_GET_PARAM_VAL (emuptr, exgSocketP);
 
 	// Check the parameters.
 
 	EmExgMgr*	exgMgr	= EmExgMgr::GetExgMgr (libRefNum);
 	if (!exgMgr)
 	{
-		m68k_dreg (regs, 0) = exgErrBadData;
+		PUT_RESULT_VAL (Err, exgErrBadData);
 		return;
 	}
 
+	// Make the call
+
 	Err	result = exgMgr->ExgLibRequest (libRefNum, exgSocketP);
-	m68k_dreg (regs, 0) = result;
+
+	// Return the result.
+
+	PUT_RESULT_VAL (Err, result);
 }
 
 
@@ -3353,27 +3245,30 @@ static void _HostExgLibRequest (void)
 
 static void _HostGetPreference (void)
 {
-	// HostBoolType HostGetPreference (const char*, char*);
+	// HostBoolType HostGetPreference (const char* key, char* value);
 
-	struct StackFrame
+	CALLED_SETUP_HC ("HostBoolType", "const char* key, char* value");
+
+	// Get the caller's parameters.
+
+	CALLED_GET_PARAM_STR (char, key);
+	CALLED_GET_PARAM_VAL (emuptr, value);
+
+	string	keyStr ((const char*) key);
+
+	if (keyStr == "ReportIntlStrictChecks")
 	{
-		const char*	key;
-		char*		value;
-	};
+		keyStr = "ReportStrictIntlChecks";
+	}
 
-	string	key 	= ToString (GET_PARAMETER (key));
-	emuptr	value	= GET_PARAMETER (value);
+	Preference<string>	pref (keyStr.c_str ());
 
-	Preference<string>	pref (key.c_str ());
+	PUT_RESULT_VAL (HostBoolType, 0);
 
 	if (pref.Loaded ())
 	{
-		uae_strcpy (value, pref->c_str ());
-		m68k_dreg (regs, 0) = 1;
-	}
-	else
-	{
-		m68k_dreg (regs, 0) = 0;
+		EmMem_strcpy ((emuptr) value, pref->c_str ());
+		PUT_RESULT_VAL (HostBoolType, 1);
 	}
 }
 
@@ -3386,17 +3281,22 @@ static void _HostSetPreference (void)
 {
 	// void HostSetPreference (const char*, const char*);
 
-	struct StackFrame
+	CALLED_SETUP_HC ("HostBoolType", "const char* key, char* value");
+
+	// Get the caller's parameters.
+
+	CALLED_GET_PARAM_STR (char, key);
+	CALLED_GET_PARAM_STR (char, value);
+
+	string	keyStr ((const char*) key);
+
+	if (keyStr == "ReportIntlStrictChecks")
 	{
-		const char*	key;
-		const char*	value;
-	};
+		keyStr = "ReportStrictIntlChecks";
+	}
 
-	string	key 	= ToString (GET_PARAMETER (key));
-	string	value	= ToString (GET_PARAMETER (value));
-
-	Preference<string>	pref (key.c_str ());
-	pref = value;
+	Preference<string>	pref (keyStr.c_str ());
+	pref = string (value);
 }
 
 
@@ -3408,7 +3308,11 @@ static void _HostSetPreference (void)
 
 static void _HostLogFile (void)
 {
-	m68k_areg (regs, 0) = (uint32) hostLogFile;
+	// HostFILEType* HostLogFile (void)
+
+	CALLED_SETUP_HC ("HostFILEType", "void");
+
+	PUT_RESULT_VAL (emuptr, hostLogFile);
 }
 
 
@@ -3418,18 +3322,14 @@ static void _HostLogFile (void)
 
 static void _HostSetLogFileSize (void)
 {
-	// void HostSetLogFileSize (long)
+	// void HostSetLogFileSize (long newSize)
 
-	struct StackFrame
-	{
-		long	newSize;
-	};
+	CALLED_SETUP_HC ("void", "long newSize");
 
-	long	newSize = GET_PARAMETER (newSize);
+	CALLED_GET_PARAM_VAL (long, newSize);
 
-	LogGetStdLog ()->SetLogSize (newSize);
-
-	m68k_dreg (regs, 0) = 0;
+	Preference<long>	logFileSize (kPrefKeyLogFileSize);
+	logFileSize = (long) newSize;
 }
 
 
@@ -3442,7 +3342,7 @@ static void _HostSetLogFileSize (void)
 #if 0
 static void _HostSessionCreate (void)
 {
-	// HostErr HostSessionCreate(const char* device, long ramSize, const char* romPath)
+	// HostErrType HostSessionCreate(const char* device, long ramSize, const char* romPath)
 
 	struct StackFrame
 	{
@@ -3459,7 +3359,7 @@ static void _HostSessionCreate (void)
 
 	if (Platform::SessionRunning())
 	{
-		m68k_dreg (regs, 0) = hostErrSessionRunning;
+		PUT_RESULT_VAL (HostErrType, hostErrSessionNotRunning);
 		return;
 	}
 
@@ -3480,7 +3380,7 @@ static void _HostSessionCreate (void)
 
 	if (device == kDeviceUnspecified)
 	{
-		m68k_dreg (regs, 0) = hostErrInvalidDeviceType;
+		PUT_RESULT_VAL (HostErrType, hostErrInvalidDeviceType);
 		return;
 	}
 
@@ -3502,7 +3402,7 @@ static void _HostSessionCreate (void)
 
 	if (!sizeOK)
 	{
-		m68k_dreg (regs, 0) = hostErrInvalidRAMSize;
+		PUT_RESULT_VAL (HostErrType, hostErrInvalidRAMSize);
 		return;
 	}
 
@@ -3511,15 +3411,17 @@ static void _HostSessionCreate (void)
 	EmFileRef	romRef(romPathStr);
 	if (!romRef.Exists())
 	{
-		m68k_dreg (regs, 0) = hostErrFileNotFound;
+		PUT_RESULT_VAL (HostErrType, hostErrFileNotFound);
 		return;
 	}
 
 	// Kick this all off.
 
 	Configuration	cfg (device, ramSize, romRef);
-	Startup::ScheduleCreateSession (cfg);
-	m68k_dreg (regs, 0) = errNone;
+	EmAssert (gApplication);
+	gApplication->ScheduleCreateSession (cfg);
+
+	PUT_RESULT_VAL (HostErrType, errNone);
 }
 #endif
 
@@ -3531,7 +3433,7 @@ static void _HostSessionCreate (void)
 #if 0
 static void _HostSessionOpen (void)
 {
-	// HostErr HostSessionOpen (const char* psfFileName);
+	// HostErrType HostSessionOpen (const char* psfFileName);
 
 	struct StackFrame
 	{
@@ -3544,7 +3446,7 @@ static void _HostSessionOpen (void)
 
 	if (Platform::SessionRunning())
 	{
-		m68k_dreg (regs, 0) = hostErrSessionRunning;
+		PUT_RESULT_VAL (HostErrType, hostErrSessionNotRunning);
 		return;
 	}
 
@@ -3553,14 +3455,16 @@ static void _HostSessionOpen (void)
 	EmFileRef	psfFileRef(psfFileName);
 	if (!psfFileRef.Exists())
 	{
-		m68k_dreg (regs, 0) = hostErrFileNotFound;
+		PUT_RESULT_VAL (HostErrType, hostErrFileNotFound);
 		return;
 	}
 
 	// Kick this all off.
 
-	Startup::ScheduleOpenSession (psfFileRef);
-	m68k_dreg (regs, 0) = errNone;
+	EmAssert (gApplication);
+	gApplication->ScheduleOpenSession (psfFileRef);
+
+	PUT_RESULT_VAL (HostErrType, errNone);
 }
 #endif
 
@@ -3573,18 +3477,16 @@ static void _HostSessionSave (void)
 {
 	// HostBoolType HostSessionSave (const char* saveFileName)
 
-	struct StackFrame
-	{
-		const char*	saveFileName;
-	};
+	CALLED_SETUP_HC ("HostBoolType", "const char* saveFileName");
 
-	string	saveFileName	= ToString (GET_PARAMETER (saveFileName));
+	CALLED_GET_PARAM_STR (char, saveFileName);
 
 	// See if it's OK to close a session.
 
 	if (!gSession)
 	{
-		m68k_dreg (regs, 0) = hostErrSessionNotRunning;
+		// !!! Oops. Returning an error code as a Boolean...
+		PUT_RESULT_VAL (HostBoolType, hostErrSessionNotRunning);
 		return;
 	}
 
@@ -3599,8 +3501,10 @@ static void _HostSessionSave (void)
 	// If the system call is being made by a TRAP $F, the PC has already
 	// been bumped past the opcode.  If being made with a JSR via the
 	// SYS_TRAP_FAST macro, the PC has not been adjusted.
+	//
+	// !!! Note that the following is 68K-specific!
 
-	emuptr	startPC = m68k_getpc ();
+	emuptr	startPC = gCPU->GetPC ();
 	if ((EmMemGet16 (startPC) & 0xF000) == 0xA000)
 	{
 		startPC -= 2;	// Back us up to the TRAP $F
@@ -3609,17 +3513,17 @@ static void _HostSessionSave (void)
 	SystemCallContext	context;
 	if (GetSystemCallContext (startPC, context))
 	{
-		m68k_setpc (context.fNextPC);
+		gCPU->SetPC (context.fNextPC);
 
 		// Set the return value to something else so that the code that is restored can distinguish
 		// the saved case from not saved case.
 
-		m68k_dreg (regs, 0) = true;
+		PUT_RESULT_VAL (HostBoolType, true);
 
 		gSession->Save (saveFileRef, false);
 	}
 
-	m68k_dreg (regs, 0) = false;
+	PUT_RESULT_VAL (HostBoolType, false);
 }
 
 
@@ -3629,20 +3533,17 @@ static void _HostSessionSave (void)
 
 static void _HostSessionClose (void)
 {
-	// HostErr HostSessionClose (const char* saveFileName)
+	// HostErrType HostSessionClose (const char* saveFileName)
 
-	struct StackFrame
-	{
-		const char*	saveFileName;
-	};
+	CALLED_SETUP_HC ("HostErrType", "const char* saveFileName");
 
-	string	saveFileName	= ToString (GET_PARAMETER (saveFileName));
+	CALLED_GET_PARAM_STR (char, saveFileName);
 
 	// See if it's OK to close a session.
 
 	if (!gSession)
 	{
-		m68k_dreg (regs, 0) = hostErrSessionNotRunning;
+		PUT_RESULT_VAL (HostErrType, hostErrSessionNotRunning);
 		return;
 	}
 
@@ -3650,8 +3551,11 @@ static void _HostSessionClose (void)
 
 	// Kick this all off.
 
-	Startup::ScheduleCloseSession (saveFileName);
-	m68k_dreg (regs, 0) = errNone;
+	gApplication->ScheduleSessionClose (saveFileRef);
+
+	// Return the result.
+
+	PUT_RESULT_VAL (HostErrType, errNone);
 }
 
 
@@ -3661,25 +3565,25 @@ static void _HostSessionClose (void)
 
 static void _HostSessionQuit (void)
 {
-	// HostErr HostSessionQuit (void)
+	// HostErrType HostSessionQuit (void)
 
-	struct StackFrame
-	{
-	};
+	CALLED_SETUP_HC ("HostErrType", "void");
 
 	// See if it's OK to quit Poser.
 
 	if (gSession)
 	{
-//		m68k_dreg (regs, 0) = hostErrSessionRunning;
+//		PUT_RESULT_VAL (HostErrType, hostErrSessionRunning);
 //		return;
 	}
 
 	// Kick this all off.
 
-	Startup::ScheduleQuit ();
+	gApplication->ScheduleQuit ();
 
-	m68k_dreg (regs, 0) = errNone;
+	// Return the result.
+
+	PUT_RESULT_VAL (HostErrType, errNone);
 }
 
 
@@ -3690,18 +3594,17 @@ static void _HostSessionQuit (void)
 
 static void _HostSignalSend (void)
 {
-	// HostErr HostSignalSend (HostSignalType signalNumber)
+	// HostErrType HostSignalSend (HostSignalType signalNumber)
 
-	struct StackFrame
-	{
-		HostSignalType	signalNumber;
-	};
+	CALLED_SETUP_HC ("HostErrType", "HostSignalType signalNumber");
 
-	HostSignalType	signalNumber = GET_PARAMETER(signalNumber);
+	CALLED_GET_PARAM_VAL (HostSignalType, signalNumber);
 
 	RPC::SignalWaiters (signalNumber);
 
-	m68k_dreg (regs, 0) = errNone;
+	// Return the result.
+
+	PUT_RESULT_VAL (HostErrType, errNone);
 }
 
 
@@ -3712,14 +3615,11 @@ static void _HostSignalSend (void)
 
 static void _HostSignalWait (void)
 {
-	// HostErr HostSignalWait (long timeout)
+	// HostErrType HostSignalWait (long timeout)
 
-	struct StackFrame
-	{
-		long	timeout;
-	};
+	CALLED_SETUP_HC ("HostErrType", "long timeout");
 
-	long	timeout = GET_PARAMETER (timeout);
+	CALLED_GET_PARAM_VAL (long, timeout);
 
 	// Unblock the CPU thread if it's suspended from a previous
 	// HostSignalSend call.
@@ -3731,7 +3631,7 @@ static void _HostSignalWait (void)
 	{
 		RPC::DeferCurrentPacket (timeout);
 
-		if (Patches::UIInitialized ())
+		if (EmPatchState::UIInitialized ())
 		{
 			::EvtWakeup ();	// Wake up the process in case the caller is looking
 							// for an idle event (which would never otherwise
@@ -3740,7 +3640,9 @@ static void _HostSignalWait (void)
 		}
 	}
 
-	m68k_dreg (regs, 0) = errNone;
+	// Return the result.
+
+	PUT_RESULT_VAL (HostErrType, errNone);
 }
 
 
@@ -3752,16 +3654,16 @@ static void _HostSignalWait (void)
 
 static void _HostSignalResume (void)
 {
-	// HostErr HostSignalResume (void)
+	// HostErrType HostSignalResume (void)
 
-	struct StackFrame
-	{
-	};
+	CALLED_SETUP_HC ("HostErrType", "void");
 
 	EmAssert (gSession);
 	gSession->ScheduleResumeExternal ();
 
-	m68k_dreg (regs, 0) = errNone;
+	// Return the result.
+
+	PUT_RESULT_VAL (HostErrType, errNone);
 }
 
 
@@ -3796,28 +3698,20 @@ static void _HostTraceOutputT (void)
 {
 	// void HostTraceOutputT (unsigned short, const char*, ...)
 
-	struct StackFrame
-	{
-		unsigned short	module;
-		const char*		fmt;
-	};
+	CALLED_SETUP_STDARG_HC ("void", "UInt16 module, const char* fmt");
 
 	// Get the caller's parameters.
 
-	unsigned short	module = GET_PARAMETER (module);
-	emuptr			fmt = GET_PARAMETER (fmt);
+	CALLED_GET_PARAM_VAL (UInt16, module);
+	CALLED_GET_PARAM_STR (char, fmt);
 
 	// Check the parameters.
 
-	if (!fmt)
+	if (fmt == NULL)
 	{
 		errno = hostErrInvalidParameter;
 		return;
 	}
-
-	// Make a copy of the format string.
-
-	string	fmt2 (ToString (fmt));
 
 	// Collect the specified parameters. We need to make copies of everything
 	// so that it's in the right endian order and to reverse any effects
@@ -3828,17 +3722,15 @@ static void _HostTraceOutputT (void)
 	ByteList	stackData;
 	StringList stringData;
 
-	if (!::CollectParameters (	sizeof (HostControlSelectorType) +
-								sizeof (short) +
-								sizeof (char*), fmt2, stackData, stringData))
+	if (!::PrvCollectParameters (sub, string (fmt), stackData, stringData))
 	{
-		m68k_dreg (regs, 0) = (uint32) hostErrInvalidParameter;
+		errno = hostErrInvalidParameter;
 		return;
 	}
 
 	// Write everything out
 
-	gTracer.OutputVT( module, fmt2.c_str (), (va_list) &stackData[0]);
+	gTracer.OutputVT( module, fmt, (va_list) &stackData[0]);
 }
 
 
@@ -3850,28 +3742,20 @@ static void _HostTraceOutputTL (void)
 {
 	// void HostTraceOutputTL (unsigned short, const char*, ...)
 
-	struct StackFrame
-	{
-		unsigned short	module;
-		const char*		fmt;
-	};
+	CALLED_SETUP_STDARG_HC ("void", "UInt16 module, const char* fmt");
 
 	// Get the caller's parameters.
-	
-	unsigned short	module = GET_PARAMETER (module);
-	emuptr			fmt = GET_PARAMETER (fmt);
+
+	CALLED_GET_PARAM_VAL (UInt16, module);
+	CALLED_GET_PARAM_STR (char, fmt);
 
 	// Check the parameters.
 
-	if (!fmt)
+	if (fmt == NULL)
 	{
 		errno = hostErrInvalidParameter;
 		return;
 	}
-
-	// Make a copy of the format string.
-
-	string	fmt2 (ToString (fmt));
 
 	// Collect the specified parameters. We need to make copies of everything
 	// so that it's in the right endian order and to reverse any effects
@@ -3882,17 +3766,15 @@ static void _HostTraceOutputTL (void)
 	ByteList	stackData;
 	StringList stringData;
 
-	if (!::CollectParameters (	sizeof (HostControlSelectorType) +
-								sizeof (short) +
-								sizeof (char*), fmt2, stackData, stringData))
+	if (!::PrvCollectParameters (sub, string (fmt), stackData, stringData))
 	{
-		m68k_dreg (regs, 0) = (uint32) hostErrInvalidParameter;
+		errno = hostErrInvalidParameter;
 		return;
 	}
 
 	// Write everything out
 
-	gTracer.OutputVTL( module, fmt2.c_str (), (va_list) &stackData[0]);
+	gTracer.OutputVTL( module, fmt, (va_list) &stackData[0]);
 }
 
 
@@ -3902,32 +3784,29 @@ static void _HostTraceOutputTL (void)
 
 static void _HostTraceOutputVT (void)
 {
-	// void HostTraceOutputVT (unsigned short, const char*, char*)
+	// void HostTraceOutputVT (unsigned short module, const char* fmt, char* va_addr)
 
-	struct StackFrame
-	{
-		unsigned short	module;
-		const char*		fmt;
-		unsigned long	va_addr;
-	};
+	CALLED_SETUP_STDARG_HC ("void", "UInt16 module, const char* fmt, const char* va_addr");
 
 	// Get the caller's parameters.
 
-	unsigned short	module = GET_PARAMETER (module);
-	emuptr			fmt = GET_PARAMETER (fmt);
-	unsigned long	va_addr =  GET_PARAMETER (va_addr);
+	CALLED_GET_PARAM_VAL (UInt16, module);
+	CALLED_GET_PARAM_STR (char, fmt);
+	CALLED_GET_PARAM_VAL (emuptr, va_addr);
 
 	// Check the parameters.
 
-	if (!fmt)
+	if (fmt == NULL)
 	{
 		errno = hostErrInvalidParameter;
 		return;
 	}
 
-	// Make a copy of the format string.
+	// We get the parameters from va_addr, not the stack, so create a new
+	// EmSubroutine object to access them.
 
-	string	fmt2 (ToString (fmt));
+	EmSubroutine	sub2;
+	sub2.PrepareStack (va_addr);
 
 	// Collect the specified parameters. We need to make copies of everything
 	// so that it's in the right endian order and to reverse any effects
@@ -3936,17 +3815,17 @@ static void _HostTraceOutputVT (void)
 	// The data pointed to by the pointers gets converted and placed in stringData.
 
 	ByteList	stackData;
-	StringList stringData;
+	StringList	stringData;
 
-	if (!::CollectParameters (va_addr - m68k_areg (regs, 7), fmt2, stackData, stringData))
+	if (!::PrvCollectParameters (sub2, string (fmt), stackData, stringData))
 	{
-		m68k_dreg (regs, 0) = (uint32) hostErrInvalidParameter;
+		errno = hostErrInvalidParameter;
 		return;
 	}
 
 	// Write everything out
 
-	gTracer.OutputVT( module, fmt2.c_str (), (va_list) &stackData[0]);
+	gTracer.OutputVT( module, fmt, (va_list) &stackData[0]);
 }
 
 
@@ -3956,32 +3835,29 @@ static void _HostTraceOutputVT (void)
 
 static void _HostTraceOutputVTL (void)
 {
-	// void HostTraceOutputVTL (unsigned short, const char*, char*)
+	// void HostTraceOutputVTL (unsigned short module, const char* fmt, char* va_addr)
 
-	struct StackFrame
-	{
-		unsigned short	module;
-		const char*		fmt;
-		unsigned long	va_addr;
-	};
+	CALLED_SETUP_STDARG_HC ("void", "UInt16 module, const char* fmt, const char* va_addr");
 
 	// Get the caller's parameters.
 
-	unsigned short	module = GET_PARAMETER (module);
-	emuptr			fmt = GET_PARAMETER (fmt);
-	unsigned long	va_addr =  GET_PARAMETER (va_addr);
+	CALLED_GET_PARAM_VAL (UInt16, module);
+	CALLED_GET_PARAM_STR (char, fmt);
+	CALLED_GET_PARAM_VAL (emuptr, va_addr);
 
 	// Check the parameters.
 
-	if (!fmt)
+	if (fmt == NULL)
 	{
 		errno = hostErrInvalidParameter;
 		return;
 	}
 
-	// Make a copy of the format string.
+	// We get the parameters from va_addr, not the stack, so create a new
+	// EmSubroutine object to access them.
 
-	string	fmt2 (ToString (fmt));
+	EmSubroutine	sub2;
+	sub2.PrepareStack (va_addr);
 
 	// Collect the specified parameters. We need to make copies of everything
 	// so that it's in the right endian order and to reverse any effects
@@ -3990,17 +3866,17 @@ static void _HostTraceOutputVTL (void)
 	// The data pointed to by the pointers gets converted and placed in stringData.
 
 	ByteList	stackData;
-	StringList stringData;
+	StringList	stringData;
 
-	if (!::CollectParameters (va_addr - m68k_areg (regs, 7), fmt2, stackData, stringData))
+	if (!::PrvCollectParameters (sub2, string (fmt), stackData, stringData))
 	{
-		m68k_dreg (regs, 0) = (uint32) hostErrInvalidParameter;
+		errno = hostErrInvalidParameter;
 		return;
 	}
 
 	// Write everything out
 
-	gTracer.OutputVTL( module, fmt2.c_str (), (va_list) &stackData[0]);
+	gTracer.OutputVTL( module, fmt, (va_list) &stackData[0]);
 }
 
 
@@ -4012,42 +3888,97 @@ static void _HostTraceOutputB (void)
 {
 	// void HostTraceOutputB (unsigned short, const void*, HostSizeType)
 
-	struct StackFrame
-	{
-		unsigned short	module;
-		const void*		buff;
-		HostSizeType	length;
-	};
-	
+	CALLED_SETUP_HC ("void", "UInt16 module, const void* buf, HostSizeType length");
+
 	// Get the caller's parameters.
 
-	unsigned short	module	= GET_PARAMETER (module);
-	emuptr			buff	= GET_PARAMETER (buff);
-	HostSizeType	length 	= GET_PARAMETER (length);
+	CALLED_GET_PARAM_VAL (UInt16, module);
+	CALLED_GET_PARAM_VAL (HostSizeType, length);
+	CALLED_GET_PARAM_PTR (void, buf, length, Marshal::kInput);
 
 	// Check the parameters.
 
-	if (!buff || !length)
+	if (buf == NULL || length == 0)
 	{
 		errno = hostErrInvalidParameter;
 		return;
 	}
 
-	void*	tempBuff = malloc (length);
-
-	if (tempBuff)
-	{	
-		uae_memcpy (tempBuff, buff, length);
-		gTracer.OutputB (module, tempBuff, length);
-		free (tempBuff);
-	}
-	else
-	{
-		errno = hostErrInvalidParameter;
-	}
+	gTracer.OutputB (module, buf, length);
 }
 
 #endif	// HAS_TRACER
+
+
+#pragma mark -
+
+// ---------------------------------------------------------------------------
+//		¥ _HostDbgSetDataBreak
+// ---------------------------------------------------------------------------
+
+static void _HostDbgSetDataBreak (void)
+{
+	// HostErr HostDbgSetDataBreak (UInt32 addr, UInt32 size)
+	
+	CALLED_SETUP_HC ("HostErr", "UInt32 addr, UInt32 size");
+
+	// Get the caller's parameters.
+
+	CALLED_GET_PARAM_VAL (UInt32, addr);
+	CALLED_GET_PARAM_VAL (UInt32, size);
+
+	// Check the parameters.
+
+	if (!addr || !size)
+	{
+		PUT_RESULT_VAL (HostErrType, hostErrInvalidParameter);
+		return;
+	}
+
+	// Set data breakpoint.
+
+	gDebuggerGlobals.watchEnabled = true;
+
+	if (gDebuggerGlobals.watchEnabled)
+	{
+		gDebuggerGlobals.watchAddr = addr;
+		gDebuggerGlobals.watchBytes = size;
+	}
+
+	// Return the result.
+
+	PUT_RESULT_VAL (HostErrType, errNone);
+}
+
+
+// ---------------------------------------------------------------------------
+//		¥ _HostDbgClearDataBreak
+// ---------------------------------------------------------------------------
+
+static void _HostDbgClearDataBreak (void)
+{
+	// HostErr HostDbgClearDataBreak (void)
+
+	CALLED_SETUP_HC ("HostErr", "void");
+
+	// Get the caller's parameters.
+
+	// Check the parameters.
+
+	// Set data breakpoint
+
+	gDebuggerGlobals.watchEnabled = false;
+
+	if (!gDebuggerGlobals.watchEnabled)
+	{
+		gDebuggerGlobals.watchAddr = 0;
+		gDebuggerGlobals.watchBytes = 0;
+	}
+
+	// Return the result.
+
+	PUT_RESULT_VAL (HostErrType, errNone);
+}
 
 
 #pragma mark -
@@ -4058,6 +3989,10 @@ static void _HostTraceOutputB (void)
 
 static void _HostSlotMax (void)
 {
+	// long HostSlotMax(void)
+
+	CALLED_SETUP_HC ("long", "void");
+
 	int	maxSlotNo = 0;
 
 	Preference<SlotInfoList>	slots (kPrefKeySlotList);
@@ -4073,7 +4008,7 @@ static void _HostSlotMax (void)
 		++iter;
 	}
 
-	m68k_dreg (regs, 0) = maxSlotNo;
+	PUT_RESULT_VAL (long, maxSlotNo);
 }
 
 
@@ -4083,14 +4018,13 @@ static void _HostSlotMax (void)
 
 static void _HostSlotRoot (void)
 {
-	struct StackFrame
-	{
-		long	slotNo;
-	};
+	// const char* HostSlotRoot(long slotNo)
 
-	long	slotNo = GET_PARAMETER (slotNo);
+	CALLED_SETUP_HC ("char*", "long slotNo");
 
-	m68k_areg (regs, 0) = EmMemNULL;
+	CALLED_GET_PARAM_VAL (long, slotNo);
+
+	PUT_RESULT_VAL (emuptr, EmMemNULL);
 
 	Preference<SlotInfoList>	slots (kPrefKeySlotList);
 
@@ -4101,7 +4035,7 @@ static void _HostSlotRoot (void)
 		{
 			if (iter->fSlotOccupied)
 			{
-				::PrvReturnString (iter->fSlotRoot.GetFullPath ());
+				::PrvReturnString (iter->fSlotRoot.GetFullPath (), sub);
 			}
 
 			break;
@@ -4118,14 +4052,13 @@ static void _HostSlotRoot (void)
 
 static void _HostSlotHasCard (void)
 {
-	struct StackFrame
-	{
-		long	slotNo;
-	};
+	// HostBoolType HostSlotHasCard(long slotNo)
 
-	long	slotNo = GET_PARAMETER (slotNo);
+	CALLED_SETUP_HC ("HostBoolType", "long slotNo");
 
-	m68k_dreg (regs, 0) = 0;
+	CALLED_GET_PARAM_VAL (long, slotNo);
+
+	PUT_RESULT_VAL (HostBoolType, false);
 
 	Preference<SlotInfoList>	slots (kPrefKeySlotList);
 
@@ -4134,7 +4067,7 @@ static void _HostSlotHasCard (void)
 	{
 		if (slotNo == iter->fSlotNumber)
 		{
-			m68k_dreg (regs, 0) = iter->fSlotOccupied;
+			PUT_RESULT_VAL (HostBoolType, iter->fSlotOccupied);
 			break;
 		}
 
@@ -4151,24 +4084,23 @@ static void _HostSlotHasCard (void)
 
 static void _HostGetFile (void)
 {
-	struct StackFrame
-	{
-		const char* prompt;
-		const char* defaultDir;
-	};
+	// const char* HostGetFile(const char* prompt, const char* defaultDirName)
 
-	m68k_areg (regs, 0) = EmMemNULL;
+	CALLED_SETUP_HC ("char*", "const char* prompt, const char* defaultDirName");
 
-	string 			promptStr		= ToString (GET_PARAMETER (prompt));
-	string 			defaultDirStr	= ToString (GET_PARAMETER (defaultDir));
-	EmDirRef		defaultDir (defaultDirStr);
+	CALLED_GET_PARAM_STR (char, prompt);
+	CALLED_GET_PARAM_STR (char, defaultDirName);
+
+	PUT_RESULT_VAL (emuptr, EmMemNULL);
+
+	EmDirRef		defaultDir (defaultDirName);
 
 	EmFileRef		result;
-	EmFileTypeList	filterList;
+	EmFileTypeList	filterList (1, kFileTypeAll);
 
-	if (EmDlg::DoGetFile (result, promptStr, defaultDir, filterList) == kDlgItemOK)
+	if (EmDlg::DoGetFile (result, string (prompt), defaultDir, filterList) == kDlgItemOK)
 	{
-		::PrvReturnString (result.GetFullPath ());
+		::PrvReturnString (result.GetFullPath (), sub);
 	}
 }
 
@@ -4179,28 +4111,25 @@ static void _HostGetFile (void)
 
 static void _HostPutFile (void)
 {
-	struct StackFrame
-	{
-		const char* prompt;
-		const char* defaultDir;
-		const char* defaultName;
-	};
+	// const char* HostPutFile(const char* prompt, const char* defaultDirName, const char* defaultName)
 
-	m68k_areg (regs, 0) = EmMemNULL;
+	CALLED_SETUP_HC ("char*", "const char* prompt, const char* defaultDirName, const char* defaultName");
 
-	string 			promptStr		= ToString (GET_PARAMETER (prompt));
-	string 			defaultDirStr	= ToString (GET_PARAMETER (defaultDir));
-	string 			defaultNameStr	= ToString (GET_PARAMETER (defaultName));
+	CALLED_GET_PARAM_STR (char, prompt);
+	CALLED_GET_PARAM_STR (char, defaultDirName);
+	CALLED_GET_PARAM_STR (char, defaultName);
 
-	EmDirRef		defaultDir (defaultDirStr);
+	PUT_RESULT_VAL (emuptr, EmMemNULL);
+
+	EmDirRef		defaultDir (defaultDirName);
 
 	EmFileRef		result;
-	EmFileTypeList	filterList;
+	EmFileTypeList	filterList (1, kFileTypeAll);
 
-	if (EmDlg::DoPutFile (result, promptStr, defaultDir,
-							filterList, defaultNameStr) == kDlgItemOK)
+	if (EmDlg::DoPutFile (result, string (prompt), defaultDir,
+							filterList, string (defaultName)) == kDlgItemOK)
 	{
-		::PrvReturnString (result.GetFullPath ());
+		::PrvReturnString (result.GetFullPath (), sub);
 	}
 }
 
@@ -4211,24 +4140,22 @@ static void _HostPutFile (void)
 
 static void _HostGetDirectory (void)
 {
-	struct StackFrame
-	{
-		const char* prompt;
-		const char* defaultDir;
-	};
+	// const char* HostGetDirectory(const char* prompt, const char* defaultDirName)
 
-	m68k_areg (regs, 0) = EmMemNULL;
+	CALLED_SETUP_HC ("char*", "const char* prompt, const char* defaultDirName");
 
-	string 			promptStr		= ToString (GET_PARAMETER (prompt));
-	string 			defaultDirStr	= ToString (GET_PARAMETER (defaultDir));
-	EmDirRef		defaultDir (defaultDirStr);
+	CALLED_GET_PARAM_STR (char, prompt);
+	CALLED_GET_PARAM_STR (char, defaultDirName);
+
+	PUT_RESULT_VAL (emuptr, EmMemNULL);
+
+	EmDirRef		defaultDir (defaultDirName);
 
 	EmDirRef		result;
-	EmFileTypeList	filterList;
 
-	if (EmDlg::DoGetDirectory (result, promptStr, defaultDir) == kDlgItemOK)
+	if (EmDlg::DoGetDirectory (result, string (prompt), defaultDir) == kDlgItemOK)
 	{
-		::PrvReturnString (result.GetFullPath ());
+		::PrvReturnString (result.GetFullPath (), sub);
 	}
 }
 
@@ -4236,10 +4163,10 @@ static void _HostGetDirectory (void)
 #pragma mark -
 
 // ---------------------------------------------------------------------------
-//		¥ HostGetHandler
+//		¥ PrvHostGetHandler
 // ---------------------------------------------------------------------------
 
-HostHandler HostGetHandler (HostControlSelectorType selector)
+HostHandler PrvHostGetHandler (HostControlSelectorType selector)
 {
 	HostHandler fn = NULL;
 
@@ -4260,15 +4187,11 @@ HostHandler HostGetHandler (HostControlSelectorType selector)
 
 
 // ---------------------------------------------------------------------------
-//		¥ CollectParameters
+//		¥ PrvCollectParameters
 // ---------------------------------------------------------------------------
 
-Bool CollectParameters (int stackOffset, const string& fmt, ByteList& stackData, StringList& stringData)
+Bool PrvCollectParameters (EmSubroutine& sub, const string& fmt, ByteList& stackData, StringList& stringData)
 {
-	// Skip past the first few items on the stack.
-
-	int callerStackOffset = stackOffset;
-
 	// Start parsing up the format string.
 
 	string::const_iterator	iter;
@@ -4379,9 +4302,9 @@ Bool CollectParameters (int stackOffset, const string& fmt, ByteList& stackData,
 				case 'X':
 					// int, short, or long
 					if (mod == kSizeNone || mod == kSizeShortInt)
-						PushShort (callerStackOffset, stackData);
+						PrvPushShort (sub, stackData);
 					else
-						PushLong (callerStackOffset, stackData);
+						PrvPushLong (sub, stackData);
 					break;
 
 				case 'f':
@@ -4391,29 +4314,29 @@ Bool CollectParameters (int stackOffset, const string& fmt, ByteList& stackData,
 				case 'G':
 					// double or long double
 					if (mod == kSizeNone)
-						PushDouble (callerStackOffset, stackData);
+						PrvPushDouble (sub, stackData);
 					else
-						PushLongDouble (callerStackOffset, stackData);
+						PrvPushLongDouble (sub, stackData);
 					break;
 
 				case 'c':
 					// int or wint_t
 					if (mod == kSizeNone)
-						PushShort (callerStackOffset, stackData);
+						PrvPushShort (sub, stackData);
 #if defined (_MSC_VER)
 					else if (sizeof (wint_t) == 2)
-						PushShort (callerStackOffset, stackData);
+						PrvPushShort (sub, stackData);
 #endif
 					else
-						PushLong (callerStackOffset, stackData);
+						PrvPushLong (sub, stackData);
 					break;
 
 				case 's':
-					PushString (callerStackOffset, stackData, stringData);
+					PrvPushString (sub, stackData, stringData);
 					break;
 
 				case 'p':
-					PushLong (callerStackOffset, stackData);
+					PrvPushLong (sub, stackData);
 					break;
 
 				case 'n':
@@ -4437,81 +4360,107 @@ Bool CollectParameters (int stackOffset, const string& fmt, ByteList& stackData,
 
 
 // ---------------------------------------------------------------------------
-//		¥ PushShort
+//		¥ PrvPushShort
 // ---------------------------------------------------------------------------
 
-void PushShort (int& callerStackOffset, ByteList& stackData)
+void PrvPushShort (EmSubroutine& sub, ByteList& stackData)
 {
 	// Read a 2-byte int from the caller's stack, and push it
 	// onto our stack as a 4-byte int.
 
-	uint16 value = EmMemGet16 (m68k_areg (regs, 7) + callerStackOffset);
-	callerStackOffset += sizeof (value);
+	char	paramName[20];
+	sprintf (paramName, "param%d", (int) stackData.size ());
+
+	char	decl[20];
+	sprintf (decl, "UInt16 %s", paramName);
+
+	sub.AddParam (decl);
+
+	UInt16	value;
+	sub.GetParamVal (paramName, value);
 
 	ByteList::size_type	oldSize = stackData.size ();
-	stackData.insert (stackData.end (), sizeof (int), 0);	// Make space for 4 more bytes
+	stackData.insert (stackData.end (), sizeof (int), 0);	// Make space for an "int"
 
 	*(int*) &stackData[oldSize] = value;
 }
 
 
 // ---------------------------------------------------------------------------
-//		¥ PushLong
+//		¥ PrvPushLong
 // ---------------------------------------------------------------------------
 
-void PushLong (int& callerStackOffset, ByteList& stackData)
+void PrvPushLong (EmSubroutine& sub, ByteList& stackData)
 {
 	// Read a 4-byte long int from the caller's stack, and push it
 	// onto our stack as a 4-byte long int.
 
-	uint32 value = EmMemGet32 (m68k_areg (regs, 7) + callerStackOffset);
-	callerStackOffset += sizeof (value);
+	char	paramName[20];
+	sprintf (paramName, "param%d", (int) stackData.size ());
+
+	char	decl[20];
+	sprintf (decl, "UInt32 %s", paramName);
+
+	sub.AddParam (decl);
+
+	UInt32	value;
+	sub.GetParamVal (paramName, value);
 
 	ByteList::size_type	oldSize = stackData.size ();
-	stackData.insert (stackData.end (), sizeof (long), 0);	// Make space for 4 more bytes
+	stackData.insert (stackData.end (), sizeof (long), 0);	// Make space for a "long int"
 
 	*(long*) &stackData[oldSize] = value;
 }
 
 
 // ---------------------------------------------------------------------------
-//		¥ PushDouble
+//		¥ PrvPushDouble
 // ---------------------------------------------------------------------------
 
-void PushDouble (int& callerStackOffset, ByteList& stackData)
+void PrvPushDouble (EmSubroutine& sub, ByteList& stackData)
 {
-	UNUSED_PARAM(callerStackOffset)
+	UNUSED_PARAM(sub)
 	UNUSED_PARAM(stackData)
 }
 
 
 // ---------------------------------------------------------------------------
-//		¥ PushLongDouble
+//		¥ PrvPushLongDouble
 // ---------------------------------------------------------------------------
 
-void PushLongDouble (int& callerStackOffset, ByteList& stackData)
+void PrvPushLongDouble (EmSubroutine& sub, ByteList& stackData)
 {
-	UNUSED_PARAM(callerStackOffset)
+	UNUSED_PARAM(sub)
 	UNUSED_PARAM(stackData)
 }
 
 
 // ---------------------------------------------------------------------------
-//		¥ PushString
+//		¥ PrvPushString
 // ---------------------------------------------------------------------------
 
-void PushString (int& callerStackOffset, ByteList& stackData, StringList& stringData)
+void PrvPushString (EmSubroutine& sub, ByteList& stackData, StringList& stringData)
 {
 	// Get the string pointer and clone the string into a new string object.
 
-	emuptr	stringPtr = EmMemGet32 (m68k_areg (regs, 7) + callerStackOffset);
+	char	paramName[20];
+	sprintf (paramName, "param%d", (int) stackData.size ());
+
+	char	decl[20];
+	sprintf (decl, "char* %s", paramName);
+
+	sub.AddParam (decl);
+
+	emuptr	stringPtr;
+	sub.GetParamVal (paramName, stringPtr);
+
 	string	strCopy;
-	size_t	strLen = uae_strlen (stringPtr);
+	size_t	strLen = EmMem_strlen (stringPtr);
 
 	if (strLen > 0)
 	{
 		strCopy.resize (strLen);
-		uae_strcpy (&strCopy[0], stringPtr);
+		EmMem_strcpy (&strCopy[0], stringPtr);
 	}
 
 	// Add this string to the string array.
@@ -4521,39 +4470,16 @@ void PushString (int& callerStackOffset, ByteList& stackData, StringList& string
 	// In the stack data byte array, add a pointer to the string. 
 
 	ByteList::size_type	oldSize = stackData.size ();
-	stackData.insert (stackData.end (), sizeof (char*), 0); // Make space for 4 more bytes
-	*(uint32*) &stackData[oldSize] = (uint32) (*(stringData.end () - 1)).c_str ();
-
-	// Bump the caller's stack pointer by the size of a string pointer.
-
-	callerStackOffset += sizeof (char*);
+	stackData.insert (stackData.end (), sizeof (char*), 0); // Make space for a "char*"
+	*(const char**) &stackData[oldSize] = (*(stringData.end () - 1)).c_str ();
 }
 
 
 // ---------------------------------------------------------------------------
-//		¥ ToString
+//		¥ PrvToFILE
 // ---------------------------------------------------------------------------
 
-string ToString (emuptr s)
-{
-	string	result;
-
-	size_t	sLen = uae_strlen (s);
-	if (sLen > 0)
-	{
-		result.resize (sLen);
-		uae_strcpy (&result[0], s);
-	}
-
-	return result;
-}
-
-
-// ---------------------------------------------------------------------------
-//		¥ ToFILE
-// ---------------------------------------------------------------------------
-
-FILE* ToFILE (emuptr f)
+FILE* PrvToFILE (emuptr f)
 {
 	if ((HostFILEType*) f == hostLogFile)
 	{
@@ -4565,46 +4491,10 @@ FILE* ToFILE (emuptr f)
 
 
 // ---------------------------------------------------------------------------
-//		¥ GetHostTmType
+//		¥ PrvTmFromHostTm
 // ---------------------------------------------------------------------------
 
-void GetHostTmType (HostTmType& dest, emuptr src)
-{
-	dest.tm_sec_	= EmMemGet32 (src + offsetof (HostTmType, tm_sec_));
-	dest.tm_min_	= EmMemGet32 (src + offsetof (HostTmType, tm_min_));
-	dest.tm_hour_	= EmMemGet32 (src + offsetof (HostTmType, tm_hour_));
-	dest.tm_mday_	= EmMemGet32 (src + offsetof (HostTmType, tm_mday_));
-	dest.tm_mon_	= EmMemGet32 (src + offsetof (HostTmType, tm_mon_));
-	dest.tm_year_	= EmMemGet32 (src + offsetof (HostTmType, tm_year_));
-	dest.tm_wday_	= EmMemGet32 (src + offsetof (HostTmType, tm_wday_));
-	dest.tm_yday_	= EmMemGet32 (src + offsetof (HostTmType, tm_yday_));
-	dest.tm_isdst_	= EmMemGet32 (src + offsetof (HostTmType, tm_isdst_));
-}
-
-
-// ---------------------------------------------------------------------------
-//		¥ PutHostTmType
-// ---------------------------------------------------------------------------
-
-void PutHostTmType (emuptr dest, const HostTmType& src)
-{
-	EmMemPut32 (dest + offsetof (HostTmType, tm_sec_),	src.tm_sec_);
-	EmMemPut32 (dest + offsetof (HostTmType, tm_min_),	src.tm_min_);
-	EmMemPut32 (dest + offsetof (HostTmType, tm_hour_),	src.tm_hour_);
-	EmMemPut32 (dest + offsetof (HostTmType, tm_mday_),	src.tm_mday_);
-	EmMemPut32 (dest + offsetof (HostTmType, tm_mon_),	src.tm_mon_);
-	EmMemPut32 (dest + offsetof (HostTmType, tm_year_),	src.tm_year_);
-	EmMemPut32 (dest + offsetof (HostTmType, tm_wday_),	src.tm_wday_);
-	EmMemPut32 (dest + offsetof (HostTmType, tm_yday_),	src.tm_yday_);
-	EmMemPut32 (dest + offsetof (HostTmType, tm_isdst_),	src.tm_isdst_);
-}
-
-
-// ---------------------------------------------------------------------------
-//		¥ TmFromHostTm
-// ---------------------------------------------------------------------------
-
-void TmFromHostTm (struct tm& dest, const HostTmType& src)
+void PrvTmFromHostTm (struct tm& dest, const HostTmType& src)
 {
 	dest.tm_sec		= src.tm_sec_;
 	dest.tm_min		= src.tm_min_;
@@ -4619,10 +4509,10 @@ void TmFromHostTm (struct tm& dest, const HostTmType& src)
 
 
 // ---------------------------------------------------------------------------
-//		¥ HostTmFromTm
+//		¥ PrvHostTmFromTm
 // ---------------------------------------------------------------------------
 
-void HostTmFromTm (HostTmType& dest, const struct tm& src)
+void PrvHostTmFromTm (EmProxyHostTmType& dest, const struct tm& src)
 {
 	dest.tm_sec_	= src.tm_sec;
 	dest.tm_min_	= src.tm_min;
@@ -4637,10 +4527,10 @@ void HostTmFromTm (HostTmType& dest, const struct tm& src)
 
 
 // ---------------------------------------------------------------------------
-//		¥ MapAndReturn
+//		¥ PrvMapAndReturn
 // ---------------------------------------------------------------------------
 
-void MapAndReturn (const void* p, long size)
+void PrvMapAndReturn (const void* p, long size, EmSubroutine& sub)
 {
 	emuptr	result = EmBankMapped::GetEmulatedAddress (p);
 
@@ -4650,17 +4540,17 @@ void MapAndReturn (const void* p, long size)
 		result = EmBankMapped::GetEmulatedAddress (p);
 	}
 
-	m68k_areg (regs, 0) = result;
+	PUT_RESULT_VAL (emuptr, result);
 }
 
 
 // ---------------------------------------------------------------------------
-//		¥ MapAndReturn
+//		¥ PrvMapAndReturn
 // ---------------------------------------------------------------------------
 
-void MapAndReturn (string& s)
+void PrvMapAndReturn (const string& s, EmSubroutine& sub)
 {
-	MapAndReturn (s.c_str (), s.size () + 1);
+	::PrvMapAndReturn (s.c_str (), s.size () + 1, sub);
 }
 
 
@@ -4668,19 +4558,19 @@ void MapAndReturn (string& s)
 //		¥ PrvReturnString
 // ---------------------------------------------------------------------------
 
-void PrvReturnString (const char* p)
+void PrvReturnString (const char* p, EmSubroutine& sub)
 {
 	EmBankMapped::UnmapPhysicalMemory (gResultString.c_str ());
 
 	if (p)
 	{
 		gResultString = p;
-		::MapAndReturn (gResultString);
+		::PrvMapAndReturn (gResultString, sub);
 	}
 	else
 	{
 		gResultString.erase ();
-		m68k_areg (regs, 0) = EmMemNULL;
+		PUT_RESULT_VAL (emuptr, EmMemNULL);
 	}
 }
 
@@ -4689,13 +4579,13 @@ void PrvReturnString (const char* p)
 //		¥ PrvReturnString
 // ---------------------------------------------------------------------------
 
-void PrvReturnString (const string& s)
+void PrvReturnString (const string& s, EmSubroutine& sub)
 {
 	EmBankMapped::UnmapPhysicalMemory (gResultString.c_str ());
 
 	gResultString = s;
 
-	::MapAndReturn (gResultString);
+	::PrvMapAndReturn (gResultString, sub);
 }
 
 
@@ -4792,6 +4682,7 @@ void Host::Initialize	(void)
 	gHandlerTable [hostSelectorImportFile]				= _HostImportFile;
 	gHandlerTable [hostSelectorExportFile]				= _HostExportFile;
 	gHandlerTable [hostSelectorSaveScreen]				= _HostSaveScreen;
+	gHandlerTable [hostSelectorImportFileWithID]		= _HostImportFileWithID;
 
 	gHandlerTable [hostSelectorExgLibOpen]				= _HostExgLibOpen;
 	gHandlerTable [hostSelectorExgLibClose]				= _HostExgLibClose;
@@ -4832,6 +4723,9 @@ void Host::Initialize	(void)
 	gHandlerTable [hostSelectorTraceOutputVTL]			= _HostTraceOutputVTL;
 	gHandlerTable [hostSelectorTraceOutputB]			= _HostTraceOutputB;
 #endif
+
+	gHandlerTable [hostSelectorDbgSetDataBreak]			= _HostDbgSetDataBreak;
+	gHandlerTable [hostSelectorDbgClearDataBreak]		= _HostDbgClearDataBreak;
 
 	gHandlerTable [hostSelectorSlotMax]					= _HostSlotMax;
 	gHandlerTable [hostSelectorSlotRoot]				= _HostSlotRoot;
@@ -5093,6 +4987,3 @@ void PrvFree (emuptr p)
 		}
 	}
 }
-
-
-#include "PalmPackPop.h"

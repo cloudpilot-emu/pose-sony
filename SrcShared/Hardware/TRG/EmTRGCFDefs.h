@@ -181,5 +181,7 @@ const uint32 kMemorySizeCFReset		= 0x200;
 const uint32 kMemorySizeCF  = kMemoryOffsetCFReset + kMemorySizeCFReset;
 
 #include "EmRegs.h"
+#include "EmHandEraCFBus.h"
+
 
 #endif	// EmTRGCFDefs_h

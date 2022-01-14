@@ -1136,23 +1136,36 @@ Int16 Platform_NetLib::SendPB(UInt16 libRefNum,
 		offset += pbP->iov[ii].bufLen;
 	}
 
+	// Determine if we need to set up a return address buffer.
+
+	sockaddr	name;
+	sockaddr*	nameP = NULL;
+	socklen_t	namelen	= 0;
+
 	if (pbP->addrP)
 	{
-		sockaddr	name;
-		int			namelen = sizeof (name);
+		nameP	= &name;
+		namelen	= sizeof (name);
 
 		if (!NetLibToSocketsAddr (*(NetSocketAddrType*) pbP->addrP, pbP->addrLen, name, namelen))
 		{
 			*errP = netErrParamErr;
 			return -1;
 		}
+	}
 
-		result = sendto (s, bigBuffer.Get(), bigBufferSize, flags, &name, namelen);
-	}
-	else
-	{	
-		result = send (s, bigBuffer.Get(), bigBufferSize, flags);
-	}
+	// Make the send call.
+	//
+	// In previous versions of this function, we tried to make some determination
+	// as to whether send() or sendto() needed to be called.  However,
+	// according to the Windows sockets documentation, "On a connection-oriented
+	// socket, the to and tolen parameters are ignored, making sento equivalent
+	// to send".  And the GUSI sources back this up.  So we just use sendto in
+	// all cases.
+
+	result = sendto (s, bigBuffer.Get(), bigBufferSize, flags, nameP, namelen);
+
+	// If there was an error, translate and return it.
 
 	if (result == SOCKET_ERROR)
 	{
@@ -1294,28 +1307,28 @@ Int16 Platform_NetLib::ReceivePB(UInt16 libRefNum,
 		offset += pbP->iov[ii].bufLen;
 	}
 
-	// Make the receive call.
+	// Determine if we need to set up a return address buffer.
+
+	sockaddr	name;
+	sockaddr*	nameP = NULL;
+	socklen_t	namelen	= 0;
 
 	if (pbP->addrP)
 	{
-		sockaddr	name;
-		socklen_t	namelen = sizeof (sockaddr);
-
-		result = recvfrom (s, bigBuffer.Get (), bigBufferSize, flags, &name, &namelen);
-
-		if (result != SOCKET_ERROR)
-		{
-			if (!SocketsToNetLibAddr (name, namelen, *(NetSocketAddrType*) pbP->addrP, pbP->addrLen))
-			{
-				*errP = netErrParamErr;
-				return -1;
-			}
-		}
+		nameP	= &name;
+		namelen	= sizeof (name);
 	}
-	else
-	{
-		result = recv (s, bigBuffer.Get (), bigBufferSize, flags);
-	}
+
+	// Make the receive call.
+	//
+	// In previous versions of this function, we tried to make some determination
+	// as to whether recv() or recvfrom() needed to be called.  However,
+	// according to my Linux man page, recv() is the same as recvfrom() but with
+	// a NULL name parameter.  So we just use recvfrom in all cases.
+
+	result = recvfrom (s, bigBuffer.Get (), bigBufferSize, flags, nameP, &namelen);
+
+	// If there was an error, translate and return it.
 
 	if (result == SOCKET_ERROR)
 	{
@@ -1323,7 +1336,20 @@ Int16 Platform_NetLib::ReceivePB(UInt16 libRefNum,
 		return -1;
 	}
 
+	// If we established a return address buffer, return the result
+	// back to the caller.
+
+	if (pbP->addrP)
+	{
+		if (!SocketsToNetLibAddr (name, namelen, *(NetSocketAddrType*) pbP->addrP, pbP->addrLen))
+		{
+			*errP = netErrParamErr;
+			return -1;
+		}
+	}
+
 	// Copy the chunks of the big buffer back into the iov array.
+
 	offset = 0;
 	for (ii = 0; ii < pbP->iovLen; ++ii)
 	{
@@ -2403,7 +2429,8 @@ Bool SocketsToNetLibHostEnt (	const hostent&			inHostEnt,
 	char*	curSrcAlias;
 	char*	curDestAlias = outHostEnt.aliases[0];
 	long	index = 0;
-	while ((curSrcAlias = inHostEnt.h_aliases[index]) != NULL)
+	while ((index < netDNSMaxAliases) &&
+		((curSrcAlias = inHostEnt.h_aliases[index]) != NULL))
 	{
 		outHostEnt.aliasList[index] = curDestAlias;
 		strcpy (curDestAlias, curSrcAlias);
@@ -2411,9 +2438,6 @@ Bool SocketsToNetLibHostEnt (	const hostent&			inHostEnt,
 		if ((((long) curDestAlias) & 1) != 0)
 			++curDestAlias;
 		++index;
-
-		if (index == netDNSMaxAliases)
-			break;
 	}
 
 	outHostEnt.aliasList[index] = NULL;
@@ -2431,16 +2455,39 @@ Bool SocketsToNetLibHostEnt (	const hostent&			inHostEnt,
 	char*		curSrcAddr;
 	NetIPAddr*	curDestAddr = outHostEnt.address;
 	/*long*/	index = 0;
-	while ((curSrcAddr = inHostEnt.h_addr_list[index]) != NULL)
+	while ((index < netDNSMaxAddresses) &&
+		((curSrcAddr = inHostEnt.h_addr_list[index]) != NULL))
 	{
 		outHostEnt.addressList[index] = curDestAddr;
 		memcpy (curDestAddr, curSrcAddr, inHostEnt.h_length);
 		curDestAddr = (NetIPAddr*) (((char*) curDestAddr) + inHostEnt.h_length);
 		++index;
-
-		if (index == netDNSMaxAddresses)
-			break;
 	}
+
+	// Comment from PrvDNSNameToAddressHandler in NetStack1.c:
+	//
+	// Long, long ago in a galaxy not so far away, Ron defined a struct
+	// called NetHostInfoBufType.  Unfortunately, this struct has a bug
+	// in it, but its too late to fix the problem, because 10 zillion
+	// developers are already using this struct.  The problem is that
+	// there can be up to netDNSMaxAddresses + 1 addresses in the array
+	// of addresses referenced via the field addrListP, but he only
+	// reserved space for netDNSMaxAddresses addresses.  The additional
+	// address is needed to zero-terminate the list in the case when
+	// the maximum number of DNS addresses are returned.  Oh well, too
+	// late now.  The problem observed by many is that the null termination
+	// was overwritten the following array, which happened to be the first
+	// returned DNS address.  Many folks assume a minimum of at least one
+	// address and just use the first, but if the first returned DNS address
+	// is zero, then bad things happen (or nothing happen!).  So, the
+	// so-so solution is to return only netDNSMaxAddresses - 1 entries
+	// (using the last entry for the null termination), even when the
+	// maximum really was returned.  Although, by now, most poor
+	// developers have written their own DNS lookup routines and won't
+	// get to use this lovely bug fix anyway.
+
+	if (index == netDNSMaxAddresses)
+		--index;
 
 	outHostEnt.addressList[index] = 0;
 	outHostEnt.hostInfo.addrListP = (UInt8**) &outHostEnt.addressList[0];

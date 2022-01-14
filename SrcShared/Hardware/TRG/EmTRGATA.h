@@ -16,7 +16,7 @@
 
 #include "EmRegs.h"
 #include "EmTRGCFDefs.h"
-#include "EmTRGDiskIO.h"
+#include "EmTRGCFIO.h"
 
 #define IS_ALT_REG   true
 #define IS_BASE_REG  false
@@ -32,13 +32,14 @@ class EmRegsCFAta
 		void			Initialize(EmDiskTypeID DiskTypeID);
 		void			Reset					(void);
 		void			Dispose					(void);
-	        void			ReadByte(uint32 offset, uint8 * val);
-	        void			WriteByte(uint32 offset, uint8 val);
-	        void			ReadWord(uint32 offset, _Word * val);
-	        void			WriteWord(uint32 offset, _Word val);
+        void			ReadByte(uint32 offset, uint8 * val);
+        void			WriteByte(uint32 offset, uint8 val);
+        void			ReadWord(uint32 offset, _Word * val);
+        void			WriteWord(uint32 offset, _Word val);
 	private:
 		uint8			RegMem[NUM_IDE_REGS];
 		AtaModeType		AtaMode;
+        DiskIOParams    DiskParams;
 		void			GetDiskIOParams(DiskIOParams * params);
 		uint8 			Reg0ReadData(void);
 		uint8 			RegReadError(Boolean is_alt_reg);
@@ -50,8 +51,8 @@ class EmRegsCFAta
 		void			Reg8WriteDataEven(void);
 		uint8			Reg9ReadDataOdd(void);
 		void			Reg9WriteDataOdd(void);
-		void                    RegEWriteDeviceControl(void);
-		EmDiskIO		DiskIO;
+		void            RegEWriteDeviceControl(void);
+		EmCFIO	    	DiskIO;
 		uint8			ConvertStatus(void);
 		void			CmdIdentifyDrive(void);
 		void			CmdWriteSectors(void);

@@ -26,7 +26,7 @@
 //		¥ EmException::EmException
 // ---------------------------------------------------------------------------
 
-EmException::EmException (void) :
+EmException::EmException (void) throw () :
 	exception ()
 {
 }
@@ -36,7 +36,7 @@ EmException::EmException (void) :
 //		¥ EmException::~EmException
 // ---------------------------------------------------------------------------
 
-EmException::~EmException (void)
+EmException::~EmException (void) throw ()
 {
 }
 
@@ -47,7 +47,7 @@ EmException::~EmException (void)
 //		¥ EmExceptionTopLevelAction::EmExceptionTopLevelAction
 // ---------------------------------------------------------------------------
 
-EmExceptionTopLevelAction::EmExceptionTopLevelAction (void) :
+EmExceptionTopLevelAction::EmExceptionTopLevelAction (void) throw () :
 	EmException ()
 {
 }
@@ -57,7 +57,7 @@ EmExceptionTopLevelAction::EmExceptionTopLevelAction (void) :
 //		¥ EmExceptionTopLevelAction::~EmExceptionTopLevelAction
 // ---------------------------------------------------------------------------
 
-EmExceptionTopLevelAction::~EmExceptionTopLevelAction (void)
+EmExceptionTopLevelAction::~EmExceptionTopLevelAction (void) throw ()
 {
 }
 
@@ -68,7 +68,7 @@ EmExceptionTopLevelAction::~EmExceptionTopLevelAction (void)
 //		¥ EmExceptionEnterDebugger::EmExceptionEnterDebugger
 // ---------------------------------------------------------------------------
 
-EmExceptionEnterDebugger::EmExceptionEnterDebugger (void) :
+EmExceptionEnterDebugger::EmExceptionEnterDebugger (void) throw () :
 	EmExceptionTopLevelAction ()
 {
 }
@@ -78,7 +78,7 @@ EmExceptionEnterDebugger::EmExceptionEnterDebugger (void) :
 //		¥ EmExceptionEnterDebugger::~EmExceptionEnterDebugger
 // ---------------------------------------------------------------------------
 
-EmExceptionEnterDebugger::~EmExceptionEnterDebugger (void)
+EmExceptionEnterDebugger::~EmExceptionEnterDebugger (void) throw ()
 {
 }
 
@@ -98,6 +98,13 @@ void EmExceptionEnterDebugger::DoAction (void)
 	// is thrown and performs the real entry into debug mode.  Right
 	// now, both those tasks are intertwined in Debug::EnterDebugger.
 
+	// If we're entering the debugger while running a Gremlin, save the events.
+
+	if (Hordes::IsOn ())
+	{
+		Hordes::SaveEvents ();
+	}
+
 	Hordes::Stop ();
 }
 
@@ -108,7 +115,7 @@ void EmExceptionEnterDebugger::DoAction (void)
 //		¥ EmExceptionReset::EmExceptionReset
 // ---------------------------------------------------------------------------
 
-EmExceptionReset::EmExceptionReset (EmResetType type) :
+EmExceptionReset::EmExceptionReset (EmResetType type) throw () :
 	EmExceptionTopLevelAction (),
 	fType (type),
 	fWhat (),
@@ -123,7 +130,7 @@ EmExceptionReset::EmExceptionReset (EmResetType type) :
 //		¥ EmExceptionReset::~EmExceptionReset
 // ---------------------------------------------------------------------------
 
-EmExceptionReset::~EmExceptionReset (void)
+EmExceptionReset::~EmExceptionReset (void) throw ()
 {
 }
 
@@ -143,11 +150,11 @@ void EmExceptionReset::DoAction (void)
 //		¥ EmExceptionReset::what
 // ---------------------------------------------------------------------------
 
-const char* EmExceptionReset::what (void) const
+const char* EmExceptionReset::what (void) const throw ()
 {
 	if (fWhat.empty ())
 	{
-		char	buffer[1000];
+		char	buffer[1000] = {0};
 
 		string	trapName (::GetTrapName (fTrapWord));
 		string	errTemplate;
@@ -157,15 +164,18 @@ const char* EmExceptionReset::what (void) const
 			errTemplate = Platform::GetString (kStr_InternalErrorException);
 			sprintf (buffer, errTemplate.c_str (), fException, trapName.c_str ());
 		}
-		else
+		else if (!fMessage.empty ())
 		{
 			errTemplate = Platform::GetString (kStr_InternalErrorMessage);
 			sprintf (buffer, errTemplate.c_str (), fMessage.c_str (), trapName.c_str ());
 		}
 
-		fWhat = buffer;
+		if (strlen (buffer) > 0)
+		{
+			fWhat = buffer;
 
-		fWhat += Platform::GetString (kStr_WillNowReset);
+			fWhat += Platform::GetString (kStr_WillNowReset);
+		}
 	}
 
 	return fWhat.c_str ();
@@ -178,7 +188,16 @@ const char* EmExceptionReset::what (void) const
 
 void EmExceptionReset::Display (void) const
 {
-	Errors::DoDialog (this->what (), kDlgFlags_continue_debug_RESET);
+	// Generate fWhat.
+
+	this->what ();
+
+	// If there's something there, show it.
+
+	if (!fWhat.empty ())
+	{
+		Errors::DoDialog (this->what (), kDlgFlags_continue_debug_RESET, -1);
+	}
 }
 
 
@@ -188,7 +207,7 @@ void EmExceptionReset::Display (void) const
 //		¥ EmExceptionNextGremlin::EmExceptionNextGremlin
 // ---------------------------------------------------------------------------
 
-EmExceptionNextGremlin::EmExceptionNextGremlin (void) :
+EmExceptionNextGremlin::EmExceptionNextGremlin (void) throw () :
 	EmExceptionTopLevelAction ()
 {
 }
@@ -198,7 +217,7 @@ EmExceptionNextGremlin::EmExceptionNextGremlin (void) :
 //		¥ EmExceptionNextGremlin::~EmExceptionNextGremlin
 // ---------------------------------------------------------------------------
 
-EmExceptionNextGremlin::~EmExceptionNextGremlin (void)
+EmExceptionNextGremlin::~EmExceptionNextGremlin (void) throw ()
 {
 }
 
@@ -210,4 +229,14 @@ EmExceptionNextGremlin::~EmExceptionNextGremlin (void)
 void EmExceptionNextGremlin::DoAction (void)
 {
 	Hordes::ErrorEncountered ();
+
+	// The previous session state has been safely tucked away in bed, and the
+	// next session state has been scheduled to be loaded.  However, it will
+	// not actually be loaded until after the next opcode is executed.  If
+	// that opcode causes an error (and may in fact be the reason for
+	// switching to a new Gremlin), then we'd end up executing it again.  We
+	// don't want that, so let's run any queued "load next state" commands now. 
+
+	EmAssert (gSession);
+	gSession->ExecuteSpecial (false);
 }

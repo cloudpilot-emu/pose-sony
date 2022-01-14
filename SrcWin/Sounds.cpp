@@ -74,7 +74,7 @@ void WinSounds::QueueNote (int frequency, int duration, int amplitude)
 
 	if (!m_Active)		// need to start playing, just send message to main window
 	{
-		::PostMessage (EmWindow::GetWindow()->GetHostData()->GetHostWindow(), MM_WOM_DONE, 0, 0);
+		::PostMessage (gHostWindow->GetHwnd (), MM_WOM_DONE, 0, 0);
 		m_Active = TRUE;
 	}
 
@@ -164,7 +164,7 @@ BOOL WinSounds::PrvNextSound(void)
 	if (!m_SoundOpen)
 	{
 		if (waveOutOpen (&m_SoundDevice, (UINT) WAVE_MAPPER, &waveformat,
-		   (DWORD) EmWindow::GetWindow()->GetHostData()->GetHostWindow(),
+		   (DWORD) gHostWindow->GetHwnd (),
 		   NULL, (DWORD) CALLBACK_WINDOW) != 0)
 		{
 			return FALSE; // no sound available
@@ -236,6 +236,6 @@ void WinSounds::PauseSound (int duration)
 		WaitForSingleObject (m_WaitEvent, duration);
 	}
 
-	::PostMessage (EmWindow::GetWindow()->GetHostData()->GetHostWindow(),
+	::PostMessage (gHostWindow->GetHwnd (),
 		MM_WOM_DONE, 0, 0L);
 }

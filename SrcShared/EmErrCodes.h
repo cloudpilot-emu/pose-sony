@@ -32,11 +32,13 @@ const ErrCode	kError_EmuErrBase						= 0xFFFE0000;	// arbitrary value
 const ErrCode	kError_EmuErrRange						= 0x00010000;	// arbitrary value
 
 const ErrCode	kError_OutOfMemory						= kError_EmuErrBase + 1;
+
 const ErrCode	kError_BadROM							= kError_EmuErrBase + 2;
 const ErrCode	kError_WrongROMForType					= kError_EmuErrBase + 3;
 const ErrCode	kError_UnsupportedROM					= kError_EmuErrBase + 4;
 const ErrCode	kError_InvalidDevice					= kError_EmuErrBase + 5;
-const ErrCode	kError_InvalidSessionFile				= kError_EmuErrBase + 5;
+const ErrCode	kError_InvalidSessionFile				= kError_EmuErrBase + 6;
+const ErrCode	kError_InvalidConfiguration				= kError_EmuErrBase + 7;
 
 const ErrCode	kError_CantDownloadROM_BadBaudRate		= kError_EmuErrBase + 10;
 const ErrCode	kError_CantDownloadROM_SerialPortBusy	= kError_EmuErrBase + 11;

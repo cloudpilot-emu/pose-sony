@@ -19,22 +19,22 @@
 #include "EmBankDRAM.h"
 
 #include "DebugMgr.h"			// Debug::CheckStepSpy
-#include "EmBankROM.h"			// IsPCInRAM (implicitly, through META_CHECK)
 #include "EmBankSRAM.h"			// gRAMBank_Size, gRAM_Memory, gMemoryAccess
-#include "EmCPU68K.h"			// ProcessException
+#include "EmCPU.h"				// GetSP
+#include "EmCPU68K.h"			// gCPU68K
 #include "EmHAL.h"				// EmHAL
-#include "EmMemory.h"			// Memory::InitializeBanks
+#include "EmMemory.h"			// Memory::InitializeBanks, IsPCInRAM (implicitly, through META_CHECK)
 #include "EmPalmFunction.h"		// InSysLaunch
 #include "EmPalmOS.h"			// EmPalmOS::GetBootStack
+#include "EmPatchState.h"		// META_CHECK calls EmPatchState::IsPCInMemMgr
 #include "EmScreen.h"			// EmScreen::MarkDirty
 #include "EmSession.h"			// gSession
 #include "MetaMemory.h"			// MetaMemory
-#include "TrapPatches.h"		// META_CHECK calls Patches::IsPCInMemMgr
+#include "Profiling.h"			// WAITSTATES_DRAM
 
 #ifdef SONY_ROM
 #include "EmSession.h"			// gSession::GetDevice
-#endif
-
+#endif //SONY_ROM
 
 // ---------------------------------------------------------------------------
 #pragma mark ===== Types
@@ -129,7 +129,7 @@ static void PrvReportBelowStackPointerAccess (emuptr address, size_t size, Bool 
 		return;
 
 	gSession->ScheduleDeferredError (new EmDeferredErrLowStack (
-		gStackLow, m68k_areg (regs, 7), gStackHigh,
+		gStackLow, gCPU->GetSP (), gStackHigh,
 		address, size, forRead));
 }
 
@@ -137,7 +137,7 @@ static void PrvReportBelowStackPointerAccess (emuptr address, size_t size, Bool 
 static inline void PrvCheckBelowStackPointerAccess (emuptr address, size_t size, Bool forRead)
 {
 #if 1
-	if (address < m68k_areg (regs, 7) && address >= gStackLow)
+	if (address < gCPU->GetSP () && address >= gStackLow)
 	{
 		::PrvReportBelowStackPointerAccess (address, size, forRead);
 	}
@@ -335,7 +335,7 @@ uint32 EmBankDRAM::GetLong (emuptr address)
 	{
 		AddressError (address, sizeof (uint32), true);
 	}
-#endif
+#endif //!SONY_ROM
 
 	register uint8*	metaAddress = InlineGetMetaAddress (address);
 	META_CHECK (metaAddress, address, GetLong, uint32, true);
@@ -517,7 +517,7 @@ void EmBankDRAM::SetWord (emuptr address, uint32 value)
 		InvalidAccess (address, sizeof (uint16), false);
 	}
 
-	PrvScreenCheck (metaAddress, address, sizeof (uint16));
+	::PrvScreenCheck (metaAddress, address, sizeof (uint16));
 
 #if (HAS_PROFILING)
 	CYCLE_PUTWORD (WAITSTATES_DRAM);
@@ -553,16 +553,20 @@ void EmBankDRAM::SetByte (emuptr address, uint32 value)
 #ifdef SONY_ROM
 	LowMemHdrType*	nilP = NULL;
 	if (address == (UInt32)&nilP->globals.hwrBatteryLevel 
-		&& (gSession->GetDevice().GetDeviceType() == kDevicePEGN700C))
+		&& (gSession->GetDevice().GetDeviceType() == kDevicePEGN700C
+		|| gSession->GetDevice().GetDeviceType() == kDeviceYSX1100
+		|| gSession->GetDevice().GetDeviceType() == kDeviceYSX1230))
 	{
 		value = 0xFF;	// battery level to max
 	}
 	if (address == (UInt32)&nilP->globals.hwrBatteryPercent 
-		&& (gSession->GetDevice().GetDeviceType() == kDevicePEGN700C))
+		&& (gSession->GetDevice().GetDeviceType() == kDevicePEGN700C
+		|| gSession->GetDevice().GetDeviceType() == kDeviceYSX1100
+		|| gSession->GetDevice().GetDeviceType() == kDeviceYSX1230))
 	{
 		value = 100;	// battery level to max
 	}
-#endif
+#endif //SONY_ROM
 
 #if (PROFILE_MEMORY)
 	gMemoryAccess[kDRAMByteWrite]++;
@@ -580,7 +584,7 @@ void EmBankDRAM::SetByte (emuptr address, uint32 value)
 		InvalidAccess (address, sizeof (uint8), false);
 	}
 
-	PrvScreenCheck (metaAddress, address, sizeof (uint8));
+	::PrvScreenCheck (metaAddress, address, sizeof (uint8));
 
 #if (HAS_PROFILING)
 	CYCLE_PUTBYTE (WAITSTATES_DRAM);
@@ -708,7 +712,7 @@ void EmBankDRAM::ProbableCause (emuptr address, long size, Bool forRead)
 
 		case Errors::kUnknownAccess:
 		case Errors::kLowStackAccess:
-//			EmAssert (false);
-			break;
+			EmAssert (false);
+			MetaMemory::GetWhatHappened (address, size, forRead);
 	}
 }

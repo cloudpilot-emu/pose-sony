@@ -23,6 +23,8 @@ UINT CALLBACK	CenterDlgProc	(HWND hWnd,
 								 WPARAM wparam,
 								 LPARAM lparam);
 
+HWND			GetCurrentModelessDialog (void);
+
 void			EmSetWindowText	(HWND hWndCtrl, const char* lpszNew);
 
 //

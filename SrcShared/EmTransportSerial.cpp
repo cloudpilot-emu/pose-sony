@@ -50,6 +50,33 @@ EmTransportSerial::EmTransportSerial (void) :
  *
  * DESCRIPTION:	Constructor.  Initialize our data members.
  *
+ * PARAMETERS:	desc - descriptor information used when opening
+ *					the serial port.
+ *
+ * RETURNED:	Nothing
+ *
+ ***********************************************************************/
+
+EmTransportSerial::EmTransportSerial (const EmTransportDescriptor& desc) :
+	fHost (NULL),
+	fConfig (),
+	fCommEstablished (false)
+{
+	ConfigSerial	config;
+
+	config.fPort = desc.GetSchemeSpecific ();
+
+	this->HostConstruct ();
+	this->SetConfig (config);
+}
+
+
+/***********************************************************************
+ *
+ * FUNCTION:	EmTransportSerial c'tor
+ *
+ * DESCRIPTION:	Constructor.  Initialize our data members.
+ *
  * PARAMETERS:	config - configuration information used when opening
  *					the serial port.
  *
@@ -302,19 +329,40 @@ Bool EmTransportSerial::CanWrite (void)
  *				of the former is not guaranteed to fetch all received
  *				and buffered bytes.
  *
- * PARAMETERS:	None
+ * PARAMETERS:	minBytes - try to buffer at least this many bytes.
+ *					Return when we have this many bytes buffered, or
+ *					until some small timeout has occurred.
  *
  * RETURNED:	Number of bytes that can be read.
  *
  ***********************************************************************/
 
-long EmTransportSerial::BytesInBuffer (void)
+long EmTransportSerial::BytesInBuffer (long minBytes)
 {
 	if (!fCommEstablished)
 		return 0;
 
-	return this->HostBytesInBuffer ();
+	return this->HostBytesInBuffer (minBytes);
 }
+
+
+/***********************************************************************
+ *
+ * FUNCTION:	EmTransportSerial::GetSpecificName
+ *
+ * DESCRIPTION:	Returns the port name, or host address, depending on the
+ *				transport in question.
+ *
+ * PARAMETERS:	
+ *
+ * RETURNED:	string, appropriate to the transport in question.
+ *
+ ***********************************************************************/
+ 
+ string EmTransportSerial::GetSpecificName (void)
+ {
+ 	return fConfig.fPort;
+ }
 
 
 /***********************************************************************
@@ -380,6 +428,96 @@ void EmTransportSerial::GetConfig (ConfigSerial& config)
 
 /***********************************************************************
  *
+ * FUNCTION:	EmTransportSerial::SetRTS
+ *
+ * DESCRIPTION:	.
+ *
+ * PARAMETERS:	.
+ *
+ * RETURNED:	Nothing
+ *
+ ***********************************************************************/
+
+void EmTransportSerial::SetRTS (RTSControl state)
+{
+	this->HostSetRTS (state);
+}
+
+
+/***********************************************************************
+ *
+ * FUNCTION:	EmTransportSerial::SetDTR
+ *
+ * DESCRIPTION:	.
+ *
+ * PARAMETERS:	.
+ *
+ * RETURNED:	Nothing
+ *
+ ***********************************************************************/
+
+void EmTransportSerial::SetDTR (Bool state)
+{
+	this->HostSetDTR (state);
+}
+
+
+/***********************************************************************
+ *
+ * FUNCTION:	EmTransportSerial::SetBreak
+ *
+ * DESCRIPTION:	.
+ *
+ * PARAMETERS:	.
+ *
+ * RETURNED:	Nothing
+ *
+ ***********************************************************************/
+
+void EmTransportSerial::SetBreak (Bool state)
+{
+	this->HostSetBreak (state);
+}
+
+
+/***********************************************************************
+ *
+ * FUNCTION:	EmTransportSerial::GetCTS
+ *
+ * DESCRIPTION:	.
+ *
+ * PARAMETERS:	.
+ *
+ * RETURNED:	Nothing
+ *
+ ***********************************************************************/
+
+Bool EmTransportSerial::GetCTS (void)
+{
+	return this->HostGetCTS ();
+}
+
+
+/***********************************************************************
+ *
+ * FUNCTION:	EmTransportSerial::GetDSR
+ *
+ * DESCRIPTION:	.
+ *
+ * PARAMETERS:	.
+ *
+ * RETURNED:	Nothing
+ *
+ ***********************************************************************/
+
+Bool EmTransportSerial::GetDSR (void)
+{
+	return this->HostGetDSR ();
+}
+
+
+/***********************************************************************
+ *
  * FUNCTION:	EmTransportSerial::GetTransport
  *
  * DESCRIPTION:	Return any transport object currently using the port
@@ -408,7 +546,7 @@ EmTransportSerial* EmTransportSerial::GetTransport (const ConfigSerial& config)
 
 /***********************************************************************
  *
- * FUNCTION:	EmTransportSerial:: GetPortNameList
+ * FUNCTION:	EmTransportSerial::GetDescriptorList
  *
  * DESCRIPTION:	Return the list of serial ports on this computer.  Used
  *				to prepare a menu of serial port choices.
@@ -419,15 +557,25 @@ EmTransportSerial* EmTransportSerial::GetTransport (const ConfigSerial& config)
  *
  ***********************************************************************/
 
-void EmTransportSerial:: GetPortNameList (PortNameList& nameList)
+void EmTransportSerial::GetDescriptorList (EmTransportDescriptorList& descList)
 {
-	HostGetSerialPortNameList (nameList);
+	PortNameList	portList;
+	HostGetPortNameList (portList);
+
+	descList.clear ();
+
+	PortNameList::iterator	iter = portList.begin ();
+	while (iter != portList.end ())
+	{
+		descList.push_back (EmTransportDescriptor (kTransportSerial, *iter));
+		++iter;
+	}
 }
 
 
 /***********************************************************************
  *
- * FUNCTION:	EmTransportSerial:: GetSerialBaudList
+ * FUNCTION:	EmTransportSerial::GetSerialBaudList
  *
  * DESCRIPTION:	Return the list of baud rates support by this computer.
  *				Used to prepare a menu of baud rate choices.
@@ -438,7 +586,7 @@ void EmTransportSerial:: GetPortNameList (PortNameList& nameList)
  *
  ***********************************************************************/
 
-void EmTransportSerial:: GetSerialBaudList (BaudList& baudList)
+void EmTransportSerial::GetSerialBaudList (BaudList& baudList)
 {
 	HostGetSerialBaudList (baudList);
 }

@@ -14,85 +14,17 @@
 #include "EmCommon.h"
 #include "ROMStubs.h"
 
-#include "ATraps.h"				// ATrap
 #include "EmBankMapped.h"		// EmBankMapped::GetEmulatedAddress
-#include "Byteswapping.h"		// Canonical
-#include "Logging.h"
+#include "EmSubroutine.h"		// EmSubroutine
+#include "Marshal.h"			// CALLER_PUT_PARAM_VAL
 #include "Miscellaneous.h"		// StMemoryMapper
-#include "UAE_Utils.h"			// uae_memmove
-
-// (I actually tried using function templates here, but they ended up adding
-//  more code, instead of saving code by coalescing identical functions like
-//  I'd hoped.)
-
-#define PushParm(p)		PushParameter (theTrap, p)
-
-// Functions for pushing simple 1-, 2-, and 4- byte values onto the emulated stack.
-
-inline void PushParameter (ATrap& theTrap, uint32 p)		{ theTrap.PushLong (p); }
-inline void PushParameter (ATrap& theTrap, int32 p)			{ theTrap.PushLong (p); }
-inline void PushParameter (ATrap& theTrap, uint16 p)		{ theTrap.PushWord (p); }
-inline void PushParameter (ATrap& theTrap, int16 p)			{ theTrap.PushWord (p); }
-inline void PushParameter (ATrap& theTrap, uint8 p)			{ theTrap.PushByte (p); }
-inline void PushParameter (ATrap& theTrap, int8 p)			{ theTrap.PushByte (p); }
 
 
-#define PUSH_VALUE(v)									\
-	PushParm(v)
-
-#define PUSH_PALM_PTR(p)								\
-	PushParm((uint32) p)
-
-#define PUSH_HOST_PTR(p)								\
-	StMemoryMapper	mapper##p (p, sizeof (*(p)));		\
-	PushParm(EmBankMapped::GetEmulatedAddress (p))
-
-#define PUSH_HOST_PTR_LEN(p, len)						\
-	StMemoryMapper	mapper##p (p, len);					\
-	PushParm(EmBankMapped::GetEmulatedAddress (p))
-
-#define PUSH_HOST_STRING(p)								\
-	StMemoryMapper	mapper##p (p, p ? strlen (p) + 1 : 0);	\
-	PushParm(EmBankMapped::GetEmulatedAddress (p))
-
-
-#define CallROM(trapWord)				\
-	theTrap.Call (trapWord)
-
-
-#define CallIntl(selector)				\
-	theTrap.SetNewDReg (2, selector);	\
-	theTrap.Call (sysTrapIntlDispatch)
-
-
-// ---------------------------------------------------------------------------
-//		¥ Canonical_If_Not_Null
-// ---------------------------------------------------------------------------
-// Pointer parameters often need a little extra handling.  If they are not
-// NULL, they generally point to either stack or heap buffers.  If they're on
-// the stack, then on Windows they're in little-endian format and need to be
-// converted into big-endian format.  Fortunately, we don't have to worry
-// about the goofy word-swapping done for ROM and RAM memory, as the memory
-// accessors that deal with data on the stack doesn't do any of that.
-//
-// For now, we don't actually check to see if data is on the stack or not.
-// We just use this function on pointers that we _expect_ point to
-// stack-resident data.  So far we haven't run into any problems with that
-// approach.
-
-template <class T>
-inline void Canonical_If_Not_Null (T* p)
-{
-	if (p)
-		Canonical (*p);
-}
-
+#pragma mark -
 
 // ---------------------------------------------------------------------------
 //		¥ Clipboard Manager functions
 // ---------------------------------------------------------------------------
-
-#pragma mark -
 
 // --------------------
 // Called:
@@ -102,14 +34,20 @@ inline void Canonical_If_Not_Null (T* p)
 
 void ClipboardAddItem (const ClipboardFormatType format, const void* ptr, UInt16 length)
 {
-	// Call the ROM.
+	// Prepare the stack.
+	CALLER_SETUP ("void", "const ClipboardFormatType format, const void* ptr, UInt16 length");
 
-	ATrap	theTrap;
-	PUSH_VALUE				(length);
-	PUSH_HOST_PTR_LEN		(ptr, length);
-	PUSH_VALUE				((uint8) format);
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (ClipboardFormatType, format);
+	CALLER_PUT_PARAM_PTR (void, ptr, length, Marshal::kInput);
+	CALLER_PUT_PARAM_VAL (UInt16, length);
 
-	CallROM (sysTrapClipboardAddItem);
+	// Call the function.
+	sub.Call (sysTrapClipboardAddItem);
+
+	// Write back any "by ref" parameters.
+
+	// Return the result.
 }
 
 // --------------------
@@ -120,24 +58,55 @@ void ClipboardAddItem (const ClipboardFormatType format, const void* ptr, UInt16
 
 MemHandle ClipboardGetItem (const ClipboardFormatType format, UInt16* length)
 {
-	// Call the ROM.
+	// Prepare the stack.
+	CALLER_SETUP ("MemHandle", "const ClipboardFormatType format, UInt16* length");
 
-	ATrap	theTrap;
-	PUSH_HOST_PTR			(length);
-	PUSH_VALUE				((uint8) format);
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (ClipboardFormatType, format);
+	CALLER_PUT_PARAM_REF (UInt16, length, Marshal::kInOut);
 
-	CallROM (sysTrapClipboardGetItem);
+	// Call the function.
+	sub.Call (sysTrapClipboardGetItem);
 
-	Canonical_If_Not_Null (length);
+	// Write back any "by ref" parameters.
+	CALLER_GET_PARAM_REF (length);
 
-	return (MemHandle) theTrap.GetA0 ();
+	// Return the result.
+	RETURN_RESULT_PTR (MemHandle);
 }
 
+#pragma mark -
+
 // ---------------------------------------------------------------------------
-//		¥ Data Manager functions
+//		¥ Control Manager functions
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+//		¥ CtlGetLabel, used in Minimization
+// ---------------------------------------------------------------------------
+
+const Char* CtlGetLabel (const ControlType *controlP)
+{
+	// Prepare the stack.
+	CALLER_SETUP ("const Char *", "const ControlType *controlP");
+
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (ControlType*, controlP);
+
+	// Call the function.
+	sub.Call (sysTrapCtlGetLabel);
+
+	// Write back any "by ref" parameters.
+
+	// Return the result.
+	RETURN_RESULT_PTR (const Char*);
+}
+
 #pragma mark -
+
+// ---------------------------------------------------------------------------
+//		¥ Desktop Link Server functions
+// ---------------------------------------------------------------------------
 
 // --------------------
 // Called:
@@ -149,32 +118,19 @@ MemHandle ClipboardGetItem (const ClipboardFormatType format, UInt16* length)
 
 Err DlkDispatchRequest (DlkServerSessionPtr sessP)
 {
-	// Patch up cmdP and map in the buffer it points to.
+	// Prepare the stack.
+	CALLER_SETUP ("Err", "DlkServerSessionType* sessP");
 
-	UInt16	cmdLen	= sessP->cmdLen;
-	void*	cmdP	= sessP->cmdP;
+	// Set the parameters.
+	CALLER_PUT_PARAM_REF (DlkServerSessionType, sessP, Marshal::kInput);
 
-	Canonical (cmdLen);
-	Canonical (cmdP);
+	// Call the function.
+	sub.Call (sysTrapDlkDispatchRequest);
 
-	StMemoryMapper	mapper (cmdP, cmdLen);
+	// Write back any "by ref" parameters.
 
-	sessP->cmdP = (void*) EmBankMapped::GetEmulatedAddress (cmdP);
-	Canonical (sessP->cmdP);
-
-	// Call the ROM.
-
-	ATrap	theTrap;
-	PUSH_HOST_PTR		(sessP);
-
-	CallROM (sysTrapDlkDispatchRequest);
-
-	// Put back cmdP and unmap it.
-
-	sessP->cmdP = cmdP;
-	Canonical (sessP->cmdP);
-
-	return (Err) theTrap.GetD0 ();
+	// Return the result.
+	RETURN_RESULT_VAL (Err);
 }
 
 // --------------------
@@ -188,41 +144,40 @@ Err DlkGetSyncInfo (UInt32* succSyncDateP, UInt32* lastSyncDateP,
 			DlkSyncStateType* syncStateP, Char* nameBufP,
 			Char* logBufP, Int32* logLenP)
 {
+	// Prepare the stack.
+	CALLER_SETUP ("Err", 
+		"UInt32* succSyncDateP, UInt32* lastSyncDateP,"
+		"DlkSyncStateType* syncStateP, Char* nameBufP,"
+		"Char* logBufP, Int32* logLenP");
+
+	// Set the parameters.
 	Int32	logLen = logLenP ? *logLenP : 0;
 
-	Canonical_If_Not_Null (logLenP);
+	CALLER_PUT_PARAM_REF (UInt32, succSyncDateP, Marshal::kInOut);
+	CALLER_PUT_PARAM_REF (UInt32, lastSyncDateP, Marshal::kInOut);
+	CALLER_PUT_PARAM_REF (DlkSyncStateType, syncStateP, Marshal::kInOut);
+	CALLER_PUT_PARAM_PTR (Char, nameBufP, dlkUserNameBufSize, Marshal::kInOut);
+	CALLER_PUT_PARAM_PTR (Char, logBufP, logLen, Marshal::kInOut);
+	CALLER_PUT_PARAM_REF (Int32, logLenP, Marshal::kInOut);
 
-	Int8	tempSyncState;
-	Int8*	tempSyncStateP = &tempSyncState;
+	// Call the function.
+	sub.Call (sysTrapDlkGetSyncInfo);
 
-	// Call the ROM.
+	// Write back any "by ref" parameters.
+	CALLER_GET_PARAM_REF (succSyncDateP);
+	CALLER_GET_PARAM_REF (lastSyncDateP);
+	CALLER_GET_PARAM_REF (syncStateP);
+	CALLER_GET_PARAM_REF (logLenP);
 
-	ATrap	theTrap;
-	PUSH_HOST_PTR		(logLenP);
-	PUSH_HOST_PTR_LEN	(logBufP, logLen);
-	PUSH_HOST_PTR_LEN	(nameBufP, dlkUserNameBufSize);
-	PUSH_HOST_PTR		(tempSyncStateP);
-	PUSH_HOST_PTR		(lastSyncDateP);
-	PUSH_HOST_PTR		(succSyncDateP);
-
-	CallROM (sysTrapDlkGetSyncInfo);
-
-	Canonical_If_Not_Null (succSyncDateP);
-	Canonical_If_Not_Null (lastSyncDateP);
-//	Canonical_If_Not_Null (syncStateP);
-	Canonical_If_Not_Null (logLenP);
-
-	if (syncStateP)
-		*syncStateP = (DlkSyncStateType) tempSyncState;
-
-	return (Err) theTrap.GetD0 ();
+	// Return the result.
+	RETURN_RESULT_VAL (Err);
 }
+
+#pragma mark -
 
 // ---------------------------------------------------------------------------
 //		¥ Data Manager functions
 // ---------------------------------------------------------------------------
-
-#pragma mark -
 
 // --------------------
 // Called:
@@ -244,14 +199,19 @@ Err DlkGetSyncInfo (UInt32* succSyncDateP, UInt32* lastSyncDateP,
 
 Err DmCloseDatabase (DmOpenRef dbR)
 {
-	// Call the ROM.
+	// Prepare the stack.
+	CALLER_SETUP ("Err", "DmOpenRef dbR");
 
-	ATrap	theTrap;
-	PUSH_PALM_PTR		(dbR);
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (DmOpenRef, dbR);
 
-	CallROM (sysTrapDmCloseDatabase);
+	// Call the function.
+	sub.Call (sysTrapDmCloseDatabase);
 
-	return (Err) theTrap.GetD0 ();
+	// Write back any "by ref" parameters.
+
+	// Return the result.
+	RETURN_RESULT_VAL (Err);
 }
 
 // --------------------
@@ -264,18 +224,24 @@ Err DmCloseDatabase (DmOpenRef dbR)
 Err DmCreateDatabase (UInt16 cardNo, const Char * const nameP, 
 					UInt32 creator, UInt32 type, Boolean resDB)
 {
-	// Call the ROM.
+	// Prepare the stack.
+	CALLER_SETUP ("Err", "UInt16 cardNo, const Char * const nameP, "
+					"UInt32 creator, UInt32 type, Boolean resDB");
 
-	ATrap	theTrap;
-	PUSH_VALUE			(resDB);
-	PUSH_VALUE			(type);
-	PUSH_VALUE			(creator);
-	PUSH_HOST_STRING	(nameP);
-	PUSH_VALUE			(cardNo);
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (UInt16, cardNo);
+	CALLER_PUT_PARAM_STR (Char, nameP);
+	CALLER_PUT_PARAM_VAL (UInt32, creator);
+	CALLER_PUT_PARAM_VAL (UInt32, type);
+	CALLER_PUT_PARAM_VAL (Boolean, resDB);
 
-	CallROM (sysTrapDmCreateDatabase);
+	// Call the function.
+	sub.Call (sysTrapDmCreateDatabase);
 
-	return (Err) theTrap.GetD0 ();
+	// Write back any "by ref" parameters.
+
+	// Return the result.
+	RETURN_RESULT_VAL (Err);
 }
 
 // --------------------
@@ -299,48 +265,47 @@ Err DmDatabaseInfo (UInt16 cardNo, LocalID	dbID, Char* nameP,
 					LocalID* sortInfoIDP, UInt32* typeP,
 					UInt32* creatorP)
 {
-	Canonical_If_Not_Null (attributesP);
-	Canonical_If_Not_Null (versionP);
-	Canonical_If_Not_Null (crDateP);
-	Canonical_If_Not_Null (modDateP);
-	Canonical_If_Not_Null (bckUpDateP);
-	Canonical_If_Not_Null (modNumP);
-	Canonical_If_Not_Null (appInfoIDP);
-	Canonical_If_Not_Null (sortInfoIDP);
-	Canonical_If_Not_Null (typeP);
-	Canonical_If_Not_Null (creatorP);
+	// Prepare the stack.
+	CALLER_SETUP ("Err", 
+					"UInt16 cardNo, LocalID	dbID, Char* nameP,"
+					"UInt16* attributesP, UInt16* versionP, UInt32* crDateP,"
+					"UInt32* modDateP, UInt32* bckUpDateP,"
+					"UInt32* modNumP, LocalID* appInfoIDP,"
+					"LocalID* sortInfoIDP, UInt32* typeP,"
+					"UInt32* creatorP");
 
-	// Call the ROM.
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (UInt16, cardNo);
+	CALLER_PUT_PARAM_VAL (LocalID, dbID);
+	CALLER_PUT_PARAM_PTR (Char, nameP, dmDBNameLength, Marshal::kInOut);
+	CALLER_PUT_PARAM_REF (UInt16, attributesP, Marshal::kInOut);
+	CALLER_PUT_PARAM_REF (UInt16, versionP, Marshal::kInOut);
+	CALLER_PUT_PARAM_REF (UInt32, crDateP, Marshal::kInOut);
+	CALLER_PUT_PARAM_REF (UInt32, modDateP, Marshal::kInOut);
+	CALLER_PUT_PARAM_REF (UInt32, bckUpDateP, Marshal::kInOut);
+	CALLER_PUT_PARAM_REF (UInt32, modNumP, Marshal::kInOut);
+	CALLER_PUT_PARAM_REF (LocalID, appInfoIDP, Marshal::kInOut);
+	CALLER_PUT_PARAM_REF (LocalID, sortInfoIDP, Marshal::kInOut);
+	CALLER_PUT_PARAM_REF (UInt32, typeP, Marshal::kInOut);
+	CALLER_PUT_PARAM_REF (UInt32, creatorP, Marshal::kInOut);
 
-	ATrap	theTrap;
-	PUSH_HOST_PTR		(creatorP);
-	PUSH_HOST_PTR		(typeP);
-	PUSH_HOST_PTR		(sortInfoIDP);
-	PUSH_HOST_PTR		(appInfoIDP);
-	PUSH_HOST_PTR		(modNumP);
-	PUSH_HOST_PTR		(bckUpDateP);
-	PUSH_HOST_PTR		(modDateP);
-	PUSH_HOST_PTR		(crDateP);
-	PUSH_HOST_PTR		(versionP);
-	PUSH_HOST_PTR		(attributesP);
-	PUSH_HOST_PTR_LEN	(nameP, dmDBNameLength);
-	PUSH_VALUE			(dbID);
-	PUSH_VALUE			(cardNo);
+	// Call the function.
+	sub.Call (sysTrapDmDatabaseInfo);
 
-	CallROM (sysTrapDmDatabaseInfo);
+	// Write back any "by ref" parameters.
+	CALLER_GET_PARAM_REF (attributesP);
+	CALLER_GET_PARAM_REF (versionP);
+	CALLER_GET_PARAM_REF (crDateP);
+	CALLER_GET_PARAM_REF (modDateP);
+	CALLER_GET_PARAM_REF (bckUpDateP);
+	CALLER_GET_PARAM_REF (modNumP);
+	CALLER_GET_PARAM_REF (appInfoIDP);
+	CALLER_GET_PARAM_REF (sortInfoIDP);
+	CALLER_GET_PARAM_REF (typeP);
+	CALLER_GET_PARAM_REF (creatorP);
 
-	Canonical_If_Not_Null (attributesP);
-	Canonical_If_Not_Null (versionP);
-	Canonical_If_Not_Null (crDateP);
-	Canonical_If_Not_Null (modDateP);
-	Canonical_If_Not_Null (bckUpDateP);
-	Canonical_If_Not_Null (modNumP);
-	Canonical_If_Not_Null (appInfoIDP);
-	Canonical_If_Not_Null (sortInfoIDP);
-	Canonical_If_Not_Null (typeP);
-	Canonical_If_Not_Null (creatorP);
-
-	return (Err) theTrap.GetD0 ();
+	// Return the result.
+	RETURN_RESULT_VAL (Err);
 }
 
 // --------------------
@@ -355,15 +320,20 @@ Err DmDatabaseInfo (UInt16 cardNo, LocalID	dbID, Char* nameP,
 
 Err DmDeleteDatabase (UInt16 cardNo, LocalID dbID)
 {
-	// Call the ROM.
+	// Prepare the stack.
+	CALLER_SETUP ("Err", "UInt16 cardNo, LocalID dbID");
 
-	ATrap	theTrap;
-	PUSH_VALUE	(dbID);
-	PUSH_VALUE	(cardNo);
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (UInt16, cardNo);
+	CALLER_PUT_PARAM_VAL (LocalID, dbID);
 
-	CallROM (sysTrapDmDeleteDatabase);
+	// Call the function.
+	sub.Call (sysTrapDmDeleteDatabase);
 
-	return (Err) theTrap.GetD0 ();
+	// Write back any "by ref" parameters.
+
+	// Return the result.
+	RETURN_RESULT_VAL (Err);
 }
 
 // --------------------
@@ -385,15 +355,20 @@ Err DmDeleteDatabase (UInt16 cardNo, LocalID dbID)
 
 LocalID DmFindDatabase (UInt16 cardNo, const Char* nameP)
 {
-	// Call the ROM.
+	// Prepare the stack.
+	CALLER_SETUP ("LocalID", "UInt16 cardNo, const Char* nameP");
 
-	ATrap	theTrap;
-	PUSH_HOST_STRING	(nameP);
-	PUSH_VALUE			(cardNo);
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (UInt16, cardNo);
+	CALLER_PUT_PARAM_STR (Char, nameP);
 
-	CallROM (sysTrapDmFindDatabase);
+	// Call the function.
+	sub.Call (sysTrapDmFindDatabase);
 
-	return (LocalID) theTrap.GetD0 ();
+	// Write back any "by ref" parameters.
+
+	// Return the result.
+	RETURN_RESULT_VAL (LocalID);
 }
 
 // --------------------
@@ -406,15 +381,20 @@ LocalID DmFindDatabase (UInt16 cardNo, const Char* nameP)
 
 MemHandle DmGet1Resource (DmResType type, DmResID id)
 {
-	// Call the ROM.
+	// Prepare the stack.
+	CALLER_SETUP ("MemHandle", "DmResType type, DmResID id");
 
-	ATrap	theTrap;
-	PUSH_VALUE	(id);
-	PUSH_VALUE	(type);
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (DmResType, type);
+	CALLER_PUT_PARAM_VAL (DmResID, id);
 
-	CallROM (sysTrapDmGet1Resource);
+	// Call the function.
+	sub.Call (sysTrapDmGet1Resource);
 
-	return (MemHandle) theTrap.GetA0 ();
+	// Write back any "by ref" parameters.
+
+	// Return the result.
+	RETURN_RESULT_PTR (MemHandle);
 }
 
 // --------------------
@@ -427,15 +407,20 @@ MemHandle DmGet1Resource (DmResType type, DmResID id)
 
 LocalID DmGetDatabase (UInt16 cardNo, UInt16 index)
 {
-	// Call the ROM.
+	// Prepare the stack.
+	CALLER_SETUP ("LocalID", "UInt16 cardNo, UInt16 index");
 
-	ATrap	theTrap;
-	PUSH_VALUE	(index);
-	PUSH_VALUE	(cardNo);
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (UInt16, cardNo);
+	CALLER_PUT_PARAM_VAL (UInt16, index);
 
-	CallROM (sysTrapDmGetDatabase);
+	// Call the function.
+	sub.Call (sysTrapDmGetDatabase);
 
-	return (LocalID) theTrap.GetD0 ();
+	// Write back any "by ref" parameters.
+
+	// Return the result.
+	RETURN_RESULT_VAL (LocalID);
 }
 
 // --------------------
@@ -450,13 +435,18 @@ LocalID DmGetDatabase (UInt16 cardNo, UInt16 index)
 
 Err DmGetLastErr (void)
 {
-	// Call the ROM.
+	// Prepare the stack.
+	CALLER_SETUP ("Err", "void");
 
-	ATrap	theTrap;
+	// Set the parameters.
 
-	CallROM (sysTrapDmGetLastErr);
+	// Call the function.
+	sub.Call (sysTrapDmGetLastErr);
 
-	return (Err) theTrap.GetD0 ();
+	// Write back any "by ref" parameters.
+
+	// Return the result.
+	RETURN_RESULT_VAL (Err);
 }
 
 // --------------------
@@ -472,26 +462,31 @@ Err	DmGetNextDatabaseByTypeCreator (Boolean newSearch, DmSearchStatePtr stateInf
 			 		UInt32 type, UInt32 creator, Boolean onlyLatestVers, 
 			 		UInt16* cardNoP, LocalID* dbIDP)
 {
-	Canonical_If_Not_Null (cardNoP);
-	Canonical_If_Not_Null (dbIDP);
+	// Prepare the stack.
+	CALLER_SETUP ("Err", 
+		"Boolean newSearch, DmSearchStatePtr stateInfoP, "
+		"UInt32 type, UInt32 creator, Boolean onlyLatestVers, "
+		"UInt16* cardNoP, LocalID* dbIDP");
 
-	// Call the ROM.
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (Boolean, newSearch);
+	CALLER_PUT_PARAM_REF (DmSearchStateType, stateInfoP, Marshal::kInOut);
+	CALLER_PUT_PARAM_VAL (UInt32, type);
+	CALLER_PUT_PARAM_VAL (UInt32, creator);
+	CALLER_PUT_PARAM_VAL (Boolean, onlyLatestVers);
+	CALLER_PUT_PARAM_REF (UInt16, cardNoP, Marshal::kInOut);
+	CALLER_PUT_PARAM_REF (LocalID, dbIDP, Marshal::kInOut);
 
-	ATrap	theTrap;
-	PUSH_HOST_PTR	(dbIDP);
-	PUSH_HOST_PTR	(cardNoP);
-	PUSH_VALUE		(onlyLatestVers);
-	PUSH_VALUE		(creator);
-	PUSH_VALUE		(type);
-	PUSH_HOST_PTR	(stateInfoP);
-	PUSH_VALUE		(newSearch);
+	// Call the function.
+	sub.Call (sysTrapDmGetNextDatabaseByTypeCreator);
 
-	CallROM (sysTrapDmGetNextDatabaseByTypeCreator);
+	// Write back any "by ref" parameters.
+	CALLER_GET_PARAM_REF (stateInfoP);
+	CALLER_GET_PARAM_REF (cardNoP);
+	CALLER_GET_PARAM_REF (dbIDP);
 
-	Canonical_If_Not_Null (cardNoP);
-	Canonical_If_Not_Null (dbIDP);
-
-	return (Err) theTrap.GetD0 ();
+	// Return the result.
+	RETURN_RESULT_VAL (Err);
 }
 
 // --------------------
@@ -504,15 +499,20 @@ Err	DmGetNextDatabaseByTypeCreator (Boolean newSearch, DmSearchStatePtr stateInf
 
 MemHandle DmGetResource (DmResType type, DmResID id)
 {
-	// Call the ROM.
+	// Prepare the stack.
+	CALLER_SETUP ("MemHandle", "DmResType type, DmResID id");
 
-	ATrap	theTrap;
-	PUSH_VALUE	(id);
-	PUSH_VALUE	(type);
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (DmResType, type);
+	CALLER_PUT_PARAM_VAL (DmResID, id);
 
-	CallROM (sysTrapDmGetResource);
+	// Call the function.
+	sub.Call (sysTrapDmGetResource);
 
-	return (MemHandle) theTrap.GetA0 ();
+	// Write back any "by ref" parameters.
+
+	// Return the result.
+	RETURN_RESULT_PTR (MemHandle);
 }
 
 // --------------------
@@ -524,15 +524,20 @@ MemHandle DmGetResource (DmResType type, DmResID id)
 
 MemHandle DmGetResourceIndex (DmOpenRef dbP, UInt16 index)
 {
-	// Call the ROM.
+	// Prepare the stack.
+	CALLER_SETUP ("MemHandle", "DmOpenRef dbP, UInt16 index");
 
-	ATrap	theTrap;
-	PUSH_VALUE		(index);
-	PUSH_PALM_PTR	(dbP);
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (DmOpenRef, dbP);
+	CALLER_PUT_PARAM_VAL (UInt16, index);
 
-	CallROM (sysTrapDmGetResourceIndex);
+	// Call the function.
+	sub.Call (sysTrapDmGetResourceIndex);
 
-	return (MemHandle) theTrap.GetA0 ();
+	// Write back any "by ref" parameters.
+
+	// Return the result.
+	RETURN_RESULT_PTR (MemHandle);
 }
 
 // --------------------
@@ -544,15 +549,20 @@ MemHandle DmGetResourceIndex (DmOpenRef dbP, UInt16 index)
 
 MemHandle DmNewHandle (DmOpenRef dbR, UInt32 size)
 {
-	// Call the ROM.
+	// Prepare the stack.
+	CALLER_SETUP ("MemHandle", "DmOpenRef dbR, UInt32 size");
 
-	ATrap	theTrap;
-	PUSH_VALUE		(size);
-	PUSH_PALM_PTR	(dbR);
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (DmOpenRef, dbR);
+	CALLER_PUT_PARAM_VAL (UInt32, size);
 
-	CallROM (sysTrapDmNewHandle);
+	// Call the function.
+	sub.Call (sysTrapDmNewHandle);
 
-	return (MemHandle) theTrap.GetA0 ();
+	// Write back any "by ref" parameters.
+
+	// Return the result.
+	RETURN_RESULT_PTR (MemHandle);
 }
 
 // --------------------
@@ -564,20 +574,22 @@ MemHandle DmNewHandle (DmOpenRef dbR, UInt32 size)
 
 MemHandle DmNewRecord (DmOpenRef dbR, UInt16* atP, UInt32 size)
 {
-	Canonical_If_Not_Null (atP);
+	// Prepare the stack.
+	CALLER_SETUP ("MemHandle", "DmOpenRef dbR, UInt16* atP, UInt32 size");
 
-	// Call the ROM.
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (DmOpenRef, dbR);
+	CALLER_PUT_PARAM_REF (UInt16, atP, Marshal::kInOut);
+	CALLER_PUT_PARAM_VAL (UInt32, size);
 
-	ATrap	theTrap;
-	PUSH_VALUE		(size);
-	PUSH_HOST_PTR	(atP);
-	PUSH_PALM_PTR	(dbR);
+	// Call the function.
+	sub.Call (sysTrapDmNewRecord);
 
-	CallROM (sysTrapDmNewRecord);
+	// Write back any "by ref" parameters.
+	CALLER_GET_PARAM_REF (atP);
 
-	Canonical_If_Not_Null (atP);
-
-	return (MemHandle) theTrap.GetA0 ();
+	// Return the result.
+	RETURN_RESULT_PTR (MemHandle);
 }
 
 // --------------------
@@ -592,17 +604,45 @@ MemHandle DmNewRecord (DmOpenRef dbR, UInt16* atP, UInt32 size)
 
 MemHandle DmNewResource (DmOpenRef dbR, DmResType resType, DmResID resID, UInt32 size)
 {
-	// Call the ROM.
+	// Prepare the stack.
+	CALLER_SETUP ("MemHandle", "DmOpenRef dbR, DmResType resType, DmResID resID, UInt32 size");
 
-	ATrap	theTrap;
-	PUSH_VALUE		(size);
-	PUSH_VALUE		(resID);
-	PUSH_VALUE		(resType);
-	PUSH_PALM_PTR	(dbR);
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (DmOpenRef, dbR);
+	CALLER_PUT_PARAM_VAL (DmResType, resType);
+	CALLER_PUT_PARAM_VAL (DmResID, resID);
+	CALLER_PUT_PARAM_VAL (UInt32, size);
 
-	CallROM (sysTrapDmNewResource);
+	// Call the function.
+	sub.Call (sysTrapDmNewResource);
 
-	return (MemHandle) theTrap.GetA0 ();
+	// Write back any "by ref" parameters.
+
+	// Return the result.
+	RETURN_RESULT_PTR (MemHandle);
+}
+
+// --------------------
+// Called:
+//
+//	*	.
+// --------------------
+
+DmOpenRef DmNextOpenDatabase (DmOpenRef currentP)
+{
+	// Prepare the stack.
+	CALLER_SETUP ("DmOpenRef", "DmOpenRef currentP");
+
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (DmOpenRef, currentP);
+
+	// Call the function.
+	sub.Call (sysTrapDmNextOpenDatabase);
+
+	// Write back any "by ref" parameters.
+
+	// Return the result.
+	RETURN_RESULT_PTR (DmOpenRef);
 }
 
 // --------------------
@@ -615,14 +655,19 @@ MemHandle DmNewResource (DmOpenRef dbR, DmResType resType, DmResID resID, UInt32
 
 UInt16 DmNumDatabases (UInt16 cardNo)
 {
-	// Call the ROM.
+	// Prepare the stack.
+	CALLER_SETUP ("UInt16", "UInt16 cardNo");
 
-	ATrap	theTrap;
-	PUSH_VALUE		(cardNo);
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (UInt16, cardNo);
 
-	CallROM (sysTrapDmNumDatabases);
+	// Call the function.
+	sub.Call (sysTrapDmNumDatabases);
 
-	return (UInt16) theTrap.GetD0 ();
+	// Write back any "by ref" parameters.
+
+	// Return the result.
+	RETURN_RESULT_VAL (UInt16);
 }
 
 // --------------------
@@ -634,14 +679,41 @@ UInt16 DmNumDatabases (UInt16 cardNo)
 
 UInt16 DmNumRecords (DmOpenRef dbP)
 {
-	// Call the ROM.
+	// Prepare the stack.
+	CALLER_SETUP ("UInt16", "DmOpenRef dbP");
 
-	ATrap	theTrap;
-	PUSH_PALM_PTR	(dbP);
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (DmOpenRef, dbP);
 
-	CallROM (sysTrapDmNumRecords);
+	// Call the function.
+	sub.Call (sysTrapDmNumRecords);
 
-	return (UInt16) theTrap.GetD0 ();
+	// Write back any "by ref" parameters.
+
+	// Return the result.
+	RETURN_RESULT_VAL (UInt16);
+}
+
+// --------------------
+// Called:
+//
+//	*	.
+// --------------------
+UInt16 DmNumResources (DmOpenRef dbP)
+{
+	// Prepare the stack.
+	CALLER_SETUP ("UInt16", "DmOpenRef dbP");
+
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (DmOpenRef, dbP);
+
+	// Call the function.
+	sub.Call (sysTrapDmNumResources);
+
+	// Write back any "by ref" parameters.
+
+	// Return the result.
+	RETURN_RESULT_VAL (UInt16);
 }
 
 // --------------------
@@ -659,16 +731,21 @@ UInt16 DmNumRecords (DmOpenRef dbP)
 
 DmOpenRef DmOpenDatabase (UInt16 cardNo, LocalID dbID, UInt16 mode)
 {
-	// Call the ROM.
+	// Prepare the stack.
+	CALLER_SETUP ("DmOpenRef", "UInt16 cardNo, LocalID dbID, UInt16 mode");
 
-	ATrap	theTrap;
-	PUSH_VALUE	(mode);
-	PUSH_VALUE	(dbID);
-	PUSH_VALUE	(cardNo);
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (UInt16, cardNo);
+	CALLER_PUT_PARAM_VAL (LocalID, dbID);
+	CALLER_PUT_PARAM_VAL (UInt16, mode);
 
-	CallROM (sysTrapDmOpenDatabase);
+	// Call the function.
+	sub.Call (sysTrapDmOpenDatabase);
 
-	return (DmOpenRef) theTrap.GetA0 ();
+	// Write back any "by ref" parameters.
+
+	// Return the result.
+	RETURN_RESULT_PTR (DmOpenRef);
 }
 
 // --------------------
@@ -682,31 +759,32 @@ Err DmOpenDatabaseInfo (DmOpenRef dbP, LocalID* dbIDP,
 					UInt16* openCountP, UInt16* modeP, UInt16* cardNoP,
 					Boolean* resDBP)
 {
-	Canonical_If_Not_Null (dbIDP);
-	Canonical_If_Not_Null (openCountP);
-	Canonical_If_Not_Null (modeP);
-	Canonical_If_Not_Null (cardNoP);
-	Canonical_If_Not_Null (resDBP);
+	// Prepare the stack.
+	CALLER_SETUP ("Err", 
+		"DmOpenRef dbP, LocalID* dbIDP, "
+		"UInt16* openCountP, UInt16* modeP, UInt16* cardNoP,"
+		"Boolean* resDBP");
 
-	// Call the ROM.
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (DmOpenRef, dbP);
+	CALLER_PUT_PARAM_REF (LocalID, dbIDP, Marshal::kInOut);
+	CALLER_PUT_PARAM_REF (UInt16, openCountP, Marshal::kInOut);
+	CALLER_PUT_PARAM_REF (UInt16, modeP, Marshal::kInOut);
+	CALLER_PUT_PARAM_REF (UInt16, cardNoP, Marshal::kInOut);
+	CALLER_PUT_PARAM_REF (Boolean, resDBP, Marshal::kInOut);
 
-	ATrap	theTrap;
-	PUSH_HOST_PTR	(resDBP);
-	PUSH_HOST_PTR	(cardNoP);
-	PUSH_HOST_PTR	(modeP);
-	PUSH_HOST_PTR	(openCountP);
-	PUSH_HOST_PTR	(dbIDP);
-	PUSH_PALM_PTR	(dbP);
+	// Call the function.
+	sub.Call (sysTrapDmOpenDatabaseInfo);
 
-	CallROM (sysTrapDmOpenDatabaseInfo);
+	// Write back any "by ref" parameters.
+	CALLER_GET_PARAM_REF (dbIDP);
+	CALLER_GET_PARAM_REF (openCountP);
+	CALLER_GET_PARAM_REF (modeP);
+	CALLER_GET_PARAM_REF (cardNoP);
+	CALLER_GET_PARAM_REF (resDBP);
 
-	Canonical_If_Not_Null (dbIDP);
-	Canonical_If_Not_Null (openCountP);
-	Canonical_If_Not_Null (modeP);
-	Canonical_If_Not_Null (cardNoP);
-	Canonical_If_Not_Null (resDBP);
-
-	return (Err) theTrap.GetD0 ();
+	// Return the result.
+	RETURN_RESULT_VAL (Err);
 }
 
 // --------------------
@@ -719,26 +797,28 @@ Err DmOpenDatabaseInfo (DmOpenRef dbP, LocalID* dbIDP,
 Err DmRecordInfo (DmOpenRef dbP, UInt16 index,
 					UInt16* attrP, UInt32* uniqueIDP, LocalID* chunkIDP)
 {
-	Canonical_If_Not_Null (attrP);
-	Canonical_If_Not_Null (uniqueIDP);
-	Canonical_If_Not_Null (chunkIDP);
+	// Prepare the stack.
+	CALLER_SETUP ("Err", 
+		"DmOpenRef dbP, UInt16 index,"
+		"UInt16* attrP, UInt32* uniqueIDP, LocalID* chunkIDP");
 
-	// Call the ROM.
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (DmOpenRef, dbP);
+	CALLER_PUT_PARAM_VAL (UInt16, index);
+	CALLER_PUT_PARAM_REF (UInt16, attrP, Marshal::kInOut);
+	CALLER_PUT_PARAM_REF (UInt32, uniqueIDP, Marshal::kInOut);
+	CALLER_PUT_PARAM_REF (LocalID, chunkIDP, Marshal::kInOut);
 
-	ATrap	theTrap;
-	PUSH_HOST_PTR	(chunkIDP);
-	PUSH_HOST_PTR	(uniqueIDP);
-	PUSH_HOST_PTR	(attrP);
-	PUSH_VALUE		(index);
-	PUSH_PALM_PTR	(dbP);
+	// Call the function.
+	sub.Call (sysTrapDmRecordInfo);
 
-	CallROM (sysTrapDmRecordInfo);
+	// Write back any "by ref" parameters.
+	CALLER_GET_PARAM_REF (attrP);
+	CALLER_GET_PARAM_REF (uniqueIDP);
+	CALLER_GET_PARAM_REF (chunkIDP);
 
-	Canonical_If_Not_Null (attrP);
-	Canonical_If_Not_Null (uniqueIDP);
-	Canonical_If_Not_Null (chunkIDP);
-
-	return (Err) theTrap.GetD0 ();
+	// Return the result.
+	RETURN_RESULT_VAL (Err);
 }
 
 // --------------------
@@ -750,16 +830,21 @@ Err DmRecordInfo (DmOpenRef dbP, UInt16 index,
 
 Err DmReleaseRecord (DmOpenRef dbR, UInt16 index, Boolean dirty)
 {
-	// Call the ROM.
+	// Prepare the stack.
+	CALLER_SETUP ("Err", "DmOpenRef dbR, UInt16 index, Boolean dirty");
 
-	ATrap	theTrap;
-	PUSH_VALUE		(dirty);
-	PUSH_VALUE		(index);
-	PUSH_PALM_PTR	(dbR);
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (DmOpenRef, dbR);
+	CALLER_PUT_PARAM_VAL (UInt16, index);
+	CALLER_PUT_PARAM_VAL (Boolean, dirty);
 
-	CallROM (sysTrapDmReleaseRecord);
+	// Call the function.
+	sub.Call (sysTrapDmReleaseRecord);
 
-	return (Err) theTrap.GetD0 ();
+	// Write back any "by ref" parameters.
+
+	// Return the result.
+	RETURN_RESULT_VAL (Err);
 }
 
 // --------------------
@@ -771,14 +856,19 @@ Err DmReleaseRecord (DmOpenRef dbR, UInt16 index, Boolean dirty)
 
 Err DmReleaseResource (MemHandle resourceH)
 {
-	// Call the ROM.
+	// Prepare the stack.
+	CALLER_SETUP ("Err", "MemHandle resourceH");
 
-	ATrap	theTrap;
-	PUSH_PALM_PTR	(resourceH);
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (MemHandle, resourceH);
 
-	CallROM (sysTrapDmReleaseResource);
+	// Call the function.
+	sub.Call (sysTrapDmReleaseResource);
 
-	return (Err) theTrap.GetD0 ();
+	// Write back any "by ref" parameters.
+
+	// Return the result.
+	RETURN_RESULT_VAL (Err);
 }
 
 // --------------------
@@ -792,26 +882,29 @@ Err DmResourceInfo (DmOpenRef dbP, UInt16 index,
 					DmResType* resTypeP, DmResID* resIDP,  
 					LocalID* chunkLocalIDP)
 {
-	Canonical_If_Not_Null (resTypeP);
-	Canonical_If_Not_Null (resIDP);
-	Canonical_If_Not_Null (chunkLocalIDP);
+	// Prepare the stack.
+	CALLER_SETUP ("Err", 
+		"DmOpenRef dbP, UInt16 index,"
+		"DmResType* resTypeP, DmResID* resIDP,"
+		"LocalID* chunkLocalIDP");
 
-	// Call the ROM.
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (DmOpenRef, dbP);
+	CALLER_PUT_PARAM_VAL (UInt16, index);
+	CALLER_PUT_PARAM_REF (DmResType, resTypeP, Marshal::kInOut);
+	CALLER_PUT_PARAM_REF (DmResID, resIDP, Marshal::kInOut);
+	CALLER_PUT_PARAM_REF (LocalID, chunkLocalIDP, Marshal::kInOut);
 
-	ATrap	theTrap;
-	PUSH_HOST_PTR	(chunkLocalIDP);
-	PUSH_HOST_PTR	(resIDP);
-	PUSH_HOST_PTR	(resTypeP);
-	PUSH_VALUE		(index);
-	PUSH_PALM_PTR	(dbP);
+	// Call the function.
+	sub.Call (sysTrapDmResourceInfo);
 
-	CallROM (sysTrapDmResourceInfo);
+	// Write back any "by ref" parameters.
+	CALLER_GET_PARAM_REF (resTypeP);
+	CALLER_GET_PARAM_REF (resIDP);
+	CALLER_GET_PARAM_REF (chunkLocalIDP);
 
-	Canonical_If_Not_Null (resTypeP);
-	Canonical_If_Not_Null (resIDP);
-	Canonical_If_Not_Null (chunkLocalIDP);
-
-	return (Err) theTrap.GetD0 ();
+	// Return the result.
+	RETURN_RESULT_VAL (Err);
 }
 
 // --------------------
@@ -823,15 +916,20 @@ Err DmResourceInfo (DmOpenRef dbP, UInt16 index,
 
 MemHandle DmQueryRecord (DmOpenRef dbP, UInt16 index)
 {
-	// Call the ROM.
+	// Prepare the stack.
+	CALLER_SETUP ("MemHandle", "DmOpenRef dbP, UInt16 index");
 
-	ATrap	theTrap;
-	PUSH_VALUE		(index);
-	PUSH_PALM_PTR	(dbP);
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (DmOpenRef, dbP);
+	CALLER_PUT_PARAM_VAL (UInt16, index);
 
-	CallROM (sysTrapDmQueryRecord);
+	// Call the function.
+	sub.Call (sysTrapDmQueryRecord);
 
-	return (MemHandle) theTrap.GetA0 ();
+	// Write back any "by ref" parameters.
+
+	// Return the result.
+	RETURN_RESULT_PTR (MemHandle);
 }
 
 // --------------------
@@ -848,48 +946,37 @@ Err DmSetDatabaseInfo (UInt16 cardNo, LocalID dbID, const Char* nameP,
 					LocalID* sortInfoIDP, UInt32* typeP,
 					UInt32* creatorP)
 {
-	Canonical_If_Not_Null (attributesP);
-	Canonical_If_Not_Null (versionP);
-	Canonical_If_Not_Null (crDateP);
-	Canonical_If_Not_Null (modDateP);
-	Canonical_If_Not_Null (bckUpDateP);
-	Canonical_If_Not_Null (modNumP);
-	Canonical_If_Not_Null (appInfoIDP);
-	Canonical_If_Not_Null (sortInfoIDP);
-	Canonical_If_Not_Null (typeP);
-	Canonical_If_Not_Null (creatorP);
+	// Prepare the stack.
+	CALLER_SETUP ("Err", 
+		"UInt16 cardNo, LocalID dbID, const Char* nameP,"
+		"UInt16* attributesP, UInt16* versionP, UInt32* crDateP,"
+		"UInt32* modDateP, UInt32* bckUpDateP,"
+		"UInt32* modNumP, LocalID* appInfoIDP,"
+		"LocalID* sortInfoIDP, UInt32* typeP,"
+		"UInt32* creatorP");
 
-	// Call the ROM.
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (UInt16, cardNo);
+	CALLER_PUT_PARAM_VAL (LocalID, dbID);
+	CALLER_PUT_PARAM_STR (Char, nameP);
+	CALLER_PUT_PARAM_REF (UInt16, attributesP, Marshal::kInput);
+	CALLER_PUT_PARAM_REF (UInt16, versionP, Marshal::kInput);
+	CALLER_PUT_PARAM_REF (UInt32, crDateP, Marshal::kInput);
+	CALLER_PUT_PARAM_REF (UInt32, modDateP, Marshal::kInput);
+	CALLER_PUT_PARAM_REF (UInt32, bckUpDateP, Marshal::kInput);
+	CALLER_PUT_PARAM_REF (UInt32, modNumP, Marshal::kInput);
+	CALLER_PUT_PARAM_REF (LocalID, appInfoIDP, Marshal::kInput);
+	CALLER_PUT_PARAM_REF (LocalID, sortInfoIDP, Marshal::kInput);
+	CALLER_PUT_PARAM_REF (UInt32, typeP, Marshal::kInput);
+	CALLER_PUT_PARAM_REF (UInt32, creatorP, Marshal::kInput);
 
-	ATrap	theTrap;
-	PUSH_HOST_PTR	(creatorP);
-	PUSH_HOST_PTR	(typeP);
-	PUSH_HOST_PTR	(sortInfoIDP);
-	PUSH_HOST_PTR	(appInfoIDP);
-	PUSH_HOST_PTR	(modNumP);
-	PUSH_HOST_PTR	(bckUpDateP);
-	PUSH_HOST_PTR	(modDateP);
-	PUSH_HOST_PTR	(crDateP);
-	PUSH_HOST_PTR	(versionP);
-	PUSH_HOST_PTR	(attributesP);
-	PUSH_HOST_STRING(nameP);
-	PUSH_VALUE		(dbID);
-	PUSH_VALUE		(cardNo);
+	// Call the function.
+	sub.Call (sysTrapDmSetDatabaseInfo);
 
-	CallROM (sysTrapDmSetDatabaseInfo);
+	// Write back any "by ref" parameters.
 
-	Canonical_If_Not_Null (attributesP);
-	Canonical_If_Not_Null (versionP);
-	Canonical_If_Not_Null (crDateP);
-	Canonical_If_Not_Null (modDateP);
-	Canonical_If_Not_Null (bckUpDateP);
-	Canonical_If_Not_Null (modNumP);
-	Canonical_If_Not_Null (appInfoIDP);
-	Canonical_If_Not_Null (sortInfoIDP);
-	Canonical_If_Not_Null (typeP);
-	Canonical_If_Not_Null (creatorP);
-
-	return (Err) theTrap.GetD0 ();
+	// Return the result.
+	RETURN_RESULT_VAL (Err);
 }
 
 // --------------------
@@ -901,23 +988,22 @@ Err DmSetDatabaseInfo (UInt16 cardNo, LocalID dbID, const Char* nameP,
 
 Err DmSetRecordInfo (DmOpenRef dbR, UInt16 index, UInt16* attrP, UInt32* uniqueIDP)
 {
-	Canonical_If_Not_Null (attrP);
-	Canonical_If_Not_Null (uniqueIDP);
+	// Prepare the stack.
+	CALLER_SETUP ("Err", "DmOpenRef dbR, UInt16 index, UInt16* attrP, UInt32* uniqueIDP");
 
-	// Call the ROM.
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (DmOpenRef, dbR);
+	CALLER_PUT_PARAM_VAL (UInt16, index);
+	CALLER_PUT_PARAM_REF (UInt16, attrP, Marshal::kInput);
+	CALLER_PUT_PARAM_REF (UInt32, uniqueIDP, Marshal::kInput);
 
-	ATrap	theTrap;
-	PUSH_HOST_PTR	(uniqueIDP);
-	PUSH_HOST_PTR	(attrP);
-	PUSH_VALUE		(index);
-	PUSH_PALM_PTR	(dbR);
+	// Call the function.
+	sub.Call (sysTrapDmSetRecordInfo);
 
-	CallROM (sysTrapDmSetRecordInfo);
+	// Write back any "by ref" parameters.
 
-	Canonical_If_Not_Null (attrP);
-	Canonical_If_Not_Null (uniqueIDP);
-
-	return (Err) theTrap.GetD0 ();
+	// Return the result.
+	RETURN_RESULT_VAL (Err);
 }
 
 // --------------------
@@ -932,24 +1018,51 @@ Err DmSetRecordInfo (DmOpenRef dbR, UInt16 index, UInt16* attrP, UInt32* uniqueI
 
 Err DmWrite (MemPtr recordP, UInt32 offset, const void * const srcP, UInt32 bytes)
 {
-	// Call the ROM.
+	// Prepare the stack.
+	CALLER_SETUP ("Err", "MemPtr recordP, UInt32 offset, const void * const srcP, UInt32 bytes");
 
-	ATrap	theTrap;
-	PUSH_VALUE			(bytes);
-	PUSH_HOST_PTR_LEN	(srcP, bytes);
-	PUSH_VALUE			(offset);
-	PUSH_PALM_PTR		(recordP);
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (MemPtr, recordP);
+	CALLER_PUT_PARAM_VAL (UInt32, offset);
+	CALLER_PUT_PARAM_PTR (void, srcP, bytes, Marshal::kInput);
+	CALLER_PUT_PARAM_VAL (UInt32, bytes);
 
-	CallROM (sysTrapDmWrite);
+	// Call the function.
+	sub.Call (sysTrapDmWrite);
 
-	return (Err) theTrap.GetD0 ();
+	// Write back any "by ref" parameters.
+
+	// Return the result.
+	RETURN_RESULT_VAL (Err);
 }
+
+#pragma mark -
 
 // ---------------------------------------------------------------------------
 //		¥ Event Manager functions
 // ---------------------------------------------------------------------------
 
-#pragma mark -
+// --------------------
+// Called:
+//
+//	*	by Gremlins app switch code to insert an app stop event
+// --------------------
+
+void EvtAddEventToQueue (EventType* event)
+{
+	// Prepare the stack.
+	CALLER_SETUP ("Err", "EventType* event");
+
+	// Set the parameters.
+	CALLER_PUT_PARAM_REF (EventType, event, Marshal::kInput);
+
+	// Call the function.
+	sub.Call (sysTrapEvtAddEventToQueue);
+
+	// Write back any "by ref" parameters.
+
+	// Return the result.
+}
 
 // --------------------
 // Called:
@@ -960,16 +1073,21 @@ Err DmWrite (MemPtr recordP, UInt32 offset, const void * const srcP, UInt32 byte
 
 Err EvtEnqueueKey (UInt16 ascii, UInt16 keycode, UInt16 modifiers)
 {
-	// Call the ROM.
+	// Prepare the stack.
+	CALLER_SETUP ("Err", "UInt16 ascii, UInt16 keycode, UInt16 modifiers");
 
-	ATrap	theTrap;
-	PUSH_VALUE	(modifiers);
-	PUSH_VALUE	(keycode);
-	PUSH_VALUE	(ascii);
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (UInt16, ascii);
+	CALLER_PUT_PARAM_VAL (UInt16, keycode);
+	CALLER_PUT_PARAM_VAL (UInt16, modifiers);
 
-	CallROM (sysTrapEvtEnqueueKey);
+	// Call the function.
+	sub.Call (sysTrapEvtEnqueueKey);
 
-	return (Err) theTrap.GetD0 ();
+	// Write back any "by ref" parameters.
+
+	// Return the result.
+	RETURN_RESULT_VAL (Err);
 }
 
 // --------------------
@@ -981,33 +1099,19 @@ Err EvtEnqueueKey (UInt16 ascii, UInt16 keycode, UInt16 modifiers)
 
 Err EvtEnqueuePenPoint (PointType* ptP)
 {
-	// Make a copy of the point, as we may be munging it.
+	// Prepare the stack.
+	CALLER_SETUP ("Err", "PointType* ptP");
 
-	PointType	pt = *ptP;
-	PointType*	ptPtr = &pt;
+	// Set the parameters.
+	CALLER_PUT_PARAM_REF (PointType, ptP, Marshal::kInput);
 
-	// Enqueue the new pen position. We must "reverse" correct it because the
-	// Event Manager assumes that all points enqueued are raw digitizer points.
+	// Call the function.
+	sub.Call (sysTrapEvtEnqueuePenPoint);
 
-	if (pt.x != -1 || pt.y != -1)
-	{
-		(void) PenScreenToRaw(&pt);
-	}
+	// Write back any "by ref" parameters.
 
-	// Byteswap it so that the ROM routines get it in the right format.
-	// Byteswap it _after_ PenScreenToRaw, as PenScreenToRaw will do its
-	// own byteswapping.
-
-	Canonical (pt);
-
-	// Call the ROM.
-
-	ATrap	theTrap;
-	PUSH_HOST_PTR	(ptPtr);
-
-	CallROM (sysTrapEvtEnqueuePenPoint);
-
-	return (Err) theTrap.GetD0 ();
+	// Return the result.
+	RETURN_RESULT_VAL (Err);
 }
 
 // --------------------
@@ -1018,45 +1122,20 @@ Err EvtEnqueuePenPoint (PointType* ptP)
 
 const PenBtnInfoType*	EvtGetPenBtnList(UInt16* numButtons)
 {
-	Canonical_If_Not_Null (numButtons);
+	// Prepare the stack.
+	CALLER_SETUP ("const PenBtnInfoType*", "UInt16* numButtons");
 
-	// Call the ROM.
+	// Set the parameters.
+	CALLER_PUT_PARAM_REF (UInt16, numButtons, Marshal::kOutput);
 
-	ATrap	theTrap;
-	PUSH_HOST_PTR	(numButtons);
+	// Call the function.
+	sub.Call (sysTrapEvtGetPenBtnList);
 
-	CallROM (sysTrapEvtGetPenBtnList);
+	// Write back any "by ref" parameters.
+	CALLER_GET_PARAM_REF (numButtons);
 
-	Canonical_If_Not_Null (numButtons);
-
-	// This one's tricky; it's returning a pointer to ROM data.  There are
-	// no functions to access the fields in the struct, so the caller needs
-	// to access those fields directly.  However, not only is the address
-	// returned in "emulated space" and not native space, but there are
-	// word- and byte-swapping issues involved.  To help out the caller,
-	// we'll address those issues here, returning a pointer to a "pre-
-	// digested" copy of the struct.
-
-	static PenBtnInfoPtr	buttonListP;
-
-	if (!buttonListP)
-	{
-		long	buttonListSize = *numButtons * sizeof (PenBtnInfoType);
-
-		buttonListP = (PenBtnInfoPtr) malloc (buttonListSize);
-		// !!! Should check for NULL here, but how to handle it?
-
-		// Copy the data, sorting out address and wordswapping issues
-
-		uae_memmove ((void*) buttonListP, theTrap.GetA0 (), buttonListSize);
-
-		// Now sort out the byte-swapping issues.
-
-		for (UInt16 ii = 0; ii < *numButtons; ++ii)
-			Canonical (buttonListP[ii]);
-	}
-
-	return buttonListP;
+	// Return the result.
+	RETURN_RESULT_PTR (const PenBtnInfoType*);
 }
 
 // --------------------
@@ -1068,13 +1147,18 @@ const PenBtnInfoType*	EvtGetPenBtnList(UInt16* numButtons)
 
 Err EvtResetAutoOffTimer (void)
 {
-	// Call the ROM.
+	// Prepare the stack.
+	CALLER_SETUP ("Err", "void");
 
-	ATrap	theTrap;
+	// Set the parameters.
 
-	CallROM (sysTrapEvtResetAutoOffTimer);
+	// Call the function.
+	sub.Call (sysTrapEvtResetAutoOffTimer);
 
-	return (Err) theTrap.GetD0 ();
+	// Write back any "by ref" parameters.
+
+	// Return the result.
+	RETURN_RESULT_VAL (Err);
 }
 
 // --------------------
@@ -1092,16 +1176,22 @@ Err EvtResetAutoOffTimer (void)
 
 Err EvtWakeup (void)
 {
-	// Call the ROM.
+	// Prepare the stack.
+	CALLER_SETUP ("Err", "void");
 
-	ATrap	theTrap;
+	// Set the parameters.
 
-	CallROM (sysTrapEvtWakeup);
+	// Call the function.
+	sub.Call (sysTrapEvtWakeup);
 
-	return (Err) theTrap.GetD0 ();
+	// Write back any "by ref" parameters.
+
+	// Return the result.
+	RETURN_RESULT_VAL (Err);
 }
 
 
+#if 0
 // ---------------------------------------------------------------------------
 //		¥ Exchange Manager functions
 // ---------------------------------------------------------------------------
@@ -1125,23 +1215,33 @@ typedef enum
 
 Err 	ExgLibControl(UInt16 libRefNum, UInt16 op, void *valueP, UInt16 *valueLenP)
 {
-	ATrap	theTrap;
-	PUSH_VALUE ((UInt32) valueLenP);
-	PUSH_VALUE ((UInt32) valueP);
-	PUSH_VALUE (op);
-	PUSH_VALUE (libRefNum);
+	// Prepare the stack.
+	CALLER_SETUP ("Err", "UInt16 libRefNum, UInt16 op, emuptr valueP, emuptr valueLenP");
 
-	CallROM (exgLibTrapControl);
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (UInt16, libRefNum);
+	CALLER_PUT_PARAM_VAL (UInt16, op);
+	CALLER_PUT_PARAM_VAL (emuptr, valueP);
+	CALLER_PUT_PARAM_VAL (emuptr, valueLenP);
 
-	return (Err) theTrap.GetD0 ();
+	sub.SetParamVal ("libRefNum", libRefNum);
+	sub.SetParamVal ("op", op);
+	sub.SetParamVal ("valueP", valueP);
+	sub.SetParamVal ("valueLenP", valueLenP);
+
+	sub.Call (exgLibTrapControl);
+
+	Err result;
+	sub.GetReturnVal (result);
+	return result;
 }
+#endif
 
+#pragma mark -
 
 // ---------------------------------------------------------------------------
 //		¥ Field Manager functions
 // ---------------------------------------------------------------------------
-
-#pragma mark -
 
 // --------------------
 // Called:
@@ -1152,19 +1252,43 @@ Err 	ExgLibControl(UInt16 libRefNum, UInt16 op, void *valueP, UInt16 *valueLenP)
 
 void FldGetAttributes (const FieldType* fld, const FieldAttrPtr attrP)
 {
-	Canonical_If_Not_Null (attrP);
+	// Prepare the stack.
+	CALLER_SETUP ("void", "const FieldType* fld, const FieldAttrPtr attrP");
 
-	// Call the ROM.
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (FieldType*, fld);
+	CALLER_PUT_PARAM_REF (FieldAttrType, attrP, Marshal::kInOut);
 
-	ATrap	theTrap;
-	PUSH_HOST_PTR	(attrP);
-	PUSH_PALM_PTR	(fld);
+	// Call the function.
+	sub.Call (sysTrapFldGetAttributes);
 
-	CallROM (sysTrapFldGetAttributes);
+	// Write back any "by ref" parameters.
+	CALLER_GET_PARAM_REF (attrP);
 
-	Canonical_If_Not_Null (attrP);
+	// Return the result.
+}
 
-//	LogAppendMsg ("attr == 0x%04X", (int) *(short*) attrP);
+// --------------------
+// Called:
+//
+//	*	by EventOutput to try to find out where the gremlin tapped inside a field.
+// --------------------
+
+UInt16 FldGetInsPtPosition (const FieldType* fld)
+{
+	// Prepare the stack.
+	CALLER_SETUP ("UInt16", "const FieldType* fld");
+
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (FieldType*, fld);
+
+	// Call the function.
+	sub.Call (sysTrapFldGetInsPtPosition);
+
+	// Write back any "by ref" parameters.
+
+	// Return the result.
+	RETURN_RESULT_VAL (UInt16);
 }
 
 // --------------------
@@ -1176,14 +1300,19 @@ void FldGetAttributes (const FieldType* fld, const FieldAttrPtr attrP)
 
 UInt16 FldGetMaxChars (const FieldType* fld)
 {
-	// Call the ROM.
+	// Prepare the stack.
+	CALLER_SETUP ("UInt16", "const FieldType* fld");
 
-	ATrap	theTrap;
-	PUSH_PALM_PTR	(fld);
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (FieldType*, fld);
 
-	CallROM (sysTrapFldGetMaxChars);
+	// Call the function.
+	sub.Call (sysTrapFldGetMaxChars);
 
-	return (UInt16) theTrap.GetD0 ();
+	// Write back any "by ref" parameters.
+
+	// Return the result.
+	RETURN_RESULT_VAL (UInt16);
 }
 
 // --------------------
@@ -1195,21 +1324,49 @@ UInt16 FldGetMaxChars (const FieldType* fld)
 
 UInt16 FldGetTextLength (const FieldType* fld)
 {
-	// Call the ROM.
+	// Prepare the stack.
+	CALLER_SETUP ("UInt16", "const FieldType* fld");
 
-	ATrap	theTrap;
-	PUSH_PALM_PTR	(fld);
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (FieldType*, fld);
 
-	CallROM (sysTrapFldGetTextLength);
+	// Call the function.
+	sub.Call (sysTrapFldGetTextLength);
 
-	return (UInt16) theTrap.GetD0 ();
+	// Write back any "by ref" parameters.
+
+	// Return the result.
+	RETURN_RESULT_VAL (UInt16);
 }
+
+// --------------------
+// Called:
+//
+//	*	by Minimization code to get the text of a field to beautify the output.
+// --------------------
+
+Char* FldGetTextPtr (FieldType* fldP)
+{
+	// Prepare the stack.
+	CALLER_SETUP ("Char*", "FieldType* fldP");
+
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (FieldType*, fldP);
+
+	// Call the function.
+	sub.Call (sysTrapFldGetTextPtr);
+
+	// Write back any "by ref" parameters.
+
+	// Return the result.
+	RETURN_RESULT_PTR (Char*);
+}
+
+#pragma mark -
 
 // ---------------------------------------------------------------------------
 //		¥ Font Manager functions
 // ---------------------------------------------------------------------------
-
-#pragma mark -
 
 // --------------------
 // Called:
@@ -1220,20 +1377,48 @@ UInt16 FldGetTextLength (const FieldType* fld)
 
 Int16 FntLineHeight (void)
 {
-	// Call the ROM.
+	// Prepare the stack.
+	CALLER_SETUP ("Int16", "void");
 
-	ATrap	theTrap;
+	// Set the parameters.
 
-	CallROM (sysTrapFntLineHeight);
+	// Call the function.
+	sub.Call (sysTrapFntLineHeight);
 
-	return (Int16) theTrap.GetD0 ();
+	// Write back any "by ref" parameters.
+
+	// Return the result.
+	RETURN_RESULT_VAL (Int16);
 }
+
+// --------------------
+// Called:
+//
+// --------------------
+
+UInt8 FntSetFont (UInt8 fontId)
+{
+	// Prepare the stack.
+	CALLER_SETUP ("UInt8", "UInt8 fontId");
+
+	// Set the parameters.
+
+	CALLER_PUT_PARAM_VAL (UInt8, fontId);
+
+	// Call the function.
+	sub.Call (sysTrapFntSetFont);
+
+	// Write back any "by ref" parameters.
+
+	// Return the result.
+	RETURN_RESULT_VAL(UInt8);
+}
+
+#pragma mark -
 
 // ---------------------------------------------------------------------------
 //		¥ Form Manager functions
 // ---------------------------------------------------------------------------
-
-#pragma mark -
 
 // --------------------
 // Called:
@@ -1247,13 +1432,18 @@ Int16 FntLineHeight (void)
 
 FormType* FrmGetActiveForm (void)
 {
-	// Call the ROM.
+	// Prepare the stack.
+	CALLER_SETUP ("FormType*", "void");
 
-	ATrap	theTrap;
+	// Set the parameters.
 
-	CallROM (sysTrapFrmGetActiveForm);
+	// Call the function.
+	sub.Call (sysTrapFrmGetActiveForm);
 
-	return (FormType*) theTrap.GetA0 ();
+	// Write back any "by ref" parameters.
+
+	// Return the result.
+	RETURN_RESULT_PTR (FormType*);
 }
 
 // --------------------
@@ -1265,32 +1455,42 @@ FormType* FrmGetActiveForm (void)
 
 UInt16 FrmGetFocus (const FormType* frm)
 {
-	// Call the ROM.
+	// Prepare the stack.
+	CALLER_SETUP ("UInt16", "const FormType* frm");
 
-	ATrap	theTrap;
-	PUSH_PALM_PTR	(frm);
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (FormType*, frm);
 
-	CallROM (sysTrapFrmGetFocus);
+	// Call the function.
+	sub.Call (sysTrapFrmGetFocus);
 
-	return (UInt16) theTrap.GetD0 ();
+	// Write back any "by ref" parameters.
+
+	// Return the result.
+	RETURN_RESULT_VAL (UInt16);
 }
 
 // --------------------
 // Called:
 //
-//	*	NEVER
+//	*	EmEventOutput::GetEventInfo
 // --------------------
 
 UInt16 FrmGetFormId (const FormType* frm)
 {
-	// Call the ROM.
+	// Prepare the stack.
+	CALLER_SETUP ("UInt16", "const FormType* frm");
 
-	ATrap	theTrap;
-	PUSH_PALM_PTR	(frm);
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (FormType*, frm);
 
-	CallROM (sysTrapFrmGetFormId);
+	// Call the function.
+	sub.Call (sysTrapFrmGetFormId);
 
-	return (UInt16) theTrap.GetD0 ();
+	// Write back any "by ref" parameters.
+
+	// Return the result.
+	RETURN_RESULT_VAL (UInt16);
 }
 
 // --------------------
@@ -1302,14 +1502,19 @@ UInt16 FrmGetFormId (const FormType* frm)
 
 UInt16 FrmGetNumberOfObjects (const FormType* frm)
 {
-	// Call the ROM.
+	// Prepare the stack.
+	CALLER_SETUP ("UInt16", "const FormType* frm");
 
-	ATrap	theTrap;
-	PUSH_PALM_PTR	(frm);
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (FormType*, frm);
 
-	CallROM (sysTrapFrmGetNumberOfObjects);
+	// Call the function.
+	sub.Call (sysTrapFrmGetNumberOfObjects);
 
-	return (UInt16) theTrap.GetD0 ();
+	// Write back any "by ref" parameters.
+
+	// Return the result.
+	RETURN_RESULT_VAL (UInt16);
 }
 
 // --------------------
@@ -1324,18 +1529,21 @@ UInt16 FrmGetNumberOfObjects (const FormType* frm)
 
 void FrmGetObjectBounds (const FormType* frm, const UInt16 pObjIndex, const RectanglePtr r)
 {
-	Canonical_If_Not_Null (r);
+	// Prepare the stack.
+	CALLER_SETUP ("void", "const FormType* frm, const UInt16 pObjIndex, const RectanglePtr r");
 
-	// Call the ROM.
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (FormType*, frm);
+	CALLER_PUT_PARAM_VAL (UInt16, pObjIndex);
+	CALLER_PUT_PARAM_REF (RectangleType, r, Marshal::kInOut);
 
-	ATrap	theTrap;
-	PUSH_HOST_PTR	(r);
-	PUSH_VALUE		(pObjIndex);
-	PUSH_PALM_PTR	(frm);
+	// Call the function.
+	sub.Call (sysTrapFrmGetObjectBounds);
 
-	CallROM (sysTrapFrmGetObjectBounds);
+	// Write back any "by ref" parameters.
+	CALLER_GET_PARAM_REF (r);
 
-	Canonical_If_Not_Null (r);
+	// Return the result.
 }
 
 // --------------------
@@ -1347,15 +1555,45 @@ void FrmGetObjectBounds (const FormType* frm, const UInt16 pObjIndex, const Rect
 
 UInt16 FrmGetObjectId (const FormType* frm, const UInt16 objIndex)
 {
-	// Call the ROM.
+	// Prepare the stack.
+	CALLER_SETUP ("UInt16", "const FormType* frm, const UInt16 objIndex");
 
-	ATrap	theTrap;
-	PUSH_VALUE		(objIndex);
-	PUSH_PALM_PTR	(frm);
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (FormType*, frm);
+	CALLER_PUT_PARAM_VAL (UInt16, objIndex);
 
-	CallROM (sysTrapFrmGetObjectId);
+	// Call the function.
+	sub.Call (sysTrapFrmGetObjectId);
 
-	return (UInt16) theTrap.GetD0 ();
+	// Write back any "by ref" parameters.
+
+	// Return the result.
+	RETURN_RESULT_VAL (UInt16);
+}
+
+// --------------------
+// Called:
+//
+//	*	by minimization code, when replaying the events the final time,
+//		in order to grab the control names.
+// --------------------
+
+UInt16 FrmGetObjectIndex (const FormType* formP, UInt16 objID)
+{
+	// Prepare the stack.
+	CALLER_SETUP ("UInt16", "const FormType* formP, UInt16 objID");
+
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (FormType*, formP);
+	CALLER_PUT_PARAM_VAL (UInt16, objID);
+
+	// Call the function.
+	sub.Call (sysTrapFrmGetObjectIndex);
+
+	// Write back any "by ref" parameters.
+
+	// Return the result.
+	RETURN_RESULT_VAL (UInt16);
 }
 
 // --------------------
@@ -1370,15 +1608,20 @@ UInt16 FrmGetObjectId (const FormType* frm, const UInt16 objIndex)
 
 MemPtr FrmGetObjectPtr (const FormType* frm, const UInt16 objIndex)
 {
-	// Call the ROM.
+	// Prepare the stack.
+	CALLER_SETUP ("MemPtr", "const FormType* frm, const UInt16 objIndex");
 
-	ATrap	theTrap;
-	PUSH_VALUE		(objIndex);
-	PUSH_PALM_PTR	(frm);
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (FormType*, frm);
+	CALLER_PUT_PARAM_VAL (UInt16, objIndex);
 
-	CallROM (sysTrapFrmGetObjectPtr);
+	// Call the function.
+	sub.Call (sysTrapFrmGetObjectPtr);
 
-	return (MemPtr) theTrap.GetA0 ();
+	// Write back any "by ref" parameters.
+
+	// Return the result.
+	RETURN_RESULT_PTR (MemPtr);
 }
 
 // --------------------
@@ -1393,20 +1636,20 @@ MemPtr FrmGetObjectPtr (const FormType* frm, const UInt16 objIndex)
 
 FormObjectKind FrmGetObjectType (const FormType* frm, const UInt16 objIndex)
 {
-	// Call the ROM.
+	// Prepare the stack.
+	CALLER_SETUP ("FormObjectKind", "const FormType* frm, const UInt16 objIndex");
 
-	ATrap	theTrap;
-	PUSH_VALUE		(objIndex);
-	PUSH_PALM_PTR	(frm);
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (FormType*, frm);
+	CALLER_PUT_PARAM_VAL (UInt16, objIndex);
 
-	CallROM (sysTrapFrmGetObjectType);
+	// Call the function.
+	sub.Call (sysTrapFrmGetObjectType);
 
-	// Cast to an 8-bit type first.  FormObjectKind is an 8-bit
-	// value on 68K machines, but a 32-bit (int) value on other
-	// platforms.  If we don't cast to an 8-bit value first, we'll
-	// end up with unwanted garbage in the upper 24 bits.
+	// Write back any "by ref" parameters.
 
-	return (FormObjectKind) (uint8) theTrap.GetD0 ();
+	// Return the result.
+	RETURN_RESULT_VAL (FormObjectKind);
 }
 
 // --------------------
@@ -1417,14 +1660,19 @@ FormObjectKind FrmGetObjectType (const FormType* frm, const UInt16 objIndex)
 
 const Char* FrmGetTitle (const FormType* frm)
 {
-	// Call the ROM.
+	// Prepare the stack.
+	CALLER_SETUP ("const Char*", "const FormType* frm");
 
-	ATrap	theTrap;
-	PUSH_PALM_PTR	(frm);
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (FormType*, frm);
 
-	CallROM (sysTrapFrmGetTitle);
+	// Call the function.
+	sub.Call (sysTrapFrmGetTitle);
 
-	return (const Char*) theTrap.GetA0 ();
+	// Write back any "by ref" parameters.
+
+	// Return the result.
+	RETURN_RESULT_PTR (const Char*);
 }
 
 // --------------------
@@ -1436,21 +1684,26 @@ const Char* FrmGetTitle (const FormType* frm)
 
 WinHandle FrmGetWindowHandle (const FormType* frm)
 {
-	// Call the ROM.
+	// Prepare the stack.
+	CALLER_SETUP ("WinHandle", "const FormType* frm");
 
-	ATrap	theTrap;
-	PUSH_PALM_PTR	(frm);
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (FormType*, frm);
 
-	CallROM (sysTrapFrmGetWindowHandle);
+	// Call the function.
+	sub.Call (sysTrapFrmGetWindowHandle);
 
-	return (WinHandle) theTrap.GetA0 ();
+	// Write back any "by ref" parameters.
+
+	// Return the result.
+	RETURN_RESULT_PTR (WinHandle);
 }
+
+#pragma mark -
 
 // ---------------------------------------------------------------------------
 //		¥ File System functions
 // ---------------------------------------------------------------------------
-
-#pragma mark -
 
 typedef enum {
 	FSTrapLibAPIVersion = sysLibTrapCustom,
@@ -1493,27 +1746,33 @@ typedef enum {
 Err FSCustomControl (UInt16 fsLibRefNum, UInt32 apiCreator, UInt16 apiSelector, 
 					void *valueP, UInt16 *valueLenP)
 {
-	Canonical_If_Not_Null (valueLenP);
+	// Prepare the stack.
+	CALLER_SETUP ("Err", 
+		"UInt16 fsLibRefNum, UInt32 apiCreator, UInt16 apiSelector, "
+		"emuptr valueP, UInt16 *valueLenP");
 
-	// Call the ROM.
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (UInt16, fsLibRefNum);
+	CALLER_PUT_PARAM_VAL (UInt32, apiCreator);
+	CALLER_PUT_PARAM_VAL (UInt16, apiSelector);
+	CALLER_PUT_PARAM_VAL (emuptr, valueP);		// !!! Only works for our mount/unmount calls!
+	CALLER_PUT_PARAM_REF (UInt16, valueLenP, Marshal::kInOut);
 
-	ATrap	theTrap;
-	PUSH_HOST_PTR		(valueLenP);
-	PUSH_VALUE			((UInt32) valueP);		// !!! Only works for our mount/unmount calls!
-	PUSH_VALUE			(apiSelector);
-	PUSH_VALUE			(apiCreator);
-	PUSH_VALUE			(fsLibRefNum);
+	// Call the function.
+	sub.Call (FSTrapCustomControl);
 
-	CallROM (FSTrapCustomControl);
+	// Write back any "by ref" parameters.
+	CALLER_GET_PARAM_REF (valueLenP);
 
-	return (Err) theTrap.GetD0 ();
+	// Return the result.
+	RETURN_RESULT_VAL (Err);
 }
+
+#pragma mark -
 
 // ---------------------------------------------------------------------------
 //		¥ Feature Manager functions
 // ---------------------------------------------------------------------------
-
-#pragma mark -
 
 // --------------------
 // Called:
@@ -1529,20 +1788,22 @@ Err FSCustomControl (UInt16 fsLibRefNum, UInt32 apiCreator, UInt16 apiSelector,
 
 Err FtrGet (UInt32 creator, UInt16 featureNum, UInt32* valueP)
 {
-	Canonical_If_Not_Null (valueP);
+	// Prepare the stack.
+	CALLER_SETUP ("Err", "UInt32 creator, UInt16 featureNum, UInt32* valueP");
 
-	// Call the ROM.
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (UInt32, creator);
+	CALLER_PUT_PARAM_VAL (UInt16, featureNum);
+	CALLER_PUT_PARAM_REF (UInt32, valueP, Marshal::kInOut);
 
-	ATrap	theTrap;
-	PUSH_HOST_PTR	(valueP);
-	PUSH_VALUE		(featureNum);
-	PUSH_VALUE		(creator);
+	// Call the function.
+	sub.Call (sysTrapFtrGet);
 
-	CallROM (sysTrapFtrGet);
+	// Write back any "by ref" parameters.
+	CALLER_GET_PARAM_REF (valueP);
 
-	Canonical_If_Not_Null (valueP);
-
-	return (Err) theTrap.GetD0 ();
+	// Return the result.
+	RETURN_RESULT_VAL (Err);
 }
 
 // --------------------
@@ -1560,18 +1821,22 @@ Err FtrGet (UInt32 creator, UInt16 featureNum, UInt32* valueP)
 
 Err FtrSet (UInt32 creator, UInt16 featureNum, UInt32 newValue)
 {
-	// Call the ROM.
+	// Prepare the stack.
+	CALLER_SETUP ("Err", "UInt32 creator, UInt16 featureNum, UInt32 newValue");
 
-	ATrap	theTrap;
-	PUSH_VALUE		(newValue);
-	PUSH_VALUE		(featureNum);
-	PUSH_VALUE		(creator);
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (UInt32, creator);
+	CALLER_PUT_PARAM_VAL (UInt16, featureNum);
+	CALLER_PUT_PARAM_VAL (UInt32, newValue);
 
-	CallROM (sysTrapFtrSet);
+	// Call the function.
+	sub.Call (sysTrapFtrSet);
 
-	return (Err) theTrap.GetD0 ();
+	// Write back any "by ref" parameters.
+
+	// Return the result.
+	RETURN_RESULT_VAL (Err);
 }
-
 
 // --------------------
 // Called:
@@ -1584,22 +1849,135 @@ Err FtrSet (UInt32 creator, UInt16 featureNum, UInt32 newValue)
 
 Err	FtrUnregister (UInt32 creator, UInt16 featureNum)
 {
-	// Call the ROM.
+	// Prepare the stack.
+	CALLER_SETUP ("Err", "UInt32 creator, UInt16 featureNum");
 
-	ATrap	theTrap;
-	PUSH_VALUE		(featureNum);
-	PUSH_VALUE		(creator);
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (UInt32, creator);
+	CALLER_PUT_PARAM_VAL (UInt16, featureNum);
 
-	CallROM (sysTrapFtrUnregister);
+	// Call the function.
+	sub.Call (sysTrapFtrUnregister);
 
-	return (Err) theTrap.GetD0 ();
+	// Write back any "by ref" parameters.
+
+	// Return the result.
+	RETURN_RESULT_VAL (Err);
 }
+
+#pragma mark -
+
+// ---------------------------------------------------------------------------
+//		¥ International Manager functions
+// ---------------------------------------------------------------------------
+
+// --------------------
+// Called:
+//
+//	*	By dialog code, if the check is enabled.
+// --------------------
+
+Boolean IntlSetStrictChecks (Boolean iStrictChecks)
+{
+	// Prepare the stack.
+	CALLER_SETUP ("Boolean", "Boolean iStrictChecks");
+
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (Boolean, iStrictChecks);
+
+	// Call the function.
+	sub.CallSelector (sysTrapIntlDispatch, intlIntlStrictChecks);
+
+	// Write back any "by ref" parameters.
+
+	// Return the result.
+	RETURN_RESULT_VAL (Boolean);
+}
+
+// ---------------------------------------------------------------------------
+//		¥ List Manager functions
+// ---------------------------------------------------------------------------
+
+#pragma mark -
+
+// --------------------
+// Called:
+//
+//	*	by PrvValidateFormObjectSize in Miscellaneous.cpp to determine if 
+//		a zero-height list has any items.
+// --------------------
+
+Int16 LstGetNumberOfItems (const ListType* lst)
+{
+	// Prepare the stack.
+	CALLER_SETUP ("Int16", "const ListType* lst");
+
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (ListType*, lst);
+
+	// Call the function.
+	sub.Call (sysTrapLstGetNumberOfItems);
+
+	// Write back any "by ref" parameters.
+
+	// Return the result.
+	RETURN_RESULT_VAL (Int16);
+}
+
+// --------------------
+// Called:
+//
+//	*	By EventOutput code to try to find out which
+//      item in a list was tapped by a gremlin.
+// --------------------
+
+Int16 LstGetSelection (const ListType* lst)
+{
+	// Prepare the stack.
+	CALLER_SETUP ("Int16", "const ListType* lst");
+
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (ListType*, lst);
+
+	// Call the function.
+	sub.Call (sysTrapLstGetSelection);
+
+	// Write back any "by ref" parameters.
+
+	// Return the result.
+	RETURN_RESULT_VAL (Int16);
+}
+
+// --------------------
+// Called:
+//
+//	*	By EventOutput code to try to find the
+//      text of the item in a list that was tapped by a gremlin.
+// --------------------
+
+Char * LstGetSelectionText (const ListType *lst, Int16 itemNum)
+{
+	// Prepare the stack.
+	CALLER_SETUP ("Char *", "const ListType* lst, Int16 itemNum");
+
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (ListType*, lst);
+	CALLER_PUT_PARAM_VAL (Int16, itemNum);
+
+	// Call the function.
+	sub.Call (sysTrapLstGetSelectionText);
+
+	// Write back any "by ref" parameters.
+
+	// Return the result.
+	RETURN_RESULT_PTR (Char*);
+}
+
+#pragma mark -
 
 // ---------------------------------------------------------------------------
 //		¥ Memory Manager functions
 // ---------------------------------------------------------------------------
-
-#pragma mark -
 
 // --------------------
 // Called:
@@ -1610,14 +1988,19 @@ Err	FtrUnregister (UInt32 creator, UInt16 featureNum)
 
 Err MemChunkFree (MemPtr chunkDataP)
 {
-	// Call the ROM.
+	// Prepare the stack.
+	CALLER_SETUP ("Err", "MemPtr chunkDataP");
 
-	ATrap	theTrap;
-	PUSH_PALM_PTR		(chunkDataP);
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (MemPtr, chunkDataP);
 
-	CallROM (sysTrapMemChunkFree);
+	// Call the function.
+	sub.Call (sysTrapMemChunkFree);
 
-	return (Err) theTrap.GetD0 ();
+	// Write back any "by ref" parameters.
+
+	// Return the result.
+	RETURN_RESULT_VAL (Err);
 }
 
 // --------------------
@@ -1636,14 +2019,19 @@ Err MemChunkFree (MemPtr chunkDataP)
 
 MemPtr MemHandleLock (MemHandle h)
 {
-	// Call the ROM.
+	// Prepare the stack.
+	CALLER_SETUP ("MemPtr", "MemHandle h");
 
-	ATrap	theTrap;
-	PUSH_PALM_PTR		(h);
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (MemHandle, h);
 
-	CallROM (sysTrapMemHandleLock);
+	// Call the function.
+	sub.Call (sysTrapMemHandleLock);
 
-	return (MemPtr) theTrap.GetA0 ();
+	// Write back any "by ref" parameters.
+
+	// Return the result.
+	RETURN_RESULT_PTR (MemPtr);
 }
 
 // --------------------
@@ -1655,14 +2043,19 @@ MemPtr MemHandleLock (MemHandle h)
 
 UInt32 MemHandleSize (MemHandle h)
 {
-	// Call the ROM.
+	// Prepare the stack.
+	CALLER_SETUP ("UInt32", "MemHandle h");
 
-	ATrap	theTrap;
-	PUSH_PALM_PTR		(h);
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (MemHandle, h);
 
-	CallROM (sysTrapMemHandleSize);
+	// Call the function.
+	sub.Call (sysTrapMemHandleSize);
 
-	return (UInt32) theTrap.GetD0 ();
+	// Write back any "by ref" parameters.
+
+	// Return the result.
+	RETURN_RESULT_VAL (UInt32);
 }
 
 // --------------------
@@ -1674,14 +2067,19 @@ UInt32 MemHandleSize (MemHandle h)
 
 LocalID MemHandleToLocalID (MemHandle h)
 {
-	// Call the ROM.
+	// Prepare the stack.
+	CALLER_SETUP ("LocalID", "MemHandle h");
 
-	ATrap	theTrap;
-	PUSH_PALM_PTR		(h);
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (MemHandle, h);
 
-	CallROM (sysTrapMemHandleToLocalID);
+	// Call the function.
+	sub.Call (sysTrapMemHandleToLocalID);
 
-	return (LocalID) theTrap.GetD0 ();
+	// Write back any "by ref" parameters.
+
+	// Return the result.
+	RETURN_RESULT_VAL (LocalID);
 }
 
 // --------------------
@@ -1701,14 +2099,19 @@ LocalID MemHandleToLocalID (MemHandle h)
 
 Err MemHandleUnlock (MemHandle h)
 {
-	// Call the ROM.
+	// Prepare the stack.
+	CALLER_SETUP ("Err", "MemHandle h");
 
-	ATrap	theTrap;
-	PUSH_PALM_PTR		(h);
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (MemHandle, h);
 
-	CallROM (sysTrapMemHandleUnlock);
+	// Call the function.
+	sub.Call (sysTrapMemHandleUnlock);
 
-	return (Err) theTrap.GetD0 ();
+	// Write back any "by ref" parameters.
+
+	// Return the result.
+	RETURN_RESULT_VAL (Err);
 }
 
 // --------------------
@@ -1720,15 +2123,20 @@ Err MemHandleUnlock (MemHandle h)
 
 UInt16 MemHeapID (UInt16 cardNo, UInt16 heapIndex)
 {
-	// Call the ROM.
+	// Prepare the stack.
+	CALLER_SETUP ("UInt16", "UInt16 cardNo, UInt16 heapIndex");
 
-	ATrap	theTrap;
-	PUSH_VALUE		(heapIndex);
-	PUSH_VALUE		(cardNo);
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (UInt16, cardNo);
+	CALLER_PUT_PARAM_VAL (UInt16, heapIndex);
 
-	CallROM (sysTrapMemHeapID);
+	// Call the function.
+	sub.Call (sysTrapMemHeapID);
 
-	return (UInt16) theTrap.GetD0 ();
+	// Write back any "by ref" parameters.
+
+	// Return the result.
+	RETURN_RESULT_VAL (UInt16);
 }
 
 // --------------------
@@ -1744,14 +2152,19 @@ UInt16 MemHeapID (UInt16 cardNo, UInt16 heapIndex)
 
 MemPtr MemHeapPtr (UInt16 heapID)
 {
-	// Call the ROM.
+	// Prepare the stack.
+	CALLER_SETUP ("MemPtr", "UInt16 heapID");
 
-	ATrap	theTrap;
-	PUSH_VALUE		(heapID);
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (UInt16, heapID);
 
-	CallROM (sysTrapMemHeapPtr);
+	// Call the function.
+	sub.Call (sysTrapMemHeapPtr);
 
-	return (MemPtr) theTrap.GetA0 ();
+	// Write back any "by ref" parameters.
+
+	// Return the result.
+	RETURN_RESULT_PTR (MemPtr);
 }
 
 // --------------------
@@ -1764,14 +2177,19 @@ MemPtr MemHeapPtr (UInt16 heapID)
 
 LocalIDKind MemLocalIDKind (LocalID local)
 {
-	// Call the ROM.
+	// Prepare the stack.
+	CALLER_SETUP ("LocalIDKind", "LocalID local");
 
-	ATrap	theTrap;
-	PUSH_VALUE		(local);
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (LocalID, local);
 
-	CallROM (sysTrapMemLocalIDKind);
+	// Call the function.
+	sub.Call (sysTrapMemLocalIDKind);
 
-	return (LocalIDKind) theTrap.GetD0 ();
+	// Write back any "by ref" parameters.
+
+	// Return the result.
+	RETURN_RESULT_VAL (LocalIDKind);
 }
 
 // --------------------
@@ -1786,15 +2204,20 @@ LocalIDKind MemLocalIDKind (LocalID local)
 
 MemPtr MemLocalIDToGlobal (LocalID local, UInt16 cardNo)
 {
-	// Call the ROM.
+	// Prepare the stack.
+	CALLER_SETUP ("MemPtr", "LocalID local, UInt16 cardNo");
 
-	ATrap	theTrap;
-	PUSH_VALUE		(cardNo);
-	PUSH_VALUE		(local);
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (LocalID, local);
+	CALLER_PUT_PARAM_VAL (UInt16, cardNo);
 
-	CallROM (sysTrapMemLocalIDToGlobal);
+	// Call the function.
+	sub.Call (sysTrapMemLocalIDToGlobal);
 
-	return (MemPtr) theTrap.GetA0 ();
+	// Write back any "by ref" parameters.
+
+	// Return the result.
+	RETURN_RESULT_PTR (MemPtr);
 }
 
 // --------------------
@@ -1807,13 +2230,18 @@ MemPtr MemLocalIDToGlobal (LocalID local, UInt16 cardNo)
 
 UInt16 MemNumCards (void)
 {
-	// Call the ROM.
+	// Prepare the stack.
+	CALLER_SETUP ("UInt16", "void");
 
-	ATrap	theTrap;
+	// Set the parameters.
 
-	CallROM (sysTrapMemNumCards);
+	// Call the function.
+	sub.Call (sysTrapMemNumCards);
 
-	return (UInt16) theTrap.GetD0 ();
+	// Write back any "by ref" parameters.
+
+	// Return the result.
+	RETURN_RESULT_VAL (UInt16);
 }
 
 // --------------------
@@ -1825,14 +2253,19 @@ UInt16 MemNumCards (void)
 
 UInt16 MemNumHeaps (UInt16 cardNo)
 {
-	// Call the ROM.
+	// Prepare the stack.
+	CALLER_SETUP ("UInt16", "UInt16 cardNo");
 
-	ATrap	theTrap;
-	PUSH_VALUE		(cardNo);
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (UInt16, cardNo);
 
-	CallROM (sysTrapMemNumHeaps);
+	// Call the function.
+	sub.Call (sysTrapMemNumHeaps);
 
-	return (UInt16) theTrap.GetD0 ();
+	// Write back any "by ref" parameters.
+
+	// Return the result.
+	RETURN_RESULT_VAL (UInt16);
 }
 
 // --------------------
@@ -1844,19 +2277,21 @@ UInt16 MemNumHeaps (UInt16 cardNo)
 
 Err MemNVParams (Boolean set, SysNVParamsPtr paramsP)
 {
-	Canonical_If_Not_Null (paramsP);
+	// Prepare the stack.
+	CALLER_SETUP ("Err", "Boolean set, SysNVParamsPtr paramsP");
 
-	// Call the ROM.
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (Boolean, set);
+	CALLER_PUT_PARAM_REF (SysNVParamsType, paramsP, Marshal::kInOut);
 
-	ATrap	theTrap;
-	PUSH_HOST_PTR	(paramsP);
-	PUSH_VALUE		(set);
+	// Call the function.
+	sub.Call (sysTrapMemNVParams);
 
-	CallROM (sysTrapMemNVParams);
+	// Write back any "by ref" parameters.
+	CALLER_GET_PARAM_REF (paramsP);
 
-	Canonical_If_Not_Null (paramsP);
-
-	return (Err) theTrap.GetD0 ();
+	// Return the result.
+	RETURN_RESULT_VAL (Err);
 }
 
 // --------------------
@@ -1871,14 +2306,19 @@ Err MemNVParams (Boolean set, SysNVParamsPtr paramsP)
 
 MemPtr MemPtrNew (UInt32 size)
 {
-	// Call the ROM.
+	// Prepare the stack.
+	CALLER_SETUP ("MemPtr", "UInt32 size");
 
-	ATrap	theTrap;
-	PUSH_VALUE	(size);
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (UInt32, size);
 
-	CallROM (sysTrapMemPtrNew);
+	// Call the function.
+	sub.Call (sysTrapMemPtrNew);
 
-	return (MemPtr) theTrap.GetA0 ();
+	// Write back any "by ref" parameters.
+
+	// Return the result.
+	RETURN_RESULT_PTR (MemPtr);
 }
 
 // --------------------
@@ -1893,15 +2333,20 @@ MemPtr MemPtrNew (UInt32 size)
 
 Err MemPtrSetOwner (MemPtr p, UInt16 owner)
 {
-	// Call the ROM.
+	// Prepare the stack.
+	CALLER_SETUP ("Err", "MemPtr p, UInt16 owner");
 
-	ATrap	theTrap;
-	PUSH_VALUE		(owner);
-	PUSH_PALM_PTR	(p);
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (MemPtr, p);
+	CALLER_PUT_PARAM_VAL (UInt16, owner);
 
-	CallROM (sysTrapMemPtrSetOwner);
+	// Call the function.
+	sub.Call (sysTrapMemPtrSetOwner);
 
-	return (Err) theTrap.GetD0 ();
+	// Write back any "by ref" parameters.
+
+	// Return the result.
+	RETURN_RESULT_VAL (Err);
 }
 
 // --------------------
@@ -1916,14 +2361,19 @@ Err MemPtrSetOwner (MemPtr p, UInt16 owner)
 
 UInt32 MemPtrSize (MemPtr p)
 {
-	// Call the ROM.
+	// Prepare the stack.
+	CALLER_SETUP ("UInt32", "MemPtr p");
 
-	ATrap	theTrap;
-	PUSH_PALM_PTR	(p);
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (MemPtr, p);
 
-	CallROM (sysTrapMemPtrSize);
+	// Call the function.
+	sub.Call (sysTrapMemPtrSize);
 
-	return (UInt32) theTrap.GetD0 ();
+	// Write back any "by ref" parameters.
+
+	// Return the result.
+	RETURN_RESULT_VAL (UInt32);
 }
 
 // --------------------
@@ -1936,21 +2386,26 @@ UInt32 MemPtrSize (MemPtr p)
 
 Err MemPtrUnlock (MemPtr p)
 {
-	// Call the ROM.
+	// Prepare the stack.
+	CALLER_SETUP ("Err", "MemPtr p");
 
-	ATrap	theTrap;
-	PUSH_PALM_PTR	(p);
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (MemPtr, p);
 
-	CallROM (sysTrapMemPtrUnlock);
+	// Call the function.
+	sub.Call (sysTrapMemPtrUnlock);
 
-	return (Err) theTrap.GetD0 ();
+	// Write back any "by ref" parameters.
+
+	// Return the result.
+	RETURN_RESULT_VAL (Err);
 }
+
+#pragma mark -
 
 // ---------------------------------------------------------------------------
 //		¥ Net Library functions
 // ---------------------------------------------------------------------------
-
-#pragma mark -
 
 // --------------------
 // Called:
@@ -1962,22 +2417,27 @@ Err MemPtrUnlock (MemPtr p)
 
 Err NetLibConfigMakeActive (UInt16 refNum, UInt16 configIndex)
 {
-	// Call the ROM.
+	// Prepare the stack.
+	CALLER_SETUP ("Err", "UInt16 refNum, UInt16 configIndex");
 
-	ATrap	theTrap;
-	PUSH_VALUE	(configIndex);
-	PUSH_VALUE	(refNum);
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (UInt16, refNum);
+	CALLER_PUT_PARAM_VAL (UInt16, configIndex);
 
-	CallROM (netLibConfigMakeActive);
+	// Call the function.
+	sub.Call (netLibConfigMakeActive);
 
-	return (Err) theTrap.GetD0 ();
+	// Write back any "by ref" parameters.
+
+	// Return the result.
+	RETURN_RESULT_VAL (Err);
 }
+
+#pragma mark -
 
 // ---------------------------------------------------------------------------
 //		¥ Pen Manager functions
 // ---------------------------------------------------------------------------
-
-#pragma mark -
 
 // --------------------
 // Called:
@@ -1991,27 +2451,24 @@ Err NetLibConfigMakeActive (UInt16 refNum, UInt16 configIndex)
 Err PenCalibrate (PointType* digTopLeftP, PointType* digBotRightP,
 					PointType* scrTopLeftP, PointType* scrBotRightP)
 {
-	Canonical_If_Not_Null (digTopLeftP);
-	Canonical_If_Not_Null (digBotRightP);
-	Canonical_If_Not_Null (scrTopLeftP);
-	Canonical_If_Not_Null (scrBotRightP);
+	// Prepare the stack.
+	CALLER_SETUP ("Err", 
+		"PointType* digTopLeftP, PointType* digBotRightP,"
+		"PointType* scrTopLeftP, PointType* scrBotRightP");
 
-	// Call the ROM.
+	// Set the parameters.
+	CALLER_PUT_PARAM_REF (PointType, digTopLeftP, Marshal::kInput);
+	CALLER_PUT_PARAM_REF (PointType, digBotRightP, Marshal::kInput);
+	CALLER_PUT_PARAM_REF (PointType, scrTopLeftP, Marshal::kInput);
+	CALLER_PUT_PARAM_REF (PointType, scrBotRightP, Marshal::kInput);
 
-	ATrap	theTrap;
-	PUSH_HOST_PTR	(scrBotRightP);
-	PUSH_HOST_PTR	(scrTopLeftP);
-	PUSH_HOST_PTR	(digBotRightP);
-	PUSH_HOST_PTR	(digTopLeftP);
+	// Call the function.
+	sub.Call (sysTrapPenCalibrate);
 
-	CallROM (sysTrapPenCalibrate);
+	// Write back any "by ref" parameters.
 
-	Canonical_If_Not_Null (digTopLeftP);
-	Canonical_If_Not_Null (digBotRightP);
-	Canonical_If_Not_Null (scrTopLeftP);
-	Canonical_If_Not_Null (scrBotRightP);
-
-	return (Err) theTrap.GetD0 ();
+	// Return the result.
+	RETURN_RESULT_VAL (Err);
 }
 
 // --------------------
@@ -2024,18 +2481,20 @@ Err PenCalibrate (PointType* digTopLeftP, PointType* digBotRightP,
 
 Err	 PenRawToScreen(PointType* penP)
 {
-	Canonical_If_Not_Null (penP);
+	// Prepare the stack.
+	CALLER_SETUP ("Err", "PointType* penP");
 
-	// Call the ROM.
+	// Set the parameters.
+	CALLER_PUT_PARAM_REF (PointType, penP, Marshal::kInOut);
 
-	ATrap	theTrap;
-	PUSH_HOST_PTR	(penP);
+	// Call the function.
+	sub.Call (sysTrapPenRawToScreen);
 
-	CallROM (sysTrapPenRawToScreen);
+	// Write back any "by ref" parameters.
+	CALLER_GET_PARAM_REF (penP);
 
-	Canonical_If_Not_Null (penP);
-
-	return (Err) theTrap.GetD0 ();
+	// Return the result.
+	RETURN_RESULT_VAL (Err);
 }
 
 // --------------------
@@ -2046,25 +2505,27 @@ Err	 PenRawToScreen(PointType* penP)
 
 Err PenScreenToRaw (PointType* penP)
 {
-	Canonical_If_Not_Null (penP);
+	// Prepare the stack.
+	CALLER_SETUP ("Err", "PointType* penP");
 
-	// Call the ROM.
+	// Set the parameters.
+	CALLER_PUT_PARAM_REF (PointType, penP, Marshal::kInOut);
 
-	ATrap	theTrap;
-	PUSH_HOST_PTR	(penP);
+	// Call the function.
+	sub.Call (sysTrapPenScreenToRaw);
 
-	CallROM (sysTrapPenScreenToRaw);
+	// Write back any "by ref" parameters.
+	CALLER_GET_PARAM_REF (penP);
 
-	Canonical_If_Not_Null (penP);
-
-	return (Err) theTrap.GetD0 ();
+	// Return the result.
+	RETURN_RESULT_VAL (Err);
 }
+
+#pragma mark -
 
 // ---------------------------------------------------------------------------
 //		¥ Peferences Manager functions
 // ---------------------------------------------------------------------------
-
-#pragma mark -
 
 // --------------------
 // Called:
@@ -2076,13 +2537,18 @@ Err PenScreenToRaw (PointType* penP)
 
 DmOpenRef PrefOpenPreferenceDBV10 (void)
 {
-	// Call the ROM.
+	// Prepare the stack.
+	CALLER_SETUP ("DmOpenRef", "void");
 
-	ATrap	theTrap;
+	// Set the parameters.
 
-	CallROM (sysTrapPrefOpenPreferenceDBV10);
+	// Call the function.
+	sub.Call (sysTrapPrefOpenPreferenceDBV10);
 
-	return (DmOpenRef) theTrap.GetA0 ();
+	// Write back any "by ref" parameters.
+
+	// Return the result.
+	RETURN_RESULT_PTR (DmOpenRef);
 }
 
 // --------------------
@@ -2095,14 +2561,19 @@ DmOpenRef PrefOpenPreferenceDBV10 (void)
 
 DmOpenRef PrefOpenPreferenceDB (Boolean saved)
 {
-	// Call the ROM.
+	// Prepare the stack.
+	CALLER_SETUP ("DmOpenRef", "Boolean saved");
 
-	ATrap	theTrap;
-	PUSH_VALUE	(saved);
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (Boolean, saved);
 
-	CallROM (sysTrapPrefOpenPreferenceDB);
+	// Call the function.
+	sub.Call (sysTrapPrefOpenPreferenceDB);
 
-	return (DmOpenRef) theTrap.GetA0 ();
+	// Write back any "by ref" parameters.
+
+	// Return the result.
+	RETURN_RESULT_PTR (DmOpenRef);
 }
 
 // --------------------
@@ -2114,29 +2585,26 @@ DmOpenRef PrefOpenPreferenceDB (Boolean saved)
 
 void PrefSetPreference (SystemPreferencesChoice choice, UInt32 value)
 {
-	// Coerce "choice" to a 1-byte value to match the way the 68K
-	// code-generator determines an enum's size.
+	// Prepare the stack.
+	CALLER_SETUP ("void", "SystemPreferencesChoice choice, UInt32 value");
 
-	// Call the ROM.
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (SystemPreferencesChoice, choice);
+	CALLER_PUT_PARAM_VAL (UInt32, value);
 
-	ATrap	theTrap;
-	PUSH_VALUE	(value);
-	PUSH_VALUE	((uint8) choice);
+	// Call the function.
+	sub.Call (sysTrapPrefSetPreference);
 
-	CallROM (sysTrapPrefSetPreference);
+	// Write back any "by ref" parameters.
+
+	// Return the result.
 }
-
-// ---------------------------------------------------------------------------
-//		¥ Sound Manager functions
-// ---------------------------------------------------------------------------
 
 #pragma mark -
 
 // ---------------------------------------------------------------------------
 //		¥ System Manager functions
 // ---------------------------------------------------------------------------
-
-#pragma mark -
 
 // --------------------
 // Called:
@@ -2147,21 +2615,22 @@ void PrefSetPreference (SystemPreferencesChoice choice, UInt32 value)
 
 Err	SysCurAppDatabase (UInt16* cardNoP, LocalID* dbIDP)
 {
-	Canonical_If_Not_Null (cardNoP);
-	Canonical_If_Not_Null (dbIDP);
+	// Prepare the stack.
+	CALLER_SETUP ("Err", "UInt16* cardNoP, LocalID* dbIDP");
 
-	// Call the ROM.
+	// Set the parameters.
+	CALLER_PUT_PARAM_REF (UInt16, cardNoP, Marshal::kInOut);
+	CALLER_PUT_PARAM_REF (LocalID, dbIDP, Marshal::kInOut);
 
-	ATrap	theTrap;
-	PUSH_HOST_PTR	(dbIDP);
-	PUSH_HOST_PTR	(cardNoP);
+	// Call the function.
+	sub.Call (sysTrapSysCurAppDatabase);
 
-	CallROM (sysTrapSysCurAppDatabase);
+	// Write back any "by ref" parameters.
+	CALLER_GET_PARAM_REF (cardNoP);
+	CALLER_GET_PARAM_REF (dbIDP);
 
-	Canonical_If_Not_Null (cardNoP);
-	Canonical_If_Not_Null (dbIDP);
-
-	return (Err) theTrap.GetD0 ();
+	// Return the result.
+	RETURN_RESULT_VAL (Err);
 }
 
 // --------------------
@@ -2175,20 +2644,20 @@ Err	SysCurAppDatabase (UInt16* cardNoP, LocalID* dbIDP)
 
 Err SysKernelInfo (MemPtr p)
 {
-	SysKernelInfoPtr	infoP = (SysKernelInfoPtr) p;
+	// Prepare the stack.
+	CALLER_SETUP ("Err", "SysKernelInfoPtr p");
 
-	Canonical_If_Not_Null (infoP);
+	// Set the parameters.
+	CALLER_PUT_PARAM_REF (SysKernelInfoType, p, Marshal::kInOut);
 
-	// Call the ROM.
+	// Call the function.
+	sub.Call (sysTrapSysKernelInfo);
 
-	ATrap	theTrap;
-	PUSH_HOST_PTR	(infoP);
+	// Write back any "by ref" parameters.
+	CALLER_GET_PARAM_REF (p);
 
-	CallROM (sysTrapSysKernelInfo);
-
-	Canonical_If_Not_Null (infoP);
-
-	return (Err) theTrap.GetD0 ();
+	// Return the result.
+	RETURN_RESULT_VAL (Err);
 }
 
 // --------------------
@@ -2199,17 +2668,21 @@ Err SysKernelInfo (MemPtr p)
 
 Err SysLibFind (const Char *nameP, UInt16 *refNumP)
 {
-	// Call the ROM.
+	// Prepare the stack.
+	CALLER_SETUP ("Err", "const Char *nameP, UInt16 *refNumP");
 
-	ATrap	theTrap;
-	PUSH_HOST_PTR		(refNumP);
-	PUSH_HOST_PTR_LEN	(nameP, strlen (nameP) + 1);
+	// Set the parameters.
+	CALLER_PUT_PARAM_STR (Char, nameP);
+	CALLER_PUT_PARAM_REF (UInt16, refNumP, Marshal::kInOut);
 
-	CallROM (sysTrapSysLibFind);
+	// Call the function.
+	sub.Call (sysTrapSysLibFind);
 
-	Canonical_If_Not_Null (refNumP);
+	// Write back any "by ref" parameters.
+	CALLER_GET_PARAM_REF (refNumP);
 
-	return (Err) theTrap.GetD0 ();
+	// Return the result.
+	RETURN_RESULT_VAL (Err);
 }
 
 // --------------------
@@ -2220,18 +2693,22 @@ Err SysLibFind (const Char *nameP, UInt16 *refNumP)
 
 Err SysLibLoad (UInt32 libType, UInt32 libCreator, UInt16 *refNumP)
 {
-	// Call the ROM.
+	// Prepare the stack.
+	CALLER_SETUP ("Err", "UInt32 libType, UInt32 libCreator, UInt16 *refNumP");
 
-	ATrap	theTrap;
-	PUSH_HOST_PTR	(refNumP);
-	PUSH_VALUE		(libCreator);
-	PUSH_VALUE		(libType);
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (UInt32, libType);
+	CALLER_PUT_PARAM_VAL (UInt32, libCreator);
+	CALLER_PUT_PARAM_REF (UInt16, refNumP, Marshal::kInOut);
 
-	CallROM (sysTrapSysLibLoad);
+	// Call the function.
+	sub.Call (sysTrapSysLibLoad);
 
-	Canonical_If_Not_Null (refNumP);
+	// Write back any "by ref" parameters.
+	CALLER_GET_PARAM_REF (refNumP);
 
-	return (Err) theTrap.GetD0 ();
+	// Return the result.
+	RETURN_RESULT_VAL (Err);
 }
 
 // --------------------
@@ -2242,14 +2719,19 @@ Err SysLibLoad (UInt32 libType, UInt32 libCreator, UInt16 *refNumP)
 
 SysLibTblEntryPtr SysLibTblEntry (UInt16 refNum)
 {
-	// Call the ROM.
+	// Prepare the stack.
+	CALLER_SETUP ("SysLibTblEntryPtr", "UInt16 refNum");
 
-	ATrap	theTrap;
-	PUSH_VALUE		(refNum);
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (UInt16, refNum);
 
-	CallROM (sysTrapSysLibTblEntry);
+	// Call the function.
+	sub.Call (sysTrapSysLibTblEntry);
 
-	return (SysLibTblEntryPtr) theTrap.GetA0 ();
+	// Write back any "by ref" parameters.
+
+	// Return the result.
+	RETURN_RESULT_PTR (SysLibTblEntryPtr);
 }
 
 // --------------------
@@ -2261,14 +2743,19 @@ SysLibTblEntryPtr SysLibTblEntry (UInt16 refNum)
 
 UInt16 SysSetAutoOffTime (UInt16 seconds)
 {
-	// Call the ROM.
+	// Prepare the stack.
+	CALLER_SETUP ("UInt16", "UInt16 seconds");
 
-	ATrap	theTrap;
-	PUSH_VALUE	(seconds);
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (UInt16, seconds);
 
-	CallROM (sysTrapSysSetAutoOffTime);
+	// Call the function.
+	sub.Call (sysTrapSysSetAutoOffTime);
 
-	return (UInt16) theTrap.GetD0 ();
+	// Write back any "by ref" parameters.
+
+	// Return the result.
+	RETURN_RESULT_VAL (UInt16);
 }
 
 // --------------------
@@ -2285,24 +2772,77 @@ UInt16 SysSetAutoOffTime (UInt16 seconds)
 
 Err SysUIAppSwitch (UInt16 cardNo, LocalID dbID, UInt16 cmd, MemPtr cmdPBP)
 {	
-	// Call the ROM.
+	// Prepare the stack.
+	CALLER_SETUP ("Err", "UInt16 cardNo, LocalID dbID, UInt16 cmd, MemPtr cmdPBP");
 
-	ATrap	theTrap;
-	PUSH_PALM_PTR	(cmdPBP);
-	PUSH_VALUE		(cmd);
-	PUSH_VALUE		(dbID);
-	PUSH_VALUE		(cardNo);
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (UInt16, cardNo);
+	CALLER_PUT_PARAM_VAL (LocalID, dbID);
+	CALLER_PUT_PARAM_VAL (UInt16, cmd);
+	CALLER_PUT_PARAM_VAL (MemPtr, cmdPBP);
 
-	CallROM (sysTrapSysUIAppSwitch);
+	// Call the function.
+	sub.Call (sysTrapSysUIAppSwitch);
 
-	return (Err) theTrap.GetD0 ();
+	// Write back any "by ref" parameters.
+
+	// Return the result.
+	RETURN_RESULT_VAL (Err);
 }
+
+#pragma mark -
 
 // ---------------------------------------------------------------------------
 //		¥ Table Manager functions
 // ---------------------------------------------------------------------------
 
-#pragma mark -
+// --------------------
+// Called:
+//
+//	*	By EventOutput code
+// --------------------
+
+Coord TblGetColumnSpacing (const TableType* tableP, Int16 column)
+{
+	// Prepare the stack.
+	CALLER_SETUP ("Coord", "const TableType* tableP, Int16 column");
+
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (TableType*, tableP);
+	CALLER_PUT_PARAM_VAL (Int16, column);
+
+	// Call the function.
+	sub.Call (sysTrapTblGetColumnSpacing);
+
+	// Write back any "by ref" parameters.
+
+	// Return the result.
+	RETURN_RESULT_VAL (Coord);
+}
+
+// --------------------
+// Called:
+//
+//	*	By EventOutput code
+// --------------------
+
+Coord TblGetColumnWidth (const TableType* tableP, Int16 column)
+{
+	// Prepare the stack.
+	CALLER_SETUP ("Coord", "const TableType* tableP, Int16 column");
+
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (TableType*, tableP);
+	CALLER_PUT_PARAM_VAL (Int16, column);
+
+	// Call the function.
+	sub.Call (sysTrapTblGetColumnWidth);
+
+	// Write back any "by ref" parameters.
+
+	// Return the result.
+	RETURN_RESULT_VAL (Coord);
+}
 
 // --------------------
 // Called:
@@ -2313,21 +2853,78 @@ Err SysUIAppSwitch (UInt16 cardNo, LocalID dbID, UInt16 cmd, MemPtr cmdPBP)
 
 FieldPtr TblGetCurrentField (const TableType* table)
 {
-	// Call the ROM.
+	// Prepare the stack.
+	CALLER_SETUP ("FieldPtr", "const TableType* table");
 
-	ATrap	theTrap;
-	PUSH_PALM_PTR	(table);
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (TableType*, table);
 
-	CallROM (sysTrapTblGetCurrentField);
+	// Call the function.
+	sub.Call (sysTrapTblGetCurrentField);
 
-	return (FieldPtr) theTrap.GetA0 ();
+	// Write back any "by ref" parameters.
+
+	// Return the result.
+	RETURN_RESULT_PTR (FieldPtr);
 }
+
+// --------------------
+// Called:
+//
+//	*	By EventOutput code
+// --------------------
+
+Coord TblGetRowHeight (const TableType* tableP, Int16 row)
+{
+	// Prepare the stack.
+	CALLER_SETUP ("Coord", "const TableType* tableP, Int16 row");
+
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (TableType*, tableP);
+	CALLER_PUT_PARAM_VAL (Int16, row);
+
+	// Call the function.
+	sub.Call (sysTrapTblGetRowHeight);
+
+	// Write back any "by ref" parameters.
+
+	// Return the result.
+	RETURN_RESULT_VAL (Coord);
+}
+
+// --------------------
+// Called:
+//
+//	*	By EventOutput code (GetPreviousEventInfo) to try to find out where
+//      in the table was tapped by a gremlin.
+// --------------------
+
+Boolean TblGetSelection (const TableType* tableP, Int16* rowP, Int16* columnP)
+{
+	// Prepare the stack.
+	CALLER_SETUP ("Boolean", "const TableType* tableP, Int16* rowP, Int16* columnP");
+
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (TableType*, tableP);
+	CALLER_PUT_PARAM_REF (Int16, rowP, Marshal::kInOut);
+	CALLER_PUT_PARAM_REF (Int16, columnP, Marshal::kInOut);
+
+	// Call the function.
+	sub.Call (sysTrapTblGetSelection);
+
+	// Write back any "by ref" parameters.
+	CALLER_GET_PARAM_REF (rowP);
+	CALLER_GET_PARAM_REF (columnP);
+
+	// Return the result.
+	RETURN_RESULT_VAL (Boolean);
+}
+
+#pragma mark -
 
 // ---------------------------------------------------------------------------
 //		¥ Text Manager functions
 // ---------------------------------------------------------------------------
-
-#pragma mark -
 
 // --------------------
 // Called:
@@ -2338,14 +2935,19 @@ FieldPtr TblGetCurrentField (const TableType* table)
 
 UInt8 TxtByteAttr(UInt8 inByte)
 {
-	// Call the ROM.
+	// Prepare the stack.
+	CALLER_SETUP ("UInt8", "UInt8 inByte");
 
-	ATrap	theTrap;
-	PUSH_VALUE	(inByte);
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (UInt8, inByte);
 
-	CallIntl (intlTxtByteAttr);
+	// Call the function.
+	sub.CallSelector (sysTrapIntlDispatch, intlTxtByteAttr);
 
-	return (UInt8) theTrap.GetD0 ();
+	// Write back any "by ref" parameters.
+
+	// Return the result.
+	RETURN_RESULT_VAL (UInt8);
 }
 
 // --------------------
@@ -2357,23 +2959,24 @@ UInt8 TxtByteAttr(UInt8 inByte)
 
 UInt16 TxtCharBounds (const Char* inText, UInt32 inOffset, UInt32* outStart, UInt32* outEnd)
 {
-	Canonical_If_Not_Null (outStart);
-	Canonical_If_Not_Null (outEnd);
+	// Prepare the stack.
+	CALLER_SETUP ("UInt16", "const Char* inText, UInt32 inOffset, UInt32* outStart, UInt32* outEnd");
 
-	// Call the ROM.
+	// Set the parameters.
+	CALLER_PUT_PARAM_PTR (Char, inText, inOffset + 4, Marshal::kInput);
+	CALLER_PUT_PARAM_VAL (UInt32, inOffset);
+	CALLER_PUT_PARAM_REF (UInt32, outStart, Marshal::kInOut);
+	CALLER_PUT_PARAM_REF (UInt32, outEnd, Marshal::kInOut);
 
-	ATrap	theTrap;
-	PUSH_HOST_PTR		(outEnd);
-	PUSH_HOST_PTR		(outStart);
-	PUSH_VALUE			(inOffset);
-	PUSH_HOST_PTR_LEN	(inText, inOffset + 4);
+	// Call the function.
+	sub.CallSelector (sysTrapIntlDispatch, intlTxtCharBounds);
 
-	CallIntl (intlTxtCharBounds);
+	// Write back any "by ref" parameters.
+	CALLER_GET_PARAM_REF (outStart);
+	CALLER_GET_PARAM_REF (outEnd);
 
-	Canonical_If_Not_Null (outStart);
-	Canonical_If_Not_Null (outEnd);
-
-	return (UInt16) theTrap.GetD0 ();
+	// Return the result.
+	RETURN_RESULT_VAL (UInt16);
 }
 
 // --------------------
@@ -2385,27 +2988,54 @@ UInt16 TxtCharBounds (const Char* inText, UInt32 inOffset, UInt32* outStart, UIn
 
 UInt16 TxtGetNextChar (const Char* inText, UInt32 inOffset, WChar* outChar)
 {
-	Canonical_If_Not_Null (outChar);
+	// Prepare the stack.
+	CALLER_SETUP ("UInt16", "const Char* inText, UInt32 inOffset, WChar* outChar");
 
-	// Call the ROM.
+	// Set the parameters.
+	CALLER_PUT_PARAM_PTR (Char, inText, inOffset + 4, Marshal::kInput);
+	CALLER_PUT_PARAM_VAL (UInt32, inOffset);
+	CALLER_PUT_PARAM_REF (WChar, outChar, Marshal::kInOut);
 
-	ATrap	theTrap;
-	PUSH_HOST_PTR		(outChar);
-	PUSH_VALUE			(inOffset);
-	PUSH_HOST_PTR_LEN	(inText, inOffset + 4);
+	// Call the function.
+	sub.CallSelector (sysTrapIntlDispatch, intlTxtGetNextChar);
 
-	CallIntl (intlTxtGetNextChar);
+	// Write back any "by ref" parameters.
+	CALLER_GET_PARAM_REF (outChar);
 
-	Canonical_If_Not_Null (outChar);
-
-	return (UInt16) theTrap.GetD0 ();
+	// Return the result.
+	RETURN_RESULT_VAL (UInt16);
 }
+
+#pragma mark -
 
 // ---------------------------------------------------------------------------
 //		¥ Window Manager functions
 // ---------------------------------------------------------------------------
 
-#pragma mark -
+// --------------------
+// Called:
+//
+//	*	By Gremlins code (FakeEventXY) after picking a window object to click on.
+// --------------------
+
+void WinDisplayToWindowPt (Int16* extentX, Int16* extentY)
+{
+	// Prepare the stack.
+	CALLER_SETUP ("void", "Int16* extentX, Int16* extentY");
+
+	// Set the parameters.
+	CALLER_PUT_PARAM_REF (Int16, extentX, Marshal::kInOut);
+	CALLER_PUT_PARAM_REF (Int16, extentY, Marshal::kInOut);
+
+	// Call the function.
+	sub.Call (sysTrapWinDisplayToWindowPt);
+
+	// Write back any "by ref" parameters.
+	CALLER_GET_PARAM_REF (extentX);
+	CALLER_GET_PARAM_REF (extentY);
+
+	// Return the result.
+}
 
 // --------------------
 // Called:
@@ -2422,13 +3052,18 @@ UInt16 TxtGetNextChar (const Char* inText, UInt32 inOffset, WChar* outChar)
 
 WinHandle WinGetActiveWindow (void)
 {
-	// Call the ROM.
+	// Prepare the stack.
+	CALLER_SETUP ("WinHandle", "void");
 
-	ATrap	theTrap;
+	// Set the parameters.
 
-	CallROM (sysTrapWinGetActiveWindow);
+	// Call the function.
+	sub.Call (sysTrapWinGetActiveWindow);
 
-	return (WinHandle) theTrap.GetA0 ();
+	// Write back any "by ref" parameters.
+
+	// Return the result.
+	RETURN_RESULT_PTR (WinHandle);
 }
 
 // --------------------
@@ -2449,19 +3084,21 @@ WinHandle WinGetActiveWindow (void)
 
 void WinGetDisplayExtent (Int16* extentX, Int16* extentY)
 {
-	Canonical_If_Not_Null (extentX);
-	Canonical_If_Not_Null (extentY);
+	// Prepare the stack.
+	CALLER_SETUP ("void", "Int16* extentX, Int16* extentY");
 
-	// Call the ROM.
+	// Set the parameters.
+	CALLER_PUT_PARAM_REF (Int16, extentX, Marshal::kInOut);
+	CALLER_PUT_PARAM_REF (Int16, extentY, Marshal::kInOut);
 
-	ATrap	theTrap;
-	PUSH_HOST_PTR		(extentY);
-	PUSH_HOST_PTR		(extentX);
+	// Call the function.
+	sub.Call (sysTrapWinGetDisplayExtent);
 
-	CallROM (sysTrapWinGetDisplayExtent);
+	// Write back any "by ref" parameters.
+	CALLER_GET_PARAM_REF (extentX);
+	CALLER_GET_PARAM_REF (extentY);
 
-	Canonical_If_Not_Null (extentY);
-	Canonical_If_Not_Null (extentX);
+	// Return the result.
 }
 
 // --------------------
@@ -2474,13 +3111,18 @@ void WinGetDisplayExtent (Int16* extentX, Int16* extentY)
 
 WinHandle WinGetFirstWindow (void)
 {
-	// Call the ROM.
+	// Prepare the stack.
+	CALLER_SETUP ("WinHandle", "void");
 
-	ATrap	theTrap;
+	// Set the parameters.
 
-	CallROM (sysTrapWinGetFirstWindow);
+	// Call the function.
+	sub.Call (sysTrapWinGetFirstWindow);
 
-	return (WinHandle) theTrap.GetA0 ();
+	// Write back any "by ref" parameters.
+
+	// Return the result.
+	RETURN_RESULT_PTR (WinHandle);
 }
 
 // --------------------
@@ -2494,16 +3136,19 @@ WinHandle WinGetFirstWindow (void)
 
 void WinGetWindowBounds (RectanglePtr r)
 {
-	Canonical_If_Not_Null (r);
+	// Prepare the stack.
+	CALLER_SETUP ("void", "RectanglePtr r");
 
-	// Call the ROM.
+	// Set the parameters.
+	CALLER_PUT_PARAM_REF (RectangleType, r, Marshal::kInOut);
 
-	ATrap	theTrap;
-	PUSH_HOST_PTR		(r);
+	// Call the function.
+	sub.Call (sysTrapWinGetDrawWindowBounds);
 
-	CallROM (sysTrapWinGetWindowBounds);
+	// Write back any "by ref" parameters.
+	CALLER_GET_PARAM_REF (r);
 
-	Canonical_If_Not_Null (r);
+	// Return the result.
 }
 
 // --------------------
@@ -2514,11 +3159,17 @@ void WinGetWindowBounds (RectanglePtr r)
 
 void WinPopDrawState (void)
 {
-	// Call the ROM.
+	// Prepare the stack.
+	CALLER_SETUP ("void", "void");
 
-	ATrap	theTrap;
+	// Set the parameters.
 
-	CallROM (sysTrapWinPopDrawState);
+	// Call the function.
+	sub.Call (sysTrapWinPopDrawState);
+
+	// Write back any "by ref" parameters.
+
+	// Return the result.
 }
 
 // --------------------
@@ -2528,14 +3179,19 @@ void WinPopDrawState (void)
 
 WinHandle WinSetDrawWindow (WinHandle winHandle)
 {
-	// Call the ROM.
+	// Prepare the stack.
+	CALLER_SETUP ("WinHandle", "WinHandle winHandle");
 
-	ATrap	theTrap;
-	PUSH_PALM_PTR		(winHandle);
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (WinHandle, winHandle);
 
-	CallROM (sysTrapWinSetDrawWindow);
+	// Call the function.
+	sub.Call (sysTrapWinSetDrawWindow);
 
-	return (WinHandle) theTrap.GetA0 ();
+	// Write back any "by ref" parameters.
+
+	// Return the result.
+	RETURN_RESULT_PTR (WinHandle);
 }
 
 // --------------------
@@ -2546,17 +3202,83 @@ WinHandle WinSetDrawWindow (WinHandle winHandle)
 
 void WinWindowToDisplayPt (Int16* extentX, Int16* extentY)
 {
-	Canonical_If_Not_Null (extentX);
-	Canonical_If_Not_Null (extentY);
+	// Prepare the stack.
+	CALLER_SETUP ("void", "Int16* extentX, Int16* extentY");
 
-	// Call the ROM.
+	// Set the parameters.
+	CALLER_PUT_PARAM_REF (Int16, extentX, Marshal::kInOut);
+	CALLER_PUT_PARAM_REF (Int16, extentY, Marshal::kInOut);
 
-	ATrap	theTrap;
-	PUSH_HOST_PTR		(extentY);
-	PUSH_HOST_PTR		(extentX);
+	// Call the function.
+	sub.Call (sysTrapWinWindowToDisplayPt);
 
-	CallROM (sysTrapWinWindowToDisplayPt);
+	// Write back any "by ref" parameters.
+	CALLER_GET_PARAM_REF (extentX);
+	CALLER_GET_PARAM_REF (extentY);
 
-	Canonical_If_Not_Null (extentX);
-	Canonical_If_Not_Null (extentY);
+	// Return the result.
 }
+
+#ifdef SONY_ROM
+
+void SysTaskSleep (Boolean untilReset, Boolean emergency)
+{
+	// Prepare the stack.
+	CALLER_SETUP ("void", "Boolean untilReset, Boolean emergency");
+
+	// Set the parameters.
+	CALLER_PUT_PARAM_VAL (Boolean, untilReset);
+	CALLER_PUT_PARAM_VAL (Boolean, emergency);
+
+	// Call the function.
+	sub.Call (sysTrapSysSleep);
+//	sub.Call (sysTrapHwrSleep);
+	
+
+	// Write back any "by ref" parameters.
+//	CALLER_GET_PARAM_VAL (untilReset);
+//	CALLER_GET_PARAM_VAL (emergnecy);
+
+	// Return the result.
+}
+
+Err SysTaskWakeup ()
+{
+	CALLER_SETUP ("Err", "void");
+
+
+	// Call the function.
+	sub.Call (sysTrapHwrWake);
+
+	
+
+	// Return the result.
+	RETURN_RESULT_VAL (Err);
+
+}
+/*
+UInt32 SysGetTaskID(void)
+{
+	CALLER_SETUP ("UInt32", "void");
+
+	sub.Call (sysTrapSysTaskID );
+
+	RETURN_RESULT_VAL (UInt32);
+}
+
+Err SysTaskWakeup (UInt32 taskID)
+{
+	CALLER_SETUP ("Err", "UInt32 taskID");
+
+	CALLER_PUT_PARAM_VAL (UInt32, taskID);
+	// Call the function.
+	sub.Call (sysTrapSysTaskWake);
+
+	// Write back any "by ref" parameters.
+
+	// Return the result.
+	RETURN_RESULT_VAL (Err);
+
+}
+*/
+#endif

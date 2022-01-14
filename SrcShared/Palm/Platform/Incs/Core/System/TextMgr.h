@@ -1,22 +1,21 @@
 /******************************************************************************
  *
- * Copyright (c) 1998-1999 Palm Computing, Inc. or its subsidiaries.
+ * Copyright (c) 1998-2000 Palm, Inc. or its subsidiaries.
  * All rights reserved.
  *
  * File: TextMgr.h
  *
+ * Release: 
+ *
  * Description:
  *         	Header file for Text Manager.
  *
- * Written by TransPac Software, Inc.
- *
  * History:
- *			Created by Ken Krugler
  *		03/05/98	kwk	Created by Ken Krugler.
  *		02/02/99	kwk	Added charEncodingPalmLatin & charEncodingPalmSJIS,
- *							since we've extended the CP1252 & CP932 encodings.
- *							Added TxtUpperStr, TxtLowerStr, TxtUpperChar, and
- *							TxtLowerChar macros.
+ *						since we've extended the CP1252 & CP932 encodings.
+ *						Added TxtUpperStr, TxtLowerStr, TxtUpperChar, and
+ *						TxtLowerChar macros.
  *		03/11/99	kwk	Changed TxtTruncate to TxtGetTruncationOffset.
  *		04/24/99	kwk	Moved string & character upper/lower casing macros
  *							to IntlGlue library.
@@ -26,6 +25,27 @@
  *		07/13/99	kwk	Moved TxtPrepFindString into TextPrv.h
  *		09/22/99	kwk	Added TxtParamString (OS 3.5).
  *		10/28/99	kwk	Added the TxtCharIsVirtual macro.
+ *		03/01/00	kwk	Added the TxtConvertEncoding routine (OS 4.0), and the
+ *						txtErrUnknownEncoding and txtErrConvertOverflow errors.
+ *		05/12/00	kwk	Deprecated the TxtCharWidth routine.
+ *		05/26/00	kwk	Added TxtGetWordWrapOffset (OS 4.0). Convert CharEncodingType
+ *						to #define format versus enums. Re-ordered into logical
+ *						groups, and fixed up names to match existing convention.
+ *		05/30/00	kwk	Added txtErrTranslitUnderflow.
+ *		06/02/00	CS	Moved character encoding constants to PalmLocale.h so that
+ *						Rez has access to them.
+ *		07/13/00	kwk	Added TxtNameToEncoding (OS 4.0).
+ *		07/23/00	kwk	Updated TxtConvertEncoding to match new API.
+ *		10/05/00	kwk	Added charAttr_<whatever> as substitutes for the old
+ *						character attribute flags in CharAttr.h (e.g. _XA, _LO).
+ *					kwk	Moved sizeOf7BitChar here from CharAttr.h
+ *		11/21/00	kwk	Undeprecated TxtCharWidth, in anticipation of future,
+ *							proper deprecation.
+ *		11/24/00	kwk	Reverted maxCharBytes to 3 (was 4). You only need more than
+ *						three bytes for surrogate Unicode characters, which we don't
+ *						support, as this would require a 32 bit WChar variable to
+ *						hold the result (potentially 21 bits of data). Since we
+ *						never use more than 3 bytes, it's OK to shrink this back down.
  *
  *****************************************************************************/
 
@@ -36,57 +56,43 @@
 #include <Chars.h>
 
 /***********************************************************************
- * Public constants
+ * Public types & constants
  ***********************************************************************/
 
-// Various character encodings supported by the PalmOS. Actually these
-// are a mixture of character sets (repetoires or coded character sets
-// in Internet lingo) and character encodids (CES - character encoding
-// standard). Many, however, are some of both (e.g. CP932 is the Shift-JIS
-// encoding of the JIS character set + Microsoft's extensions).
-
-typedef enum {
-	charEncodingUnknown = 0,	// Unknown to this version of PalmOS.
-	
-	charEncodingAscii,			// ISO 646-1991
-	charEncodingISO8859_1,		// ISO 8859 Part 1
-	charEncodingPalmLatin,		// PalmOS version of CP1252
-	charEncodingShiftJIS,		// Encoding for 0208-1990 + 1-byte katakana
-	charEncodingPalmSJIS,		// PalmOS version of CP932
-	charEncodingUTF8,				// Encoding for Unicode
-	charEncodingCP1252,			// Windows variant of 8859-1
-	charEncodingCP932				// Windows variant of ShiftJIS
-} CharEncodingType;
+// See PalmLocale.h for encoding constants of type CharEncodingType, and
+// character encoding names.
+typedef UInt8 CharEncodingType;
 
 // Transliteration operations for the TxtTransliterate call. We don't use
 // an enum, since each character encoding contains its own set of special
 // transliteration operations (which begin at translitOpCustomBase).
-
 typedef UInt16 TranslitOpType;
+
+// Standard transliteration operations.
+#define	translitOpStandardBase	0			// Beginning of standard operations.
 
 #define	translitOpUpperCase		0
 #define	translitOpLowerCase		1
+#define	translitOpReserved2		2
+#define	translitOpReserved3		3
 
+// Custom transliteration operations (defined in CharXXXX.h encoding-specific
+// header files.
 #define	translitOpCustomBase		1000		// Beginning of char-encoding specific ops.
 
 #define	translitOpPreprocess		0x8000	// Mask for pre-process option, where
 										// no transliteration actually is done.
 
-// Names of the known encodings.
+// Structure used to maintain state across calls to TxtConvertEncoding, for
+// proper handling of source or destination encodings with have modes.
+#define	kTxtConvertStateSize		32
 
-#define	encodingNameAscii			"us-ascii"
-#define	encodingNameISO8859_1	"ISO-8859-1"
-#define	encodingNameCP1252		"ISO-8859-1-Windows-3.1-Latin-1"
-#define	encodingNameShiftJIS		"Shift_JIS"
-#define	encodingNameCP932			"Windows-31J"
-#define	encodingNameUTF8			"UTF-8"
-
-// Maximum length of any encoding name.
-
-#define	maxEncodingNameLength	40
+typedef struct {
+	UInt8		ioSrcState[kTxtConvertStateSize];
+	UInt8		ioDstState[kTxtConvertStateSize];
+} TxtConvertStateType;
 
 // Flags available in the sysFtrNumCharEncodingFlags feature attribute.
-
 #define	charEncodingOnlySingleByte	0x00000001
 #define	charEncodingHasDoubleByte	0x00000002
 #define	charEncodingHasLigatures	0x00000004
@@ -95,31 +101,52 @@ typedef UInt16 TranslitOpType;
 // Various byte attribute flags. Note that multiple flags can be
 // set, thus a byte could be both a single-byte character, or the first
 // byte of a multi-byte character.
-
 #define	byteAttrFirst				0x80	// First byte of multi-byte char.
 #define	byteAttrLast				0x40	// Last byte of multi-byte char.
 #define	byteAttrMiddle				0x20	// Middle byte of muli-byte char.
 #define	byteAttrSingle				0x01	// Single byte.
 
-// Various sets of character attribute flags.
+// Character attribute flags. These replace the old flags defined in
+// CharAttr.h, but are bit-compatible.
+#define	charAttr_XA		0x0200 	// extra alphabetic
+#define	charAttr_XS		0x0100 	// extra space
+#define	charAttr_BB		0x0080 	// BEL, BS, etc.
+#define	charAttr_CN		0x0040 	// CR, FF, HT, NL, VT
+#define	charAttr_DI		0x0020 	// '0'-'9'
+#define	charAttr_LO		0x0010 	// 'a'-'z' and lowercase extended chars.
+#define	charAttr_PU		0x0008 	// punctuation
+#define	charAttr_SP		0x0004 	// space
+#define	charAttr_UP		0x0002 	// 'A'-'Z' and uppercase extended chars.
+#define	charAttr_XD		0x0001 	// '0'-'9', 'A'-'F', 'a'-'f'
 
-#define	charAttrPrint				(_DI|_LO|_PU|_SP|_UP|_XA)
-#define	charAttrSpace				(_CN|_SP|_XS)
-#define	charAttrAlNum				(_DI|_LO|_UP|_XA)
-#define	charAttrAlpha				(_LO|_UP|_XA)
-#define	charAttrCntrl				(_BB|_CN)
-#define	charAttrGraph				(_DI|_LO|_PU|_UP|_XA)
-#define	charAttrDelim				(_SP|_PU)
+// Various sets of character attribute flags.
+#define	charAttrPrint				(charAttr_DI|charAttr_LO|charAttr_PU|charAttr_SP|charAttr_UP|charAttr_XA)
+#define	charAttrSpace				(charAttr_CN|charAttr_SP|charAttr_XS)
+#define	charAttrAlNum				(charAttr_DI|charAttr_LO|charAttr_UP|charAttr_XA)
+#define	charAttrAlpha				(charAttr_LO|charAttr_UP|charAttr_XA)
+#define	charAttrCntrl				(charAttr_BB|charAttr_CN)
+#define	charAttrGraph				(charAttr_DI|charAttr_LO|charAttr_PU|charAttr_UP|charAttr_XA)
+#define	charAttrDelim				(charAttr_SP|charAttr_PU)
+
+// Remember that sizeof(0x0D) == 2 because 0x0D is treated like an int. The
+// same is true of sizeof('a'), sizeof('\0'), and sizeof(chrNull). For this
+// reason it's safest to use the sizeOf7BitChar macro to document buffer size
+// and string length calcs. Note that this can only be used with low-ascii
+// characters, as anything else might be the high byte of a double-byte char.
+#define	sizeOf7BitChar(c)	1
 
 // Maximum size a single WChar character will occupy in a text string.
-
-#define	maxCharBytes				4
+#define	maxCharBytes				3
 
 // Text manager error codes.
-
 #define	txtErrUknownTranslitOp				(txtErrorClass | 1)
 #define	txtErrTranslitOverrun				(txtErrorClass | 2)
 #define	txtErrTranslitOverflow				(txtErrorClass | 3)
+#define	txtErrConvertOverflow				(txtErrorClass | 4)
+#define	txtErrConvertUnderflow				(txtErrorClass | 5)
+#define	txtErrUnknownEncoding				(txtErrorClass | 6)
+#define	txtErrNoCharMapping					(txtErrorClass | 7)
+#define	txtErrTranslitUnderflow				(txtErrorClass | 8)
 
 /***********************************************************************
  * Public macros
@@ -127,15 +154,15 @@ typedef UInt16 TranslitOpType;
 
 #define	TxtCharIsSpace(ch)		((TxtCharAttr(ch) & charAttrSpace) != 0)
 #define	TxtCharIsPrint(ch)		((TxtCharAttr(ch) & charAttrPrint) != 0)
-#define	TxtCharIsDigit(ch)		((TxtCharAttr(ch) & _DI) != 0)
+#define	TxtCharIsDigit(ch)		((TxtCharAttr(ch) & charAttr_DI) != 0)
 #define	TxtCharIsAlNum(ch)		((TxtCharAttr(ch) & charAttrAlNum) != 0)
 #define	TxtCharIsAlpha(ch)		((TxtCharAttr(ch) & charAttrAlpha) != 0)
 #define	TxtCharIsCntrl(ch)		((TxtCharAttr(ch) & charAttrCntrl) != 0)
 #define	TxtCharIsGraph(ch)		((TxtCharAttr(ch) & charAttrGraph) != 0)
-#define	TxtCharIsLower(ch)		((TxtCharAttr(ch) & _LO) != 0)
-#define	TxtCharIsPunct(ch)		((TxtCharAttr(ch) & _PU) != 0)
-#define	TxtCharIsUpper(ch)		((TxtCharAttr(ch) & _UP) != 0)
-#define	TxtCharIsHex(ch)			((TxtCharAttr(ch) & _XD) != 0)
+#define	TxtCharIsLower(ch)		((TxtCharAttr(ch) & charAttr_LO) != 0)
+#define	TxtCharIsPunct(ch)		((TxtCharAttr(ch) & charAttr_PU) != 0)
+#define	TxtCharIsUpper(ch)		((TxtCharAttr(ch) & charAttr_UP) != 0)
+#define	TxtCharIsHex(ch)		((TxtCharAttr(ch) & charAttr_XD) != 0)
 #define	TxtCharIsDelim(ch)		((TxtCharAttr(ch) & charAttrDelim) != 0)
 
 // <c> is a hard key if the event modifier <m> has the command bit set
@@ -183,7 +210,8 @@ UInt16 TxtCharXAttr(WChar inChar)
 UInt16 TxtCharSize(WChar inChar)
 		INTL_TRAP(intlTxtCharSize);
 
-// Return the width (in pixels) of the character <inChar>.
+// Return the width (in pixels) of the character <inChar>. You should
+// use FntWCharWidth or FntGlueWCharWidth instead of this routine.
 
 Int16 TxtCharWidth(WChar inChar)
 		INTL_TRAP(intlTxtCharWidth);
@@ -258,6 +286,14 @@ Boolean TxtWordBounds(const Char *inText, UInt32 inLength, UInt32 inOffset,
 			UInt32 *outStart, UInt32 *outEnd)
 		INTL_TRAP(intlTxtWordBounds);
 
+// Return the offset of the first break position (for text wrapping) that
+// occurs at or before <iOffset> in <iTextP>. Note that this routine will
+// also add trailing spaces and a trailing linefeed to the break position,
+// thus the result could be greater than <iOffset>.
+
+UInt32 TxtGetWordWrapOffset(const Char *iTextP, UInt32 iOffset)
+		INTL_TRAP(intlTxtGetWordWrapOffset);
+
 // Return the minimum (lowest) encoding required for <inChar>. If we
 // don't know about the character, return encoding_Unknown.
 
@@ -282,6 +318,12 @@ CharEncodingType TxtMaxEncoding(CharEncodingType a, CharEncodingType b)
 const Char *TxtEncodingName(CharEncodingType inEncoding)
 		INTL_TRAP(intlTxtEncodingName);
 
+// Map from a character set name <iEncodingName> to a CharEncodingType.
+// If the character set name is unknown, return charEncodingUnknown.
+
+CharEncodingType TxtNameToEncoding(const Char* iEncodingName)
+		INTL_TRAP(intlTxtNameToEncoding);
+
 // Transliterate <inSrcLength> bytes of text found in <inSrcText>, based
 // on the requested <inOp> operation. Place the results in <outDstText>,
 // and set the resulting length in <ioDstLength>. On entry <ioDstLength>
@@ -295,6 +337,43 @@ const Char *TxtEncodingName(CharEncodingType inEncoding)
 Err TxtTransliterate(const Char *inSrcText, UInt16 inSrcLength, Char *outDstText,
 			UInt16 *ioDstLength, TranslitOpType inOp)
 		INTL_TRAP(intlTxtTransliterate);
+
+// Convert <*ioSrcBytes> of text from <srcTextP> between the <srcEncoding>
+// and <dstEncoding> character encodings. If <dstTextP> is not NULL, write
+// the resulting bytes to the buffer, and always return the number of
+// resulting bytes in <*ioDstBytes>. Update <*srcBytes> with the number of
+// bytes from the beginning of <*srcTextP> that were successfully converted.
+// When the routine is called with <srcTextP> pointing to the beginning of
+// a string or text buffer, <newConversion> should be true; if the text is
+// processed in multiple chunks, either because errors occurred or due to
+// source/destination buffer size constraints, then subsequent calls to
+// this routine should pass false for <newConversion>. The TxtConvertStateType
+// record maintains state information so that if the source or destination
+// character encodings have state or modes (e.g. JIS), processing a single
+// sequence of text with multiple calls will work correctly.
+
+// When an error occurs due to an unconvertable character, the behavior of
+// the routine will depend on the <substitutionStr> parameter. If it is NULL,
+// then <*ioSrcBytes> will be set to the offset of the unconvertable character,
+// <ioDstBytes> will be set to the number of successfully converted resulting
+// bytes, and <dstTextP>, in not NULL, will contain conversion results up to
+// the point of the error. The routine will return an appropriate error code,
+// and it is up to the caller to either terminate conversion or skip over the
+// unconvertable character and continue the conversion process (passing false
+// for the <newConversion> parameter in subsequent calls to TxtConvertEncoding).
+// If <substitutionStr> is not NULL, then this string is written to the
+// destination buffer when an unconvertable character is encountered in the
+// source text, and the source character is skipped. Processing continues, though
+// the error code will still be returned when the routine terminates. Note that
+// if a more serious error occurs during processing (e.g. buffer overflow) then
+// that error will be returned even if there was an earlier unconvertable character.
+// Note that the substitution string must use the destination character encoding.
+
+Err TxtConvertEncoding(Boolean newConversion, TxtConvertStateType* ioStateP,
+			const Char* srcTextP, UInt16* ioSrcBytes, CharEncodingType srcEncoding,
+			Char* dstTextP, UInt16* ioDstBytes, CharEncodingType dstEncoding,
+			const Char* substitutionStr, UInt16 substitutionLen)
+		INTL_TRAP(intlTxtConvertEncoding);
 
 // Return true if <inChar> is a valid (drawable) character. Note that we'll
 // return false if it is a virtual character code.

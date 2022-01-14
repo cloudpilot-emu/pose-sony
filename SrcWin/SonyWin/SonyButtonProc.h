@@ -69,6 +69,17 @@ private:
 			  || what == kElement_JogRelease \
 			  || what == kElement_JogRepeat)
 
+#define IsPublicControlButton(what)			\
+		(									\
+			   what == kElement_UpButton	\
+			|| what == kElement_DownButton	\
+			|| what == kElement_App1Button	\
+			|| what == kElement_App2Button	\
+			|| what == kElement_App3Button	\
+			|| what == kElement_App4Button	\
+			|| what == kElement_JogESC		\
+		)
+
 
 // for Sony & JogDial
 #define	TIMERID_JOGKEY_REPAET_STARTER	345		// for Sony & JogDial
@@ -97,6 +108,12 @@ void	LCD_InitStateJogButton();
 Bool	LCD_IsPressJogButton(SkinElementType witch);
 Bool	LCD_IsEnabledJogButton(SkinElementType witch);
 void	CALLBACK JogKeyRepeatStarterProc(HWND hwnd, UINT uMsg, UINT idEvent, DWORD dwTime);
+void	CALLBACK PublicKeyUpStarterProc(HWND hwnd, UINT uMsg, UINT idEvent, DWORD dwTime);
+void	CALLBACK PublicKeyDownStarterProc(HWND hwnd, UINT uMsg, UINT idEvent, DWORD dwTime);
 BOOL	ControlButtonForCLIE(const EmPoint& where, Bool down);
+
+#ifdef SONY_ROM
+BOOL	PublicControlButtonForCLIE(const EmPoint& where, Bool down);
+#endif
 
 #endif

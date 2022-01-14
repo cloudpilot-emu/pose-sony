@@ -1,0 +1,63 @@
+	// Global variables used by the window routines.
+	WinHandle			activeWindow;
+	WinHandle			displayWindow;
+	WinHandle			drawWindow;
+	WinHandle			firstWindow;
+	WinHandle			exitWindowID;
+	WinHandle			enterWindowID;
+	WinHandle			exitedWindowID;
+	GraphicStateType	gState;
+	
+	
+	// Global variables used by the event routines.
+	EventStoreType*	eventQ;
+	Word					eventQIndex;
+	Word					eventQLength;
+	SWord      			lastScreenX;
+	SWord      			lastScreenY;
+	Boolean    			lastPenDown;
+	SDWord				needNullTickCount;		// We want a null Evt when ticks reaches this value
+	
+	
+	// Global variables used by the font routins.
+	FontPtr 				uiCurrentFontPtr;
+//	FontPtr 				uiFontTable[UINumFonts];// OBSOLETE: in 1.0 & 2.0, UINumFonts=7
+	FontTablePtr		uiSysFontTablePtr;		// new for 3.0
+	FontTablePtr		uiAppFontTablePtr;		// new for 3.0
+	Word					uiNumSysFonts;				// new for 3.0
+	Word					uiNumAppFonts;				// new for 3.0
+	DWord					uiUnused1;					// new for 3.0, to maintain sizeof(UIGlobalsType)
+	DWord					uiUnused2;					// new for 3.0, to maintain sizeof(UIGlobalsType)
+	FontID  				uiCurrentFontID;
+	
+	
+	// Global variables used by the form routines.
+	FormPtr 				currentForm;
+	
+	
+	// Global variables used by the insertion point routines.
+	Boolean				insPtIsEnabled;
+	Boolean				insPtOn;
+	PointType			insPtLoc;
+	SWord					insPtHeight;
+	SDWord				insPtLastTick;
+	WinHandle			insPtBitsBehind;
+	
+	// Global variables used by the clipboard routines.
+	ClipboardItem 		clipboard[numClipboardForamts];
+	
+	// Globals used by the Memory Manager
+	MenuBarPtr			uiCurrentMenu;
+	Word					uiCurrentMenuRscID;
+	
+	// Global variables used by the field routines.
+	FieldUndoType 		undoGlobals;
+
+	// Global variables used by the Griffiti shift state indicator routines.
+	Byte					gsiState;
+	Boolean				gsiIsEnabled;
+	PointType			gsiLocation;
+
+	// Numeric decimal seperator, used in the field routines.
+	Char					uiDecimalSeparator;
+	

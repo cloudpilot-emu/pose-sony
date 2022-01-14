@@ -18,7 +18,9 @@ enum EmCommandID
 {
 	kCommandNone,
 
-	kCommandSessionNew = 1000,	// PowerPlant reserves all up to 999
+	kCommandFirst = 1000,	// PowerPlant reserves all up to 999
+
+	kCommandSessionNew = kCommandFirst,
 	kCommandSessionOpenOther,
 	kCommandSessionOpen0,
 	kCommandSessionOpen1,
@@ -36,6 +38,7 @@ enum EmCommandID
 	kCommandSessionSaveAs,
 	kCommandSessionBound,
 	kCommandScreenSave,
+	kCommandSessionInfo,
 
 	kCommandImportOther,
 	kCommandImport0,
@@ -63,15 +66,22 @@ enum EmCommandID
 	kCommandPreferences,
 	kCommandLogging,
 	kCommandDebugging,
+	kCommandErrorHandling,
+#if HAS_TRACER
 	kCommandTracing,
+#endif
 	kCommandSkins,
-	kCommandCards,
+	kCommandHostFS,
 	kCommandBreakpoints,
 
 	kCommandGremlinsNew,
+	kCommandGremlinsSuspend,
 	kCommandGremlinsStep,
 	kCommandGremlinsResume,
 	kCommandGremlinsStop,
+
+	kCommandEventReplay,
+	kCommandEventMinimize,
 
 #if HAS_PROFILING
 	kCommandProfileStart,
@@ -98,39 +108,11 @@ enum EmCommandID
 
 #ifdef SONY_ROM
 	kCommandSoftReset,
-#endif
+#endif //SONY_ROM
 
 	kCommandDivider
 };
 
-	// Pre-increment operator
-inline EmCommandID	operator++(EmCommandID& x)
-{
-	x = EmCommandID (x + 1);
-	return x;
-}
-
-	// Post-increment operator
-inline EmCommandID	operator++(EmCommandID& x, int)
-{
-	EmCommandID	result = x;
-	x = EmCommandID (x + 1);
-	return result;
-}
-
-	// Pre-decrement operator
-inline EmCommandID	operator--(EmCommandID& x)
-{
-	x = EmCommandID (x - 1);
-	return x;
-}
-
-	// Post-decrement operator
-inline EmCommandID	operator--(EmCommandID& x, int)
-{
-	EmCommandID	result = x;
-	x = EmCommandID (x - 1);
-	return result;
-}
+DEFINE_SCALAR_MODIFIERS (EmCommandID)
 
 #endif	// EmCommands_h

@@ -1,0 +1,17 @@
+========================================================================
+Build Notes for Sony PalmOS Emulator
+Copyright (c) 2000-2001 Sony Corporation and its licensors.
+All rights reserved.
+========================================================================
+
+The source code of Sony PalmOS Emulator works only under Windows(R) 
+Environment. The emulator only runs on Windows 98, Windows 2000 and 
+Windows ME. Microsoft Visual C++ 6.0 is needed to build Sony PalmOS 
+Emulator.
+
+To build Sony PalmOS Emulator, open Emulator.dsw or Emulator.dsp 
+from the \..\BuildWin\ directory. Select the project target as 
+"Win 32 Release". Start to build by selecting Build->Build Emulator.exe 
+from the menu. The build result will be found in 
+\..\BuildWin\Release\Emulator.exe.
+

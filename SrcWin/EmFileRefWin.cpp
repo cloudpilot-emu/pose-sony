@@ -25,6 +25,7 @@ const char*	kExtension[] =
 	".exe",		// kFileTypeApplication,
 	".rom",		// kFileTypeROM,
 	".psf",		// kFileTypeSession,
+	".pev",		// kFileTypeEvents
 	".ini",		// kFileTypePreference,
 	".prc",		// kFileTypePalmApp,
 	".pdb",		// kFileTypePalmDB,

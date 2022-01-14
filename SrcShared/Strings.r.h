@@ -13,20 +13,21 @@
 
 // Resource IDs for strings.
 
-//	1000 - 1999: Message Templates
-//		1000 - 1199:	Error messages
-//		1200 - 1399:	Other messages
-//	2000 - xxxx: Template Parts
-//		2000 - 2199:	Misc parts
-//		2200 - 2399:	Operations descriptions
-//		2400 - 2599:	Error descriptions
-//			2400 - 2499:	OS Errors (e.g., "the file was not found")
-//			2500 - 2599:	User/app errors (e.g., "I don't understand that file")
-//		2600 - 2799:	Recovery strings (e.g., "Reboot and try again")
-//		2900 - 2964:	Exception descriptions (e.g., "bus error")
-//		3000 - 4999:	Palm OS system function names
-//		5000 - 6999:	Palm OS Library function names
-//		7000 - xxxx:	Palm OS Error descriptions
+//	1000 - 1999:	Message Templates
+//		1000 - 1199:		Error messages
+//		1200 - 1399:		Other messages
+//		1400 - 1499:		Menu strings
+//	2000 - xxxx:	Template Parts
+//		2000 - 2199:		Misc parts
+//		2200 - 2399:		Operations descriptions
+//		2400 - 2599:		Error descriptions
+//			2400 - 2499:		OS Errors (e.g., "the file was not found")
+//			2500 - 2599:		User/app errors (e.g., "I don't understand that file")
+//		2600 - 2799:		Recovery strings (e.g., "Reboot and try again")
+//		2900 - 2964:		Exception descriptions (e.g., "bus error")
+//		3000 - 4999:		Palm OS system function names
+//		5000 - 6999:		Palm OS Library function names
+//		7000 - xxxx:		Palm OS Error descriptions
 
 // --------------------------------------------------------------------------------
 //	Message Templates -- Error messages
@@ -88,27 +89,31 @@
 #define kStr_ErrFormObjectListAccess	1064
 #define kStr_ErrFormObjectAccess		1065
 #define kStr_ErrWindowAccess			1066
-#define kStr_ErrStepSpy					1067
-#define kStr_ErrWatchpoint				1068
+#define kStr_ErrBitmapAccess			1067
+#define kStr_ErrProscribedFunction		1068
+#define kStr_ErrStepSpy					1069
+#define kStr_ErrWatchpoint				1070
+#define kStr_ErrMemoryLeak				1071
+#define kStr_ErrMemoryLeaks				1072
 
 // Palm OS-detected errors
 
-#define kStr_ErrSysFatalAlert			1070
-#define kStr_ErrDbgMessage				1071
-
+#define kStr_ErrSysFatalAlert			1080
+#define kStr_ErrDbgMessage				1081
 
 // Other errors
 
 #define kStr_BadChecksum				1100
-#define kStr_UnknownDevice				1101
-#define kStr_MissingSkins				1102
-#define kStr_InconsistantDatabaseDates	1103
-#define kStr_NULLDatabaseDate			1104
-#define kStr_NeedHostFS					1105
-#define kStr_InvalidAddressNotEven		1106
-#define kStr_InvalidAddressNotInROMOrRAM 1107
-#define kStr_CannotParseCondition		1108
-#define kStr_UserNameTooLong			1109
+#define kStr_UnknownDeviceWarning		1101
+#define kStr_UnknownDeviceError			1102
+#define kStr_MissingSkins				1103
+#define kStr_InconsistentDatabaseDates	1104
+#define kStr_NULLDatabaseDate			1105
+#define kStr_NeedHostFS					1106
+#define kStr_InvalidAddressNotEven		1107
+#define kStr_InvalidAddressNotInROMOrRAM 1108
+#define kStr_CannotParseCondition		1109
+#define kStr_UserNameTooLong			1110
 
 
 // --------------------------------------------------------------------------------
@@ -117,27 +122,51 @@
 
 #pragma mark Message Templates -- Other messages
 
-#define kStr_AppAndVers					1200
-#define kStr_XofYFiles					1201
-#define kStr_GremlinNumber				1202
-#define kStr_XofYEvents					1203
-#define kStr_XEvents					1204
-#define kStr_ElapsedTime				1205
-#define kStr_GremlinStarted				1206
-#define kStr_GremlinEnded				1207
-#define kStr_SaveScreenAs				1208
-#define kStr_EntireDevice				1209
-#define kStr_ErrDisplayMessage			1210
-#define kStr_UnknownFatalError			1211
-#define kStr_EmulatorOff				1212
-#define kStr_SaveBeforeClosing			1213
-#define kStr_SaveBeforeQuitting			1214
-#define kStr_LogFileSize				1215
-#define kStr_InternalErrorException		1216
-#define kStr_InternalErrorMessage		1217
-#define kStr_WillNowReset				1218
+// Loading/saving
+
+#define kStr_SaveSessionAs				1200
+#define kStr_LoadSession				1201
+#define kStr_LoadSessionForReplay		1202
+#define kStr_LoadSessionForMinimize		1203
+#define kStr_SaveScreenAs				1204
+#define kStr_ImportFile					1205
+#define kStr_SaveBeforeClosing			1206
+#define kStr_SaveBeforeQuitting			1207
+
+#define kStr_GremlinNumber				1210
+#define kStr_GremlinXofYEvents			1211
+#define kStr_GremlinXEvents				1212
+#define kStr_GremlinElapsedTime			1213
+
+#define kStr_MinimizePassNumber			1220
+#define kStr_MinimizeXofYEvents			1221
+#define kStr_MinimizeElapsedTime		1222
+#define kStr_MinimizeRange				1223
+#define kStr_MinimizeDiscarded			1224
+
+#define kStr_AppAndVers					1230
+#define kStr_XofYFiles					1231
+#define kStr_GremlinStarted				1232
+#define kStr_GremlinEnded				1233
+#define kStr_EntireDevice				1234
+#define kStr_ErrDisplayMessage			1235
+#define kStr_UnknownFatalError			1236
+#define kStr_EmulatorOff				1237
+#define kStr_LogFileSize				1238
+#define kStr_InternalErrorException		1239
+#define kStr_InternalErrorMessage		1240
+#define kStr_WillNowReset				1241
+#define kStr_CommPortError				1242
+#define kStr_SocketsError				1243	
+#define kStr_MustTurnOnLogging			1244
+#define kStr_MustTurnOnShowDialog		1245
 
 #define kStr_ROMTransferInstructions	1250	// ... 1258
+
+
+// --------------------------------------------------------------------------------
+//	Message Templates -- Menu strings
+// --------------------------------------------------------------------------------
 
 #define kStr_MenuSessionNew				1400
 #define kStr_MenuSessionOpenOther		1401
@@ -146,47 +175,56 @@
 #define kStr_MenuSessionSaveAs			1404
 #define kStr_MenuSessionBound			1405
 #define kStr_MenuScreenSave				1406
-#define kStr_MenuImportOther			1407
-#define kStr_MenuExport					1408
-#define kStr_MenuHotSync				1409
-#define kStr_MenuReset					1410
-#define kStr_MenuDownloadROM			1411
-#define kStr_MenuUndo					1412
-#define kStr_MenuCut					1413
-#define kStr_MenuCopy					1414
-#define kStr_MenuPaste					1415
-#define kStr_MenuClear					1416
-#define kStr_MenuPreferences			1417
-#define kStr_MenuLogging				1418
-#define kStr_MenuDebugging				1419
-#define kStr_MenuTracing				1420
-#define kStr_MenuSkins					1421
-#define kStr_MenuCards					1422
-#define kStr_MenuBreakpoints			1423
-#define kStr_MenuGremlinsNew			1424
-#define kStr_MenuGremlinsStep			1425
-#define kStr_MenuGremlinsResume			1426
-#define kStr_MenuGremlinsStop			1427
+#define kStr_MenuSessionInfo			1407
+
+#define kStr_MenuImportOther			1410
+#define kStr_MenuExport					1411
+#define kStr_MenuHotSync				1412
+#define kStr_MenuReset					1413
+#define kStr_MenuDownloadROM			1414
+
+#define kStr_MenuUndo					1420
+#define kStr_MenuCut					1421
+#define kStr_MenuCopy					1422
+#define kStr_MenuPaste					1423
+#define kStr_MenuClear					1424
+
+#define kStr_MenuPreferences			1430
+#define kStr_MenuLogging				1431
+#define kStr_MenuDebugging				1432
+#define kStr_MenuErrorHandling			1433
+#define kStr_MenuTracing				1434
+#define kStr_MenuSkins					1435
+#define kStr_MenuHostFS					1436
+#define kStr_MenuBreakpoints			1437
+
+#define kStr_MenuGremlinsNew			1440
+#define kStr_MenuGremlinsSuspend		1441
+#define kStr_MenuGremlinsStep			1442
+#define kStr_MenuGremlinsResume			1443
+#define kStr_MenuGremlinsStop			1444
+#define kStr_MenuEventReplay			1445
+#define kStr_MenuEventMinimize			1446
 
 #if HAS_PROFILING
 
-#define kStr_MenuProfileStart			1428
-#define kStr_MenuProfileStop			1429
-#define kStr_MenuProfileDump			1430
+#define kStr_MenuProfileStart			1450
+#define kStr_MenuProfileStop			1451
+#define kStr_MenuProfileDump			1452
 
 #endif
 
-#define kStr_MenuAbout					1431
-#define kStr_MenuQuit					1432
-#define kStr_MenuFile					1433
-#define kStr_MenuEdit					1434
-#define kStr_MenuGremlins				1435
-#define kStr_MenuProfile				1436
-#define kStr_MenuOpen					1437
-#define kStr_MenuImport					1438
-#define kStr_MenuSettings				1439
-#define kStr_MenuEmpty					1440
-#define kStr_MenuBlank					1441
+#define kStr_MenuAbout					1460
+#define kStr_MenuQuit					1461
+#define kStr_MenuFile					1462
+#define kStr_MenuEdit					1463
+#define kStr_MenuGremlins				1464
+#define kStr_MenuProfile				1465
+#define kStr_MenuOpen					1466
+#define kStr_MenuImport					1467
+#define kStr_MenuSettings				1468
+#define kStr_MenuEmpty					1469
+#define kStr_MenuBlank					1470
 
 
 // --------------------------------------------------------------------------------
@@ -260,6 +298,13 @@
 #define kStr_WhenException			2113
 #define kStr_WhenSysCall			2114
 
+
+#define kStr_ShowInDialog			2120
+#define kStr_AutomaticallyContinue	2121
+#define kStr_AutomaticallyQuit		2122
+#define kStr_NextGremlin			2123
+
+
 // --------------------------------------------------------------------------------
 //	Template Parts -- Operations descriptions
 // --------------------------------------------------------------------------------
@@ -276,32 +321,35 @@
 #define kStr_CmdSave				2223
 #define kStr_CmdSaveBound			2224
 #define kStr_CmdSaveScreen			2225
-#define kStr_CmdInstall				2226
-#define kStr_CmdInstallMany			2227
-#define kStr_CmdExportDatabase		2228
-#define kStr_CmdHotSync				2229
-#define kStr_CmdReset				2230
-#define kStr_CmdTransferROM			2231
-#define kStr_CmdMinimize			2232
+#define kStr_CmdSessionInfo			2226
+#define kStr_CmdInstall				2227
+#define kStr_CmdInstallMany			2228
+#define kStr_CmdExportDatabase		2229
+#define kStr_CmdHotSync				2230
+#define kStr_CmdReset				2231
+#define kStr_CmdTransferROM			2232
 #define kStr_CmdQuit				2233
 
 #define kStr_CmdPreferences			2240
 #define kStr_CmdLoggingOptions		2241
 #define kStr_CmdDebugOptions		2242
-#define kStr_CmdSkins				2243
-#define kStr_CmdBreakpoints			2244
-#define kStr_CmdTracingOptions		2245
-#define kStr_CmdCardOptions			2246
+#define kStr_CmdErrorHandling		2243
+#define kStr_CmdSkins				2244
+#define kStr_CmdBreakpoints			2245
+#define kStr_CmdTracingOptions		2246
+#define kStr_CmdHostFSOptions		2247
 
 #define kStr_CmdGremlinNew			2250
-#define kStr_CmdGremlinStep			2251
-#define kStr_CmdGremlinResume		2252
-#define kStr_CmdGremlinStop			2253
+#define kStr_CmdGremlinSuspend		2251
+#define kStr_CmdGremlinStep			2252
+#define kStr_CmdGremlinResume		2253
+#define kStr_CmdGremlinStop			2254
+#define kStr_CmdEventReplay			2255
+#define kStr_CmdEventMinimize		2256
 
-#define kStr_CmdProfileInit			2260
-#define kStr_CmdProfileStart		2261
-#define kStr_CmdProfileStop			2262
-#define kStr_CmdProfileDump			2263
+#define kStr_CmdProfileStart		2260
+#define kStr_CmdProfileStop			2261
+#define kStr_CmdProfileDump			2262
 
 #define kStr_ResizeWindow			2270
 #define kStr_EnterKey				2271
@@ -364,6 +412,8 @@
 #define kStr_BadROM					2520	// kError_BadROM
 #define kStr_UnsupportedROM			2521	// kError_UnsupportedROM
 #define kStr_InvalidDevice			2522	// kError_InvalidDevice
+#define kStr_InvalidSession			2523	// kError_InvalidSessionFile
+#define kStr_InvalidConfiguration	2524	// kError_InvalidConfiguration
 
 #define kStr_NameNotNULLTerminated		2530
 #define kStr_NameNotPrintable			2531
@@ -379,6 +429,10 @@
 #define kStr_RecordMemError				2541
 #define kStr_AppInfoMemError			2542
 #define kStr_DuplicateResource			2543
+
+#define kStr_SystemUseOnly			2550
+#define kStr_Obsolete				2551
+
 
 // --------------------------------------------------------------------------------
 //	Template Parts -- Recovery strings

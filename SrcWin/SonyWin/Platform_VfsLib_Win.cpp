@@ -14,11 +14,9 @@
 #include "EmCommon.h"
 #include "Platform_VfsLib.h"
 
-#include "Emulator.h"			// gInstance
 #include "Logging.h"			// LogAppendMsg
 #include "Marshal.h"
 #include "Platform.h"			// AllocateMemory
-#include "UAE_Utils.h"
 
 #include <direct.h>
 #include <sys/types.h>

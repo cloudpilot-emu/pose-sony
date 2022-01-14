@@ -8,6 +8,8 @@
 
 #ifdef SONY_ROM
 
+#include "Byteswapping.h"
+
 #define PushParm(p)	PushParameter (theTrap, p)
 
 inline void PushParameter (ATrap& theTrap, uint32 p)	{ theTrap.PushLong (p); }
@@ -138,7 +140,6 @@ void TimSecondsToDateTime(UInt32 seconds, DateTimePtr dateTimeP)
 
 	Canonical_If_Not_Null (dateTimeP);
 }
-
 
 
 #endif

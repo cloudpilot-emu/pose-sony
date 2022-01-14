@@ -1,5 +1,5 @@
 /* -*- mode: C++; tab-width: 4 -*- */
-/* ===================================================================== *\
+/* ===================================================================== *
 	Copyright (c) 1998-2001 Palm, Inc. or its subsidiaries.
 	All rights reserved.
 
@@ -9,7 +9,7 @@
 	it under the terms of the GNU General Public License as published by
 	the Free Software Foundation; either version 2 of the License, or
 	(at your option) any later version.
-\* ===================================================================== */
+* ===================================================================== */
 
 #ifndef _BYTESWAPPING_H_
 #define _BYTESWAPPING_H_
@@ -17,6 +17,9 @@
 #if !defined (BYTESWAP)
 #error "Must define BYTESWAP"
 #endif
+
+
+struct regstruct;
 
 
 /*
@@ -124,32 +127,18 @@ inline void Byteswap(T*& v)
 	Byteswap ((uint32&) v);
 }
 
-inline void Byteswap(WinHandle& v)
-{
-	Byteswap ((uint32&) v);
-}
-
-struct regstruct;
-
-void Byteswap (EventType& event);
-void Byteswap (FieldAttrType& p);
 void Byteswap (HwrM68328Type&);
 void Byteswap (HwrM68EZ328Type&);
 void Byteswap (HwrM68VZ328Type&);
-void Byteswap (PenBtnInfoType& p);
-void Byteswap (PointType& p);
-void Byteswap (RectangleType& p);
-void Byteswap (SndCommandType& cmd);
-void Byteswap (SysKernelInfoType& p);
-void Byteswap (SysNVParamsType& p);
-
+#if INCLUDE_SECRET_STUFF
+void Byteswap (HwrM68SZ328Type&);
+#endif	// INCLUDE_SECRET_STUFF
 void Byteswap (regstruct& r);
-
 void Byteswap (SED1375RegsType& p);
 
 #ifdef SONY_ROM
 void Byteswap (DateTimeType& p);
-#endif
+#endif //SONY_ROM
 
 #if BYTESWAP
 

@@ -202,13 +202,15 @@ Bool EmTransport::CanWrite (void)
  *				of the former is not guaranteed to fetch all received
  *				and buffered bytes.
  *
- * PARAMETERS:	None
+ * PARAMETERS:	minBytes - try to buffer at least this many bytes.
+ *					Return when we have this many bytes buffered, or
+ *					until some small timeout has occurred.
  *
  * RETURNED:	Number of bytes that can be read.
  *
  ***********************************************************************/
 
-long EmTransport::BytesInBuffer (void)
+long EmTransport::BytesInBuffer (long /*minBytes*/)
 {
 	return 0;
 }
@@ -239,80 +241,429 @@ void EmTransport::CloseAllTransports (void)
 }
 
 
-/**********************************************************************
+#pragma mark -
+
+// ---------------------------------------------------------------------------
+//		¥ EmTransportNull::EmTransportNull
+// ---------------------------------------------------------------------------
+
+EmTransportNull::EmTransportNull (void)
+{
+}
+
+
+EmTransportNull::EmTransportNull (const EmTransportDescriptor&)
+{
+}
+
+
+EmTransportNull::EmTransportNull (const ConfigNull&)
+{
+}
+
+
+EmTransportNull::~EmTransportNull (void)
+{
+	this->Close ();
+}
+
+
+ErrCode EmTransportNull::Open (void)
+{
+	return errNone;
+}
+
+
+ErrCode EmTransportNull::Close (void)
+{
+	return errNone;
+}
+
+
+ErrCode EmTransportNull::Read (long& size, void*)
+{
+	size = 0;
+	return errNone;
+}
+
+
+ErrCode EmTransportNull::Write (long&, const void*)
+{
+	return errNone;
+}
+
+
+Bool EmTransportNull::CanRead (void)
+{
+	return true;
+}
+
+
+Bool EmTransportNull::CanWrite (void)
+{
+	return true;
+}
+
+
+long EmTransportNull::BytesInBuffer (long /*minBytes*/)
+{
+	return 0;
+}
+
+
+string EmTransportNull::GetSpecificName (void)
+{
+	return "Bit Bucket";
+}
+
+
+/***********************************************************************
  *
- * FUNCTION:    EmTransport::GetTransportTypeFromPortName
+ * FUNCTION:	EmTransportNull:: GetDescriptorList
  *
- * DESCRIPTION: .
+ * DESCRIPTION:	Return the list of TCP ports on this computer.  Used
+ *				to prepare a menu of TCP port choices.
  *
- * PARAMETERS:  .
+ * PARAMETERS:	nameList - port names are added to this list.
  *
- * RETURNED:    .
+ * RETURNED:	Nothing
  *
  ***********************************************************************/
 
-EmTransportType EmTransport::GetTransportTypeFromPortName (const char* portName)
+void EmTransportNull::GetDescriptorList (EmTransportDescriptorList& descList)
+{
+	descList.clear ();
+
+	descList.push_back (EmTransportDescriptor (kTransportNull));
+}
+
+
+#pragma mark -
+
+// EmTransportDescriptor
+//
+// This is a simple class that manages the creation of an EmTransport.
+// It can be initialized with information describing what kind of transport
+// to create (Serial, Socket, USB, etc.) and the parameters used to create
+// it (serial configuration, IP address, etc.).  Once that information has
+// be established, calling CreateTransport will create the appropriate
+// transport object.
+//
+// EmTransportDescriptor is also called upon to provide UI information
+// appropriate for display in dialogs (in menus or edit text items).
+//
+// Internally, this information is stored as a string.  The string is
+// divided into two parts: a "scheme", and scheme-specific data.  These
+// two parts are divided by a colon.  The scheme identifies what kind of
+// transport is to be created, and any option scheme-specific data
+// describes the creation parameters.
+
+// ---------------------------------------------------------------------------
+//		¥ EmTransportDescriptor::EmTransportDescriptor
+// ---------------------------------------------------------------------------
+
+EmTransportDescriptor::EmTransportDescriptor (void) :
+	fDescriptor ("unknown")
+{
+}
+
+
+// ---------------------------------------------------------------------------
+//		¥ EmTransportDescriptor::EmTransportDescriptor
+// ---------------------------------------------------------------------------
+
+EmTransportDescriptor::EmTransportDescriptor (EmTransportType type) :
+	fDescriptor (GetSchemePrefix (type) + ":")
+{
+}
+
+
+// ---------------------------------------------------------------------------
+//		¥ EmTransportDescriptor::EmTransportDescriptor
+// ---------------------------------------------------------------------------
+
+EmTransportDescriptor::EmTransportDescriptor (EmTransportType type, const string& s) :
+	fDescriptor (GetSchemePrefix (type) + ":" + s)
+{
+}
+
+
+// ---------------------------------------------------------------------------
+//		¥ EmTransportDescriptor::EmTransportDescriptor
+// ---------------------------------------------------------------------------
+
+EmTransportDescriptor::EmTransportDescriptor (const string& s) :
+	fDescriptor (s)
 {
 #if PLATFORM_UNIX
-	if (portName && strlen (portName) > 0)
+	if (this->GetType () == kTransportUnknown)
 	{
-		if (portName[0] == '/')
+		// On Unix, we'll be handed something that looks either like a device
+		// or an IP address.  Try to guess which and set up the scheme type
+		// based on what we decide.
+
+		if (s.size () == 0)
 		{
-			return kTransportSerial;
+			// Empty string -- turn into a NULL descriptor.
+
+			fDescriptor = this->GetSchemePrefix (kTransportNull) + ":";
 		}
-
-		return kTransportSocket;
-	}
-#else
-	{
-		EmTransportSerial::PortNameList	portNames;
-		EmTransportSerial::GetPortNameList (portNames);
-		EmTransportSerial::PortNameList::iterator	iter = portNames.begin ();
-
-		while (iter != portNames.end ())
+		else if (s[0] == '/')
 		{
-			if (!strcmp (portName, iter->c_str ()))
-			{
-				return kTransportSerial;
-			}
+			// It looks like a device name -- turn into a Serial descriptor.
 
-			++iter;
+			fDescriptor = this->GetSchemePrefix (kTransportSerial) + ":" + fDescriptor;
 		}
-	}
-
-	{
-		EmTransportSocket::PortNameList	portNames;
-		EmTransportSocket::GetPortNameList (portNames);
-		EmTransportSocket::PortNameList::iterator	iter = portNames.begin ();
-
-		while (iter != portNames.end ())
+		else
 		{
-			if (!strcmp (portName, iter->c_str ()))
-			{
-				return kTransportSocket;
-			}
+			// Assume IP address.  I'm not sure if there's a good way to
+			// ensure this.  What's a good heuristic check?
 
-			++iter;
-		}
-	}
-
-	{
-		EmTransportUSB::PortNameList	portNames;
-		EmTransportUSB::GetPortNameList (portNames);
-		EmTransportUSB::PortNameList::iterator	iter = portNames.begin ();
-
-		while (iter != portNames.end ())
-		{
-			if (!strcmp (portName, iter->c_str ()))
-			{
-				return kTransportUSB;
-			}
-
-			++iter;
+			fDescriptor = this->GetSchemePrefix (kTransportSocket) + ":" + fDescriptor;
 		}
 	}
 #endif
-
-	return kTransportNone;
 }
 
+
+// ---------------------------------------------------------------------------
+//		¥ EmTransportDescriptor::EmTransportDescriptor
+// ---------------------------------------------------------------------------
+
+EmTransportDescriptor::EmTransportDescriptor (const EmTransportDescriptor& other) :
+	fDescriptor (other.fDescriptor)
+{
+}
+
+
+// ---------------------------------------------------------------------------
+//		¥ EmTransportDescriptor::~EmTransportDescriptor
+// ---------------------------------------------------------------------------
+
+EmTransportDescriptor::~EmTransportDescriptor (void)
+{
+}
+
+
+// ---------------------------------------------------------------------------
+//		¥ EmTransportDescriptor::operator=
+// ---------------------------------------------------------------------------
+
+EmTransportDescriptor& EmTransportDescriptor::operator= (const EmTransportDescriptor& other)
+{
+	fDescriptor = other.fDescriptor;
+
+	return *this;
+}
+
+
+// ---------------------------------------------------------------------------
+//		¥ EmTransportDescriptor::operator==
+// ---------------------------------------------------------------------------
+
+bool EmTransportDescriptor::operator== (const EmTransportDescriptor& other) const
+{
+	return fDescriptor == other.fDescriptor;
+}
+
+
+// ---------------------------------------------------------------------------
+//		¥ EmTransportDescriptor::CreateTransport
+// ---------------------------------------------------------------------------
+
+EmTransport* EmTransportDescriptor::CreateTransport (void) const
+{
+	EmTransport*	result;
+	EmTransportType	type = this->GetType ();
+
+	switch (type)
+	{
+		case kTransportNull:
+			result = new EmTransportNull (*this);
+			break;
+
+		case kTransportSerial:
+			result = new EmTransportSerial (*this);
+			break;
+
+		case kTransportSocket:
+			result = new EmTransportSocket (*this);
+			break;
+
+		case kTransportUSB:
+			result = new EmTransportUSB (*this);
+			break;
+
+		default:
+			EmAssert (false);
+			result = new EmTransportNull (*this);
+			break;
+	}
+
+	return result;
+}
+
+
+// ---------------------------------------------------------------------------
+//		¥ EmTransportDescriptor::GetMenuName
+// ---------------------------------------------------------------------------
+
+string EmTransportDescriptor::GetMenuName (void) const
+{
+	string			result;
+	EmTransportType	type = this->GetType ();
+
+	switch (type)
+	{
+#if !PLATFORM_UNIX
+		case kTransportNull:
+			result = "No Port";
+			break;
+
+		case kTransportSerial:
+			result = this->GetSchemeSpecific ();
+			break;
+
+		case kTransportSocket:
+			result = "TCP/IP";
+			break;
+
+		case kTransportUSB:
+			result = "USB";
+			break;
+
+		default:
+			EmAssert (false);
+			result = "No Port";
+			break;
+#else
+		case kTransportNull:
+		case kTransportSerial:
+		case kTransportSocket:
+		case kTransportUSB:
+			result = this->GetSchemeSpecific ();
+			break;
+
+		default:
+			EmAssert (false);
+			result = "";
+			break;
+#endif
+	}
+
+	return result;
+}
+
+
+// ---------------------------------------------------------------------------
+//		¥ EmTransportDescriptor::GetDescriptor
+// ---------------------------------------------------------------------------
+
+string EmTransportDescriptor::GetDescriptor (void) const
+{
+	EmAssert (this->GetType () != kTransportUnknown);
+
+	return this->fDescriptor;
+}
+
+
+// ---------------------------------------------------------------------------
+//		¥ EmTransportDescriptor::GetScheme
+// ---------------------------------------------------------------------------
+
+string EmTransportDescriptor::GetScheme (void) const
+{
+	string::size_type	pos = this->fDescriptor.find (':');
+	EmAssert (pos != string::npos);
+	return this->fDescriptor.substr (0, pos);
+}
+
+
+// ---------------------------------------------------------------------------
+//		¥ EmTransportDescriptor::GetSchemeSpecific
+// ---------------------------------------------------------------------------
+
+string EmTransportDescriptor::GetSchemeSpecific (void) const
+{
+	string::size_type	pos = this->fDescriptor.find (':');
+	EmAssert (pos != string::npos);
+	return this->fDescriptor.substr (pos + 1);
+}
+
+
+// ---------------------------------------------------------------------------
+//		¥ EmTransportDescriptor::GetType
+// ---------------------------------------------------------------------------
+
+EmTransportType EmTransportDescriptor::GetType (void) const
+{
+	if (this->PrvTestType (kTransportNull))
+		return kTransportNull;
+
+	if (this->PrvTestType (kTransportSerial))
+		return kTransportSerial;
+
+	if (this->PrvTestType (kTransportSocket))
+		return kTransportSocket;
+
+	if (this->PrvTestType (kTransportUSB))
+		return kTransportUSB;
+
+	return kTransportUnknown;
+}
+
+
+// ---------------------------------------------------------------------------
+//		¥ EmTransportDescriptor::GetSchemePrefix
+// ---------------------------------------------------------------------------
+// Return the descriptor prefix for the given scheme.  The separating ":" is
+// NOT included.
+
+string EmTransportDescriptor::GetSchemePrefix (EmTransportType type)
+{
+	string	result;
+
+	switch (type)
+	{
+		case kTransportNull:
+			result = "null";
+			break;
+
+		case kTransportSerial:
+			result = "serial";
+			break;
+
+		case kTransportSocket:
+			result = "socket";
+			break;
+
+		case kTransportUSB:
+			result = "usb";
+			break;
+
+		default:
+			EmAssert (false);
+			result = "null";
+			break;
+	}
+
+	return result;
+}
+
+
+// ---------------------------------------------------------------------------
+//		¥ EmTransportDescriptor::PrvTestType
+// ---------------------------------------------------------------------------
+// Return whether or not the controlled descriptor is part of the given scheme.
+
+Bool EmTransportDescriptor::PrvTestType (EmTransportType type) const
+{
+	string	scheme = this->GetSchemePrefix (type) + ":";
+
+	if (this->fDescriptor.size () < scheme.size ())
+		return false;
+
+	string	prefix = this->fDescriptor.substr (0, scheme.size ());
+
+	return prefix == scheme;
+}

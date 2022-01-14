@@ -14,7 +14,7 @@
 #include "EmCommon.h"
 #include "EmTransportUSBWin.h"
 
-#include "Emulator.h"			// gInstance
+#include "EmApplicationWin.h"	// gInstance
 #include "Logging.h"			// LogSerial, LogAppendMsg
 #include "Platform.h"			// Platform
 
@@ -82,6 +82,25 @@ HWND							EmHostTransportUSB::fgWnd;
 HDEVNOTIFY						EmHostTransportUSB::fgToken;
 TCHAR							EmHostTransportUSB::fgPortName[256];
 HANDLE							EmHostTransportUSB::fgPortHandle;
+
+
+/***********************************************************************
+ *
+ * FUNCTION:	EmTransportUSB::HostHasUSB
+ *
+ * DESCRIPTION:	Return whether or not USB facilities are available.
+ *
+ * PARAMETERS:	None.
+ *
+ * RETURNED:	True if the host has a USB port and we can use it.
+ *				False otherwise.
+ *
+ ***********************************************************************/
+
+Bool EmTransportUSB::HostHasUSB (void)
+{
+	return EmHostTransportUSB::fgUSBLib != NULL;
+}
 
 
 /***********************************************************************
@@ -289,17 +308,19 @@ Bool EmTransportUSB::HostCanWrite (void)
  *				of the former is not guaranteed to fetch all received
  *				and buffered bytes.
  *
- * PARAMETERS:	None
+ * PARAMETERS:	minBytes - try to buffer at least this many bytes.
+ *					Return when we have this many bytes buffered, or
+ *					until some small timeout has occurred.
  *
  * RETURNED:	Number of bytes that can be read.
  *
  ***********************************************************************/
 
-long EmTransportUSB::HostBytesInBuffer (void)
+long EmTransportUSB::HostBytesInBuffer (long minBytes)
 {
 	// Copy any data into our private buffer.
 
-	fHost->BufferPendingData (-1);
+	fHost->BufferPendingData (minBytes);
 
 	// Return however many bytes we have buffered up.
 
@@ -405,34 +426,35 @@ void EmHostTransportUSB::BufferPendingData (long minBytes)
 	{
 		while (minBytes == -1 || fBuffer.size () < minBytes)
 		{
-			// Read a chunk of data into a local buffer.
+			// Read a chunk of data into a local buffer.  Read as much
+			// as is requested, taking into account the bytes that we've
+			// already read and buffered.
 
-//PRINTF ("EmHostTransportUSB::BufferPendingData: ReceiveBytes begin.");
-			UInt8	buffer[2048];
-			ULONG	received = 0;
-			ULONG	needed = minBytes - fBuffer.size ();
+			UInt8	buffer[1024 + 64];
+			ULONG	received	= 0;
+			ULONG	needed		= minBytes - fBuffer.size ();
 
-			// OK...there's something goofy with our USB driver.  Gilles
-			// says that it has to be aligned to a 64-byte boundary.  So,
-			// here goes...
-
-#if 1
-			UInt8*	dest		= (UInt8*) ((((UInt32) buffer) + 63) & ~63);
-			ULONG	destSize	= (countof (buffer) - (dest - buffer)) & ~63;
-#else
 			UInt8*	dest		= buffer;
 			ULONG	destSize	= countof (buffer);
-#endif
+
+			// Read only as many bytes as we have room for in our local,
+			// stack-based buffer.
 
 			if (needed > destSize || minBytes == -1)
 				needed = destSize;
 
+			// Read the bytes.
+
 			ULONG	err = gReceiveBytes (fgPortHandle, dest, needed, &received);
-//PRINTF ("EmHostTransportUSB::BufferPendingData: ReceiveBytes end.");
 
 			// Break if there was an error receiving the data.
 
 			if (err && err != UsbErrRecvTimedOut)
+				break;
+
+			// Break if there is no more data
+
+			if (received == 0)
 				break;
 
 			// Copy that data into our dynamic buffer.
@@ -446,11 +468,6 @@ void EmHostTransportUSB::BufferPendingData (long minBytes)
 				LogAppendData (dest, received, "EmHostTransportUSB::BufferPendingData: Received %ld of %ld bytes:", received, minBytes);
 			else
 				PRINTF ("EmHostTransportUSB::BufferPendingData: Received %ld of %ld bytes.", received, minBytes);
-
-			// Break if there is no more data
-
-			if (err == UsbErrRecvTimedOut || received < needed)
-				break;
 		}
 	}
 }
@@ -498,8 +515,10 @@ void EmHostTransportUSB::Startup (void)
 	SNARF_FUNCTION(SetTimeouts);
 	SNARF_FUNCTION(GetTimeouts);
 
-	if (!gGetDeviceFriendlyName ||
-		!gGetAttachedDevices ||
+	if (//!gGetDeviceFriendlyName ||	// We don't need this one, and it's not in
+										// all versions of the .dll.
+		//!gGetAttachedDevices ||		// This one's not in all versions of the .dll,
+										// either, so check for it when used.
 		!gRegisterDeviceInterface ||
 		!gUnRegisterDeviceInterface ||
 		!gIsPalmOSDeviceNotification ||
@@ -546,31 +565,34 @@ void EmHostTransportUSB::Startup (void)
 	// See if there are any currently-attached devices we need to
 	// know about.
 
-	ULONG	count;
-	PTCHAR	buffer = NULL;
-	ULONG	bufferSize = 0;
-
-	ULONG	err = gGetAttachedDevices (&count, buffer, &bufferSize);
-
-	if (err == UsbErrBufferTooSmall)
+	if (gGetAttachedDevices)
 	{
-		buffer = (PTCHAR) Platform::AllocateMemory (bufferSize * sizeof (TCHAR));
-		err = gGetAttachedDevices (&count, buffer, &bufferSize);
+		ULONG	count;
+		PTCHAR	buffer = NULL;
+		ULONG	bufferSize = 0;
 
-		if (err == UsbNoError && count > 0)
+		ULONG	err = gGetAttachedDevices (&count, buffer, &bufferSize);
+
+		if (err == UsbErrBufferTooSmall)
 		{
-			// Get the name of the device to use.  If there's more than
-			// one, we arbitrarily pick the first one.  We're not really
-			// set up to work with more than one USB device.
+			buffer = (PTCHAR) Platform::AllocateMemory (bufferSize * sizeof (TCHAR));
+			err = gGetAttachedDevices (&count, buffer, &bufferSize);
 
-			strcpy (fgPortName, buffer);
+			if (err == UsbNoError && count > 0)
+			{
+				// Get the name of the device to use.  If there's more than
+				// one, we arbitrarily pick the first one.  We're not really
+				// set up to work with more than one USB device.
 
-			// Now open the device.
+				strcpy (fgPortName, buffer);
 
-			EmHostTransportUSB::OpenPort ();
+				// Now open the device.
+
+				EmHostTransportUSB::OpenPort ();
+			}
+
+			Platform::FreeMemory (buffer);
 		}
-
-		Platform::FreeMemory (buffer);
 	}
 }
 
@@ -725,8 +747,12 @@ void EmHostTransportUSB::OpenPort (void)
 		{
 			USB_TIMEOUTS	timeouts;
 
-			timeouts.readTimeout = 1;
-			timeouts.writeTimeout = 1;
+			// Note: these timeout values are very specific.  In the
+			// driver against which they were tested (1.2.0.0), lower
+			// values would cause misreads.
+
+			timeouts.readTimeout = 50;
+			timeouts.writeTimeout = 50;
 
 			gSetTimeouts (fgPortHandle, &timeouts);
 		}

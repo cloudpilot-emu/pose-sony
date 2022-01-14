@@ -106,12 +106,16 @@ class EmPalmHeap
 														 EmPalmChunkList* = NULL);
 		static void				MemPtrUnlock			(MemPtr,
 														 EmPalmChunkList* = NULL);
+		static void				MemPtrSetOwner			(MemPtr,
+														 EmPalmChunkList* = NULL);
 
 		static void				ValidateAllHeaps		(void);
 
+		static MemPtr			DerefHandle				(MemHandle h);
+		static MemHandle		RecoverHandle			(MemPtr p);
+
 	private:
 		static void				AddHeap					(UInt16 heapID);
-		static MemPtr			DerefHandle				(MemHandle h);
 		static long				GetHeapVersion			(emuptr	heapHdr);
 
 	private:
@@ -336,8 +340,8 @@ class EmPalmChunk
 		long					Version					(void) const		{ return fVersion; }
 		Bool					Free					(void) const		{ return fFree; }
 		uint8					LockCount				(void) const		{ return fLockCount; }
-//		uint8					Owner					(void) const		{ return fOwner; }
-//		SDWord					HOffset					(void) const		{ return fHOffset; }
+		uint8					Owner					(void) const		{ return fOwner; }
+		int32					HOffset					(void) const		{ return fHOffset; }
 
 	private:
 		void					GetChunkInfo			(const EmPalmHeap&,
@@ -350,18 +354,18 @@ class EmPalmChunk
 		long		fVersion;
 
 		emuptr		fChunkHdrStart;
-		UInt32		fChunkHdrSize;
+		uint32		fChunkHdrSize;
 
 		bool		fFree;				// set if free chunk
 		bool		fMoved;				// used by MemHeapScramble
 		bool		fUnused2;			// unused
 		bool		fUnused3;			// unused
-		UInt8		fSizeAdj;			// size adjustment
-		UInt32		fSize;				// actual size of chunk
+		uint8		fSizeAdj;			// size adjustment
+		uint32		fSize;				// actual size of chunk
 
-		UInt8		fLockCount;			// lock count
-		UInt8		fOwner;				// owner ID
-		Int32		fHOffset;			// signed handle offset/2
+		uint8		fLockCount;			// lock count
+		uint8		fOwner;				// owner ID
+		int32		fHOffset;			// signed handle offset/2
 										// used in free chunks to point to next free chunk
 
 };

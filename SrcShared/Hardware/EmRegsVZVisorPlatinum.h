@@ -25,7 +25,8 @@ class EmRegsVZVisorPlatinum : public EmRegsVZ
 
 		virtual Bool			GetLCDScreenOn			(void);
 		virtual Bool			GetLCDBacklightOn		(void);
-		virtual Bool			GetSerialPortOn			(int portNum);
+		virtual Bool			GetLineDriverState		(EmUARTDeviceType type);
+		virtual EmUARTDeviceType	GetUARTDevice		(int uartNum);
 
 		virtual uint8			GetPortInputValue		(int);
 		virtual uint8			GetPortInternalValue	(int);

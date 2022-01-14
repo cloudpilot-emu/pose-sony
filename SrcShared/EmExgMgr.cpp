@@ -17,6 +17,7 @@
 #include "EmBankMapped.h"		// EmBankMapped
 #include "EmCPU.h"				// Emulator::SetBreakReason (kBreak_TaskFinished)
 #include "EmFileImport.h"		// SetResult, SetDone
+#include "EmMemory.h"			// EmMem_strncpy, EmMem_memset
 #include "EmPalmStructs.h"		// SysLibTblEntryType, ExgGoToType, ExgSocketType
 #include "EmSession.h"			// gSession, SuspendByTimeout
 #include "EmStream.h"			// EmStream
@@ -356,7 +357,7 @@ Err EmExgMgrStream::ExgLibControl (UInt16 libRefNum, UInt16 op,
 			if (valueP && valueLenP)
 			{
 				EmAliasUInt16<PAS>	valueLen (valueLenP);
-				uae_strncpy (valueP, "Poser Beam", valueLen);
+				EmMem_strncpy (valueP, "Poser Beam", valueLen);
 			}
 			else
 			{
@@ -377,7 +378,7 @@ Err EmExgMgrStream::ExgLibControl (UInt16 libRefNum, UInt16 op,
 //				const UInt16	kNoGoToBit		= 0x2000;
 				const UInt16	kNoStatusBit	= 0x1000;
 
-				uae_memset (valueP, 0, valueLen);
+				EmMem_memset (valueP, 0, valueLen);
 
 				socket.libraryRef	= libRefNum;	// identifies the Exg library in use
 //				socket.socketRef	= 0;			// used by Exg library to identify this connection
@@ -416,7 +417,9 @@ Err EmExgMgrStream::ExgLibControl (UInt16 libRefNum, UInt16 op,
 		{
 			// Unmap file name and drop our reference to it.
 
+#ifndef NDEBUG
 			EmAliasUInt16<PAS>			valueLen (valueLenP);
+#endif
 			EmAliasExgSocketType<PAS>	socket (valueP);
 
 			EmAssert ((UInt16) valueLen == socket.GetSize ());

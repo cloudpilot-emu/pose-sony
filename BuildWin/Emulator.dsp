@@ -46,7 +46,7 @@ RSC=rc.exe
 # PROP Ignore_Export_Lib 0
 # PROP Target_Dir ""
 # ADD BASE CPP /nologo /MT /W3 /GX /O2 /D "NDEBUG" /D INCLUDE_SECRET_STUFF=0 /D HAS_PROFILING=0 /Yu"EmCommon.h" /FD @CppOptions.txt /c
-# ADD CPP /nologo /MT /W3 /GR /GX /O2 /D "SONY_ROM" /D "BUILDING_AGAINST_PALMOS35" /D "NDEBUG" /D INCLUDE_SECRET_STUFF=0 /D HAS_PROFILING=0 /D PLATFORM_WINDOWS=1 /FR /Yu"EmCommon.h" /FD @CppOptions.txt /c
+# ADD CPP /nologo /MT /W3 /GR /GX /O2 /D "SONY_ROM" /D "BUILDING_AGAINST_PALMOS35" /D "NDEBUG" /D INCLUDE_SECRET_STUFF=1 /D HAS_PROFILING=0 /D PLATFORM_WINDOWS=1 /FR /Yu"EmCommon.h" /FD @CppOptions.txt /c
 # ADD BASE MTL /nologo /D "NDEBUG" /mktyplib203 /o "NUL" /win32
 # ADD MTL /nologo /D "NDEBUG" /mktyplib203 /o "NUL" /win32
 # ADD BASE RSC /l 0x409 /d "NDEBUG"
@@ -56,8 +56,8 @@ BSC32=bscmake.exe
 # ADD BSC32 /nologo
 LINK32=link.exe
 # ADD BASE LINK32 kernel32.lib user32.lib gdi32.lib winspool.lib comdlg32.lib advapi32.lib shell32.lib ole32.lib oleaut32.lib uuid.lib odbc32.lib odbccp32.lib /nologo /subsystem:windows /machine:I386
-# ADD LINK32 kernel32.lib user32.lib gdi32.lib winspool.lib comctl32.lib comdlg32.lib advapi32.lib shell32.lib ole32.lib oleaut32.lib uuid.lib odbc32.lib odbccp32.lib version.lib wsock32.lib winmm.lib /nologo /subsystem:windows /map /machine:I386
-# SUBTRACT LINK32 /profile /debug
+# ADD LINK32 kernel32.lib user32.lib gdi32.lib winspool.lib comctl32.lib comdlg32.lib advapi32.lib shell32.lib ole32.lib oleaut32.lib uuid.lib odbc32.lib odbccp32.lib version.lib wsock32.lib winmm.lib /nologo /subsystem:windows /incremental:yes /machine:I386
+# SUBTRACT LINK32 /profile /map /debug
 
 !ELSEIF  "$(CFG)" == "Emulator - Win32 Debug"
 
@@ -73,7 +73,7 @@ LINK32=link.exe
 # PROP Ignore_Export_Lib 0
 # PROP Target_Dir ""
 # ADD BASE CPP /nologo /MTd /W3 /Gm /GX /ZI /Od /D "_DEBUG" /D INCLUDE_SECRET_STUFF=1 /D HAS_PROFILING=1 /FR /Yu"EmCommon.h" /FD @CppOptions.txt /c
-# ADD CPP /nologo /MTd /W3 /Gm /GR /GX /ZI /Od /D "SONY_ROM_DEBUG" /D "SONY_ROM" /D "BUILDING_AGAINST_PALMOS35" /D "_DEBUG" /D INCLUDE_SECRET_STUFF=1 /D HAS_PROFILING=1 /D PLATFORM_WINDOWS=1 /FR /Yu"EmCommon.h" /FD @CppOptions.txt /c
+# ADD CPP /nologo /MTd /W3 /Gm /Gi /GR /GX /ZI /Od /D "SONY_ROM" /D "BUILDING_AGAINST_PALMOS35" /D INCLUDE_SECRET_STUFF=1 /D HAS_PROFILING=1 /D PLATFORM_WINDOWS=1 /FR /Yu"EmCommon.h" /FD @CppOptions.txt /c
 # ADD BASE MTL /nologo /D "_DEBUG" /mktyplib203 /o "NUL" /win32
 # ADD MTL /nologo /D "_DEBUG" /mktyplib203 /o "NUL" /win32
 # ADD BASE RSC /l 0x409 /d "_DEBUG"
@@ -158,7 +158,7 @@ LINK32=link.exe
 # PROP Ignore_Export_Lib 0
 # PROP Target_Dir ""
 # ADD BASE CPP /nologo /MT /W3 /GX /O2 /D "NDEBUG" /D INCLUDE_SECRET_STUFF=1 /D HAS_PROFILING=1 /Yu"EmCommon.h" /FD @CppOptions.txt /c
-# ADD CPP /nologo /MT /W3 /GR /GX /O2 /D "SONY_ROM" /D "BUILDING_AGAINST_PALMOS35" /D "NDEBUG" /D INCLUDE_SECRET_STUFF=1 /D HAS_PROFILING=1 /D PLATFORM_WINDOWS=1 /FR /Yu"EmCommon.h" /FD @CppOptions.txt /c
+# ADD CPP /nologo /MT /W3 /GR /GX /O2 /D "SONY_ROM" /D "BUILDING_AGAINST_PALMOS35" /D "NDEBUG" /D INCLUDE_SECRET_STUFF=1 /D HAS_PROFILING=1 /D PLATFORM_WINDOWS=1 /Yu"EmCommon.h" /FD @CppOptions.txt /c
 # ADD BASE MTL /nologo /D "NDEBUG" /mktyplib203 /o "NUL" /win32
 # ADD MTL /nologo /D "NDEBUG" /mktyplib203 /o "NUL" /win32
 # ADD BASE RSC /l 0x409 /i ".." /i "..\SrcWin" /i "..\SrcWin\Res" /i "..\SrcShared" /i "..\..\SrcShared" /d "NDEBUG" /d INCLUDE_SECRET_STUFF=1
@@ -205,7 +205,16 @@ SOURCE=..\SrcWin\Res\Emulator.ico
 # End Source File
 # Begin Source File
 
+SOURCE=..\SrcWin\Res\Emulator.manifest
+# End Source File
+# Begin Source File
+
 SOURCE=..\SrcWin\Res\Emulator.rc
+# End Source File
+# Begin Source File
+
+SOURCE=..\SrcWin\Res\Emulator2.rc
+# PROP Exclude_From_Build 1
 # End Source File
 # Begin Source File
 
@@ -259,19 +268,11 @@ SOURCE=..\SrcShared\Strings.txt
 # PROP Default_Filter ""
 # Begin Source File
 
-SOURCE=..\SrcWin\About.h
-# End Source File
-# Begin Source File
-
-SOURCE=..\SrcWin\Application.h
-# End Source File
-# Begin Source File
-
 SOURCE=.\CppOptions.txt
 # End Source File
 # Begin Source File
 
-SOURCE=..\SrcWin\Document.h
+SOURCE=..\SrcWin\EmApplicationWin.h
 # End Source File
 # Begin Source File
 
@@ -287,11 +288,19 @@ SOURCE=..\SrcWin\EmDlgWin.h
 # End Source File
 # Begin Source File
 
+SOURCE=..\SrcWin\EmDocumentWin.h
+# End Source File
+# Begin Source File
+
 SOURCE=..\SrcWin\EmFileRefWin.h
 # End Source File
 # Begin Source File
 
 SOURCE=..\SrcWin\EmMenusWin.h
+# End Source File
+# Begin Source File
+
+SOURCE=..\SrcWin\EmPatchLoaderWin.h
 # End Source File
 # Begin Source File
 
@@ -308,10 +317,6 @@ SOURCE=..\SrcWin\EmTransportSerialWin.h
 # Begin Source File
 
 SOURCE=..\SrcWin\EmTransportUSBWin.h
-# End Source File
-# Begin Source File
-
-SOURCE=..\SrcWin\Emulator.h
 # End Source File
 # Begin Source File
 
@@ -388,15 +393,7 @@ SOURCE=..\SrcWin\SonyWin\SonyButtonProc.h
 # End Group
 # Begin Source File
 
-SOURCE=..\SrcWin\About.cpp
-# End Source File
-# Begin Source File
-
-SOURCE=..\SrcWin\Application.cpp
-# End Source File
-# Begin Source File
-
-SOURCE=..\SrcWin\Document.cpp
+SOURCE=..\SrcWin\EmApplicationWin.cpp
 # End Source File
 # Begin Source File
 
@@ -408,11 +405,19 @@ SOURCE=..\SrcWin\EmDlgWin.cpp
 # End Source File
 # Begin Source File
 
+SOURCE=..\SrcWin\EmDocumentWin.cpp
+# End Source File
+# Begin Source File
+
 SOURCE=..\SrcWin\EmFileRefWin.cpp
 # End Source File
 # Begin Source File
 
 SOURCE=..\SrcWin\EmMenusWin.cpp
+# End Source File
+# Begin Source File
+
+SOURCE=..\SrcWin\EmPatchLoaderWin.cpp
 # End Source File
 # Begin Source File
 
@@ -429,10 +434,6 @@ SOURCE=..\SrcWin\EmTransportSerialWin.cpp
 # Begin Source File
 
 SOURCE=..\SrcWin\EmTransportUSBWin.cpp
-# End Source File
-# Begin Source File
-
-SOURCE=..\SrcWin\Emulator.cpp
 # End Source File
 # Begin Source File
 
@@ -475,6 +476,10 @@ SOURCE=..\SrcWin\TracerPlatform.cpp
 # Begin Group "Palm"
 
 # PROP Default_Filter ""
+# Begin Source File
+
+SOURCE=..\SrcShared\Palm\Platform\Incs\Core\UI\AttentionMgr.h
+# End Source File
 # Begin Source File
 
 SOURCE=..\SrcShared\Palm\platform\Incs\Core\System\Bitmap.h
@@ -613,6 +618,10 @@ SOURCE=..\SrcShared\Palm\platform\Incs\Libraries\LibTraps.h
 # End Source File
 # Begin Source File
 
+SOURCE=..\SrcShared\Palm\Platform\Incs\Core\System\LocaleMgr.h
+# End Source File
+# Begin Source File
+
 SOURCE=..\SrcShared\Palm\platform\Incs\Core\System\Localize.h
 # End Source File
 # Begin Source File
@@ -626,6 +635,10 @@ SOURCE=..\SrcShared\Palm\platform\Core\Hardware\IncsPrv\M68EZ328Hwr.h
 # Begin Source File
 
 SOURCE=..\SrcShared\Palm\platform\Incs\Core\Hardware\M68KHwr.h
+# End Source File
+# Begin Source File
+
+SOURCE=..\SrcShared\Palm\Platform\Core\Hardware\IncsPrv\M68SZ328Hwr.h
 # End Source File
 # Begin Source File
 
@@ -650,6 +663,10 @@ SOURCE=..\SrcShared\Palm\platform\Incs\Core\System\NetMgr.h
 # Begin Source File
 
 SOURCE=..\SrcShared\Palm\platform\Incs\Core\System\OverlayMgr.h
+# End Source File
+# Begin Source File
+
+SOURCE=..\SrcShared\Palm\Platform\Incs\Core\System\PalmLocale.h
 # End Source File
 # Begin Source File
 
@@ -799,6 +816,22 @@ SOURCE="..\SrcShared\DebugMgr.h"
 # End Source File
 # Begin Source File
 
+SOURCE=..\SrcShared\EcmIf.h
+# End Source File
+# Begin Source File
+
+SOURCE=..\SrcShared\EcmObject.h
+# End Source File
+# Begin Source File
+
+SOURCE=..\SrcShared\EmAction.h
+# End Source File
+# Begin Source File
+
+SOURCE=..\SrcShared\EmApplication.h
+# End Source File
+# Begin Source File
+
 SOURCE=..\SrcShared\EmAssert.h
 # End Source File
 # Begin Source File
@@ -823,7 +856,19 @@ SOURCE=..\SrcShared\EmDlg.h
 # End Source File
 # Begin Source File
 
+SOURCE=..\SrcShared\EmDocument.h
+# End Source File
+# Begin Source File
+
 SOURCE=..\SrcShared\EmErrCodes.h
+# End Source File
+# Begin Source File
+
+SOURCE=..\SrcShared\EmEventOutput.h
+# End Source File
+# Begin Source File
+
+SOURCE=..\SrcShared\EmEventPlayback.h
 # End Source File
 # Begin Source File
 
@@ -856,6 +901,10 @@ SOURCE=..\SrcShared\EmMapFile.h
 # Begin Source File
 
 SOURCE=..\SrcShared\EmMenus.h
+# End Source File
+# Begin Source File
+
+SOURCE=..\SrcShared\EmMinimize.h
 # End Source File
 # Begin Source File
 
@@ -932,6 +981,10 @@ SOURCE=..\SrcShared\EmStreamFile.h
 # Begin Source File
 
 SOURCE=..\SrcShared\EmStructs.h
+# End Source File
+# Begin Source File
+
+SOURCE=..\SrcShared\EmSubroutine.h
 # End Source File
 # Begin Source File
 
@@ -1052,14 +1105,6 @@ SOURCE=..\SrcShared\TracerCommon.h
 # Begin Source File
 
 SOURCE=..\SrcShared\TracerPlatform.h
-# End Source File
-# Begin Source File
-
-SOURCE="..\SrcShared\TrapPatches.h"
-# End Source File
-# Begin Source File
-
-SOURCE="..\SrcShared\UAE_Utils.h"
 # End Source File
 # End Group
 # Begin Group "Hardware"
@@ -1206,6 +1251,10 @@ SOURCE=..\SrcShared\Hardware\EmRegsFrameBuffer.h
 # End Source File
 # Begin Source File
 
+SOURCE=..\SrcShared\Hardware\EmRegsMediaQ11xx.h
+# End Source File
+# Begin Source File
+
 SOURCE=..\SrcShared\Hardware\EmRegsPLDPalmVIIEZ.h
 # End Source File
 # Begin Source File
@@ -1222,6 +1271,18 @@ SOURCE=..\SrcShared\Hardware\EmRegsSED1376.h
 # End Source File
 # Begin Source File
 
+SOURCE=..\SrcShared\Hardware\EmRegsSZ.h
+# End Source File
+# Begin Source File
+
+SOURCE=..\SrcShared\Hardware\EmRegsSZPrv.h
+# End Source File
+# Begin Source File
+
+SOURCE=..\SrcShared\Hardware\EmRegsSZTemp.h
+# End Source File
+# Begin Source File
+
 SOURCE=..\SrcShared\Hardware\EmRegsUSBPhilipsPDIUSBD12.h
 # End Source File
 # Begin Source File
@@ -1231,6 +1292,10 @@ SOURCE=..\SrcShared\Hardware\EmRegsUSBVisor.h
 # Begin Source File
 
 SOURCE=..\SrcShared\Hardware\EmRegsVZ.h
+# End Source File
+# Begin Source File
+
+SOURCE=..\SrcShared\Hardware\EmRegsVZHandEra330.h
 # End Source File
 # Begin Source File
 
@@ -1282,6 +1347,34 @@ SOURCE=..\SrcShared\Hardware\EmUARTDragonball.h
 # PROP Default_Filter ""
 # Begin Source File
 
+SOURCE=..\SrcShared\Hardware\TRG\EmHandEra330Defs.h
+# End Source File
+# Begin Source File
+
+SOURCE=..\SrcShared\Hardware\TRG\EmHandEraCFBus.h
+# End Source File
+# Begin Source File
+
+SOURCE=..\SrcShared\Hardware\TRG\EmHandEraSDBus.h
+# End Source File
+# Begin Source File
+
+SOURCE=..\SrcShared\Hardware\TRG\EmRegs330CPLD.cpp
+# End Source File
+# Begin Source File
+
+SOURCE=..\SrcShared\Hardware\TRG\EmRegs330CPLD.h
+# End Source File
+# Begin Source File
+
+SOURCE=..\SrcShared\Hardware\TRG\EmSPISlave330Current.cpp
+# End Source File
+# Begin Source File
+
+SOURCE=..\SrcShared\Hardware\TRG\EmSPISlave330Current.h
+# End Source File
+# Begin Source File
+
 SOURCE=..\SrcShared\Hardware\TRG\EmTRG.cpp
 # End Source File
 # Begin Source File
@@ -1310,6 +1403,14 @@ SOURCE=..\SrcShared\Hardware\TRG\EmTRGCFDefs.h
 # End Source File
 # Begin Source File
 
+SOURCE=..\SrcShared\Hardware\TRG\EmTRGCFIO.cpp
+# End Source File
+# Begin Source File
+
+SOURCE=..\SrcShared\Hardware\TRG\EmTRGCFIO.h
+# End Source File
+# Begin Source File
+
 SOURCE=..\SrcShared\Hardware\TRG\EmTRGCFMem.cpp
 # End Source File
 # Begin Source File
@@ -1334,11 +1435,11 @@ SOURCE=..\SrcShared\Hardware\TRG\EmTRGDiskType.h
 # End Source File
 # Begin Source File
 
-SOURCE=..\SrcShared\Hardware\TRG\EmTRGSPI.cpp
+SOURCE=..\SrcShared\Hardware\TRG\EmTRGSD.cpp
 # End Source File
 # Begin Source File
 
-SOURCE=..\SrcShared\Hardware\TRG\EmTRGSPI.h
+SOURCE=..\SrcShared\Hardware\TRG\EmTRGSD.h
 # End Source File
 # End Group
 # Begin Source File
@@ -1447,6 +1548,10 @@ SOURCE=..\SrcShared\Hardware\EmRegsFrameBuffer.cpp
 # End Source File
 # Begin Source File
 
+SOURCE=..\SrcShared\Hardware\EmRegsMediaQ11xx.cpp
+# End Source File
+# Begin Source File
+
 SOURCE=..\SrcShared\Hardware\EmRegsPLDPalmVIIEZ.cpp
 # End Source File
 # Begin Source File
@@ -1459,6 +1564,14 @@ SOURCE=..\SrcShared\Hardware\EmRegsSED1376.cpp
 # End Source File
 # Begin Source File
 
+SOURCE=..\SrcShared\Hardware\EmRegsSZ.cpp
+# End Source File
+# Begin Source File
+
+SOURCE=..\SrcShared\Hardware\EmRegsSZTemp.cpp
+# End Source File
+# Begin Source File
+
 SOURCE=..\SrcShared\Hardware\EmRegsUSBPhilipsPDIUSBD12.cpp
 # End Source File
 # Begin Source File
@@ -1468,6 +1581,10 @@ SOURCE=..\SrcShared\Hardware\EmRegsUSBVisor.cpp
 # Begin Source File
 
 SOURCE=..\SrcShared\Hardware\EmRegsVZ.cpp
+# End Source File
+# Begin Source File
+
+SOURCE=..\SrcShared\Hardware\EmRegsVZHandEra330.cpp
 # End Source File
 # Begin Source File
 
@@ -1934,6 +2051,86 @@ SOURCE=..\SrcShared\jpeg\jutils.c
 SOURCE=..\SrcShared\jpeg\jversion.h
 # End Source File
 # End Group
+# Begin Group "Patches"
+
+# PROP Default_Filter ""
+# Begin Source File
+
+SOURCE=..\SrcShared\Patches\EmPatchIf.h
+# End Source File
+# Begin Source File
+
+SOURCE=..\SrcShared\Patches\EmPatchLoader.cpp
+# End Source File
+# Begin Source File
+
+SOURCE=..\SrcShared\Patches\EmPatchLoader.h
+# End Source File
+# Begin Source File
+
+SOURCE=..\SrcShared\Patches\EmPatchMgr.cpp
+# End Source File
+# Begin Source File
+
+SOURCE=..\SrcShared\Patches\EmPatchMgr.h
+# End Source File
+# Begin Source File
+
+SOURCE=..\SrcShared\Patches\EmPatchModule.cpp
+# End Source File
+# Begin Source File
+
+SOURCE=..\SrcShared\Patches\EmPatchModule.h
+# End Source File
+# Begin Source File
+
+SOURCE=..\SrcShared\Patches\EmPatchModuleHtal.cpp
+# End Source File
+# Begin Source File
+
+SOURCE=..\SrcShared\Patches\EmPatchModuleHtal.h
+# End Source File
+# Begin Source File
+
+SOURCE=..\SrcShared\Patches\EmPatchModuleMap.cpp
+# End Source File
+# Begin Source File
+
+SOURCE=..\SrcShared\Patches\EmPatchModuleMap.h
+# End Source File
+# Begin Source File
+
+SOURCE=..\SrcShared\Patches\EmPatchModuleMemMgr.cpp
+# End Source File
+# Begin Source File
+
+SOURCE=..\SrcShared\Patches\EmPatchModuleNetLib.cpp
+# End Source File
+# Begin Source File
+
+SOURCE=..\SrcShared\Patches\EmPatchModuleNetLib.h
+# End Source File
+# Begin Source File
+
+SOURCE=..\SrcShared\Patches\EmPatchModuleSys.cpp
+# End Source File
+# Begin Source File
+
+SOURCE=..\SrcShared\Patches\EmPatchModuleSys.h
+# End Source File
+# Begin Source File
+
+SOURCE=..\SrcShared\Patches\EmPatchModuleTypes.h
+# End Source File
+# Begin Source File
+
+SOURCE=..\SrcShared\Patches\EmPatchState.cpp
+# End Source File
+# Begin Source File
+
+SOURCE=..\SrcShared\Patches\EmPatchState.h
+# End Source File
+# End Group
 # Begin Group "Sony - Shared"
 
 # PROP Default_Filter ""
@@ -1948,6 +2145,54 @@ SOURCE=..\SrcShared\SonyShared\Bank_USBSony.h
 # Begin Source File
 
 SOURCE=..\SrcShared\SonyShared\EmDeviceSony.inl
+# End Source File
+# Begin Source File
+
+SOURCE=..\SrcShared\SonyShared\EmPatchModule_ExpMgr.cpp
+# End Source File
+# Begin Source File
+
+SOURCE=..\SrcShared\SonyShared\EmPatchModule_ExpMgr.h
+# End Source File
+# Begin Source File
+
+SOURCE=..\SrcShared\SonyShared\EmPatchModule_MsfsLib.cpp
+# End Source File
+# Begin Source File
+
+SOURCE=..\SrcShared\SonyShared\EmPatchModule_MsfsLib.h
+# End Source File
+# Begin Source File
+
+SOURCE=..\SrcShared\SonyShared\EmPatchModule_SlotDrvLib.cpp
+# End Source File
+# Begin Source File
+
+SOURCE=..\SrcShared\SonyShared\EmPatchModule_SlotDrvLib.h
+# End Source File
+# Begin Source File
+
+SOURCE=..\SrcShared\SonyShared\EmPatchModule_VfsLib.cpp
+# End Source File
+# Begin Source File
+
+SOURCE=..\SrcShared\SonyShared\EmPatchModule_VfsLib.h
+# End Source File
+# Begin Source File
+
+SOURCE=..\SrcShared\SonyShared\EmRegsClockIRQCntrl.cpp
+# End Source File
+# Begin Source File
+
+SOURCE=..\SrcShared\SonyShared\EmRegsClockIRQCntrl.h
+# End Source File
+# Begin Source File
+
+SOURCE=..\SrcShared\SonyShared\EmRegsCommandItf.cpp
+# End Source File
+# Begin Source File
+
+SOURCE=..\SrcShared\SonyShared\EmRegsCommandItf.h
 # End Source File
 # Begin Source File
 
@@ -1983,11 +2228,59 @@ SOURCE=..\SrcShared\SonyShared\EmRegsFMSound.h
 # End Source File
 # Begin Source File
 
+SOURCE=..\SrcShared\SonyShared\EmRegsFMSoundforSZ.cpp
+# End Source File
+# Begin Source File
+
+SOURCE=..\SrcShared\SonyShared\EmRegsFMSoundforSZ.h
+# End Source File
+# Begin Source File
+
 SOURCE=..\SrcShared\SonyShared\EmRegsLCDCtrl.cpp
 # End Source File
 # Begin Source File
 
 SOURCE=..\SrcShared\SonyShared\EmRegsLCDCtrl.h
+# End Source File
+# Begin Source File
+
+SOURCE=..\SrcShared\SonyShared\EmRegsLCDCtrlT2.cpp
+# End Source File
+# Begin Source File
+
+SOURCE=..\SrcShared\SonyShared\EmRegsLCDCtrlT2.h
+# End Source File
+# Begin Source File
+
+SOURCE=..\SrcShared\SonyShared\EmRegsRAMforCLIE.cpp
+# End Source File
+# Begin Source File
+
+SOURCE=..\SrcShared\SonyShared\EmRegsRAMforCLIE.h
+# End Source File
+# Begin Source File
+
+SOURCE=..\SrcShared\SonyShared\EmRegsSharedRAMforCLIE.cpp
+# End Source File
+# Begin Source File
+
+SOURCE=..\SrcShared\SonyShared\EmRegsSharedRAMforCLIE.h
+# End Source File
+# Begin Source File
+
+SOURCE=..\SrcShared\SonyShared\EmRegsSZNaples.cpp
+# End Source File
+# Begin Source File
+
+SOURCE=..\SrcShared\SonyShared\EmRegsSZNaples.h
+# End Source File
+# Begin Source File
+
+SOURCE=..\SrcShared\SonyShared\EmRegsSZRedwood.cpp
+# End Source File
+# Begin Source File
+
+SOURCE=..\SrcShared\SonyShared\EmRegsSZRedwood.h
 # End Source File
 # Begin Source File
 
@@ -2087,38 +2380,6 @@ SOURCE=..\SrcShared\SonyShared\SonyKeyMgr.h
 # End Source File
 # Begin Source File
 
-SOURCE=..\SrcShared\SonyShared\TrapPatches_ExpMgr.cpp
-# End Source File
-# Begin Source File
-
-SOURCE=..\SrcShared\SonyShared\TrapPatches_ExpMgr.h
-# End Source File
-# Begin Source File
-
-SOURCE=..\SrcShared\SonyShared\TrapPatches_MsfsLib.cpp
-# End Source File
-# Begin Source File
-
-SOURCE=..\SrcShared\SonyShared\TrapPatches_MsfsLib.h
-# End Source File
-# Begin Source File
-
-SOURCE=..\SrcShared\SonyShared\TrapPatches_SlotDrvLib.cpp
-# End Source File
-# Begin Source File
-
-SOURCE=..\SrcShared\SonyShared\TrapPatches_SlotDrvLib.h
-# End Source File
-# Begin Source File
-
-SOURCE=..\SrcShared\SonyShared\TrapPatches_VfsLib.cpp
-# End Source File
-# Begin Source File
-
-SOURCE=..\SrcShared\SonyShared\TrapPatches_VfsLib.h
-# End Source File
-# Begin Source File
-
 SOURCE=..\SrcShared\SonyShared\VFSMgr.h
 # End Source File
 # End Group
@@ -2153,6 +2414,14 @@ SOURCE="..\SrcShared\DebugMgr.cpp"
 # End Source File
 # Begin Source File
 
+SOURCE=..\SrcShared\EmAction.cpp
+# End Source File
+# Begin Source File
+
+SOURCE=..\SrcShared\EmApplication.cpp
+# End Source File
+# Begin Source File
+
 SOURCE=..\SrcShared\EmCommon.cpp
 # ADD CPP /Yc"EmCommon.h"
 # End Source File
@@ -2167,6 +2436,18 @@ SOURCE=..\SrcShared\EmDirRef.cpp
 # Begin Source File
 
 SOURCE=..\SrcShared\EmDlg.cpp
+# End Source File
+# Begin Source File
+
+SOURCE=..\SrcShared\EmDocument.cpp
+# End Source File
+# Begin Source File
+
+SOURCE=..\SrcShared\EmEventOutput.cpp
+# End Source File
+# Begin Source File
+
+SOURCE=..\SrcShared\EmEventPlayback.cpp
 # End Source File
 # Begin Source File
 
@@ -2199,6 +2480,10 @@ SOURCE=..\SrcShared\EmMapFile.cpp
 # Begin Source File
 
 SOURCE=..\SrcShared\EmMenus.cpp
+# End Source File
+# Begin Source File
+
+SOURCE=..\SrcShared\EmMinimize.cpp
 # End Source File
 # Begin Source File
 
@@ -2242,6 +2527,10 @@ SOURCE=..\SrcShared\EmRegion.cpp
 # End Source File
 # Begin Source File
 
+SOURCE=..\SrcShared\EmROMReader.cpp
+# End Source File
+# Begin Source File
+
 SOURCE=..\SrcShared\EmROMTransfer.cpp
 # End Source File
 # Begin Source File
@@ -2263,6 +2552,10 @@ SOURCE=..\SrcShared\EmStream.cpp
 # Begin Source File
 
 SOURCE=..\SrcShared\EmStreamFile.cpp
+# End Source File
+# Begin Source File
+
+SOURCE=..\SrcShared\EmSubroutine.cpp
 # End Source File
 # Begin Source File
 
@@ -2368,22 +2661,6 @@ SOURCE=..\SrcShared\SystemPacket.cpp
 
 SOURCE=..\SrcShared\TracerCommon.cpp
 # End Source File
-# Begin Source File
-
-SOURCE="..\SrcShared\TrapPatches.cpp"
-# End Source File
-# Begin Source File
-
-SOURCE=..\SrcShared\TrapPatches_MemMgr.cpp
-# End Source File
-# Begin Source File
-
-SOURCE=..\SrcShared\TrapPatches_NetLib.cpp
-# End Source File
-# Begin Source File
-
-SOURCE="..\SrcShared\UAE_Utils.cpp"
-# End Source File
 # End Group
 # Begin Group "Docs"
 
@@ -2457,6 +2734,10 @@ SOURCE=..\Scripting\Perl\FormSpy.pl
 # End Source File
 # Begin Source File
 
+SOURCE=..\Scripting\Perl\ListOpenDatabases.pl
+# End Source File
+# Begin Source File
+
 SOURCE=..\Scripting\Perl\MakeSysTraps.pl
 # End Source File
 # Begin Source File
@@ -2469,6 +2750,10 @@ SOURCE=..\Scripting\Perl\SkipStartup.pl
 # End Source File
 # End Group
 # End Group
+# Begin Source File
+
+SOURCE=..\SrcWin\Res\cursor1.cur
+# End Source File
 # Begin Source File
 
 SOURCE=..\SrcWin\Res\down_down.bmp

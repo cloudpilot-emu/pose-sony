@@ -65,6 +65,7 @@ void EmRegsCFAta::Reset(void)
 // ---------------------------------------------------------------------------
 void EmRegsCFAta::Dispose(void)
 {
+    DiskIO.Dispose();
 }
 
 //----------------------------------------------------------------------------
@@ -114,9 +115,21 @@ uint8 EmRegsCFAta::RegReadStatus(Boolean /*is_alt_reg*/)
 	{
 		retVal = (IDE_STS_RDY|IDE_STS_DSC);
 		if (dataStatus == DIO_MORE_DATA)
+        {
 			retVal |= IDE_STS_DRQ;
+        }
+        else
+        {
+            DiskParams.Lba += DiskParams.SectorCnt;
+            RegMem[IDE_REG_5_LBA_23_16] = (uint8)(DiskParams.Lba >> 16);
+            RegMem[IDE_REG_4_LBA_15_8] = (uint8)(DiskParams.Lba >> 8);
+            RegMem[IDE_REG_3_LBA_7_0] = (uint8)DiskParams.Lba;
+        }
 	}
-	else retVal = (IDE_STS_RDY|IDE_STS_DSC|IDE_STS_ERR);
+	else
+    {
+        retVal = (IDE_STS_RDY|IDE_STS_DSC|IDE_STS_ERR);
+    }
 	return(retVal);
 }
 
@@ -134,6 +147,8 @@ void EmRegsCFAta::GetDiskIOParams(DiskIOParams * Params)
 	Params->SectorCnt = (uint32)RegMem[IDE_REG_2_SECTOR_CNT];
 	if (Params->SectorCnt == 0)
 		Params->SectorCnt = 256;
+
+    DiskParams = *Params;
 }
 
 // ---------------------------------------------------------------------------
@@ -266,15 +281,7 @@ uint8 EmRegsCFAta::RegReadError(Boolean /*is_alt_reg*/)
 	if (AtaMode == MODE_DRIVE_DIAGNOSTICS)
 		return(IDE_DIA_01_NO_ERROR); 
 	else
-	{
-		switch (DiskIO.GetError())
-		{
-			case DIO_ERR_NONE :
-				return(IDE_ERR_00_NONE);
-			default :
-				return(IDE_ERR_01_GENERAL_ERROR);
-		}
-	}
+		return DiskIO.GetError();
 }
 
 
@@ -336,6 +343,7 @@ void EmRegsCFAta::RegEWriteDeviceControl(void)
 void EmRegsCFAta::Reg7WriteCmd(void)
 {
 	AtaMode = MODE_DISK_IO;
+    DiskIO.ClearError();
 	switch(RegMem[IDE_REG_7_COMMAND])
 	{
 		case IDE_CMD_EC_IDENTIFY_DRIVE :
@@ -355,6 +363,13 @@ void EmRegsCFAta::Reg7WriteCmd(void)
 		case IDE_CMD_90_EXEC_DRIVE_DIAGNOSTIC :
 			CmdDriveDiagnostic();
 			break;
+
+        case IDE_CMD_C6_SET_MULTIPLE_MODE :
+            DiskIO.SetError(IDE_ERR_04_ABORT);
+            break;
+
+        default :
+            break;
 	}
 }
 

@@ -18,48 +18,48 @@
 
 class EmDiskType 
 {
-	public:
-					EmDiskType				(void);
-	 virtual			~EmDiskType				(void);
+public:
+					EmDiskType	(void);
+	virtual			~EmDiskType	(void);
 
-	// EmRegs overrides
 	EmSector *		GetTuple(void);
+    uint8 *         GetSD_CSD(void);
+    uint8 *         GetSD_CID(void);
 	EmSector *		GetDriveID(void);
 	EmSector *		GetEmptySector(void);
 
-private:
 };
 
 class EmGeneric8MB : public EmDiskType
 {
-	public:
-					EmGeneric8MB				(void);
-		virtual			~EmGeneric8MB				(void);
+public:
+				EmGeneric8MB(void);
+	virtual		~EmGeneric8MB(void);
 
-		EmSector *	GetTuple(void);
-		EmSector *	GetDriveID(void);
-		uint32		GetNumSectors(void);
-		EmSector *	GetSector(LogicalBlockAddr lba);
-	private:
+	EmSector *	GetTuple(void);
+    uint8 *     GetSD_CSD(void);
+    uint8 *     GetSD_CID(void);
+	EmSector *	GetDriveID(void);
+	uint32		GetNumSectors(void);
+    EmSector *	GetSector(LogicalBlockAddr lba);
 };
 
 class EmCurrDiskType 
 {
-	public:
-					EmCurrDiskType				(void);
-	 virtual			~EmCurrDiskType				(void);
-
-	void				GetTuple(EmDiskTypeID ID,
-                                 EmSector * s);
-	void				GetDriveID(EmDiskTypeID ID,
-                                 EmSector * s);
-	uint32 				GetNumSectors(EmDiskTypeID ID);
-	void				GetSector(EmDiskTypeID ID,
-					          LogicalBlockAddr lba,
-                                 EmSector * s);
 private:
-	EmDiskType			UnknownDisk;
-	EmGeneric8MB			Generic8MB;
+	EmDiskType		UnknownDisk;
+	EmGeneric8MB	Generic8MB;
+
+public:
+					EmCurrDiskType	(void);
+	virtual			~EmCurrDiskType	(void);
+
+	void			GetTuple(EmDiskTypeID ID, EmSector * s);
+    uint8 *         GetSD_CSD(EmDiskTypeID ID);
+    uint8 *         GetSD_CID(EmDiskTypeID ID);
+	void			GetDriveID(EmDiskTypeID ID, EmSector * s);
+	uint32 			GetNumSectors(EmDiskTypeID ID);
+	void			GetSector(EmDiskTypeID ID, LogicalBlockAddr lba, EmSector * s);
 };
 
 #endif	/* EmTRGDiskType_h */

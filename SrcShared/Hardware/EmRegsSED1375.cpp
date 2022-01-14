@@ -14,11 +14,12 @@
 #include "EmCommon.h"
 #include "EmRegsSED1375.h"
 
-#include "EmScreen.h"			// EmScreen::InvalidateAll
+#include "Byteswapping.h"		// Canonical
+#include "EmMemory.h"			// EmMem_memcpy
 #include "EmPixMap.h"			// SetSize, SetRowBytes, etc.
+#include "EmScreen.h"			// EmScreen::InvalidateAll
 #include "Miscellaneous.h"		// StWordSwapper
 #include "SessionFile.h"		// WriteSED1375RegsType
-#include "UAE_Utils.h"			// uae_memcpy
 
 
 // Given a register (specified by its field name), return its address
@@ -341,7 +342,7 @@ void EmRegsSED1375::GetLCDScanlines (EmScreenUpdateInfo& info)
 	long	firstLineOffset	= info.fFirstLine * rowBytes;
 	long	lastLineOffset	= info.fLastLine * rowBytes;
 
-	uae_memcpy (
+	EmMem_memcpy (
 		(void*) ((uint8*) info.fImage.GetBits () + firstLineOffset),
 		baseAddr + firstLineOffset,
 		lastLineOffset - firstLineOffset);

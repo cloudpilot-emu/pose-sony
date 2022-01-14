@@ -15,28 +15,24 @@
 #include "Platform.h"
 
 #include "ChunkFile.h"			// ReadString
-#include "Document.h"			// QueryNewDocument
-#include "EmCommands.h"			// kCommandNew
-#include "EmDlgWin.h"			// CenterWindow, CenterDlgProc
-#include "EmScreen.h"			// EmScreenUpdateInfo, EmScreen::GetBits
-#include "EmSession.h"			// EmSessionStopper, gSession
-#include "EmStreamFile.h"		// EmStreamFile
-#include "Emulator.h"			// gInstance, gCPU
-#include "EmWindow.h"			// EmWindow::GetWindow
-#include "EmWindowWin.h"		// GetHostWindow
-#include "ErrorHandling.h"		// Errors::kOKCancelMask
-#include "Hordes.h"				// Hordes::CanStop, etc.
-#include "Miscellaneous.h"		// RememberBlock, ForgetBlock
+#include "EmApplicationWin.h"	// gInstance
+#include "EmSession.h"			// gSession
+#include "ErrorHandling.h"		// Errors::ThrowIfNULL
+//#include "Miscellaneous.h"		// RememberBlock, ForgetBlock
 #include "MMFMessaging.h"		// CMMFSocket
-#include "TrapPatches.h"		// Patches::SetSwitchApp
 #include "SessionFile.h"		// SessionFile::kROMPathTag
 #include "Sounds.h"
-#include "Startup.h"			// Startup::ScheduleQuit
 #include "Strings.r.h"			// kStr_ values
 
 #include "resource.h"
 
-#include <locale.h> 			// localconv, lconv
+// Defining COMPILE_MULTIMON_STUBS causes MultiMon.h to create thunks
+// that either call the functions in Windows, or emulate them if they
+// don't exist.
+
+#define COMPILE_MULTIMON_STUBS
+#include <MultiMon.h>
+
 
 #if _DEBUG
 #undef _CRTDBG_MAP_ALLOC
@@ -46,53 +42,14 @@
 
 
 
-// Platform-specific structure used to communicate with the platform's
-// Binder tool. Communicates a device configuration for bound ROMs.
-
-typedef struct
-{
-	char				Device[20];
-	RAMSizeType			RAMSize;
-}
-DeviceConfig;
-
-const char	kResourceType[]	= "BIND";
-const char*	kROMID			= MAKEINTRESOURCE (1);
-const char*	kPSFID			= MAKEINTRESOURCE (2);
-const char*	kConfigID		= MAKEINTRESOURCE (3);
-const char*	kSkinfoID		= MAKEINTRESOURCE (4);
-const char*	kSkin1xID		= MAKEINTRESOURCE (5);
-const char*	kSkin2xID		= MAKEINTRESOURCE (6);
-
-
 // ======================================================================
 //	Globals and constants
 // ======================================================================
-
-Bool				gEnableSounds;
-unsigned long		gPseudoTickcount;
 
 
 // ======================================================================
 //	Private functions
 // ======================================================================
-
-static void PrvSetWindowText	(HWND hWndCtrl, const char* lpszNew);
-static Bool PrvResourcePresent	(const char* name);
-static Bool PrvGetResource		(const char* name, Chunk& rom);
-
-static bool PrvOpenFile			(const EmFileRef& file, HANDLE& hFile, DWORD& iSize);
-static bool PrvOpenFile			(const EmFileRef& file, HANDLE& hFile);
-static bool PrvBindROM			(HANDLE hExecutable);
-static bool PrvBindPSF			(HANDLE hExecutable);
-static bool PrvBindSkin			(HANDLE hExecutable);
-static bool PrvBindConfig		(HANDLE hExecutable);
-static bool PrvBindFile			(HANDLE hExecutable,
-								 const EmFileRef&,
-								 const char* resourceName);
-
-// Over in LCD.cpp
-void ConvertFromRGBList (RGBQUAD* outColors, const RGBList& inColors);
 
 /***********************************************************************
  *
@@ -125,7 +82,7 @@ void Platform::Initialize (void)
 
 void Platform::Reset (void)
 {
-	StopSound(); // kill any sounds in progress or pending
+	Platform::StopSound (); // Kill any sounds in progress or pending
 }
 
 
@@ -357,196 +314,6 @@ string Platform::GetShortVersionString (void)
 
 /***********************************************************************
  *
- * FUNCTION:	Platform::BindPoser
- *
- * DESCRIPTION:	Create a bound version of Poser.
- *
- * PARAMETERS:	fullSave - TRUE if the entire state should be bound
- *					with the new executable.  FALSE if only the
- *					configuration should be saved.
- *
- *				dest - spec for the bound Poser.
- *
- * RETURNED:	Nothing
- *
- ***********************************************************************/
-
-void Platform::BindPoser (Bool fullSave, const EmFileRef& dest)
-{
-	EmFileRef	poser = EmFileRef::GetEmulatorRef ();
-
-	if (!::CopyFile (	poser.GetFullPath ().c_str (),
-						dest.GetFullPath ().c_str (),
-						false /* == don't fail if exists */))
-	{
-		char	buffer[200];
-		sprintf (buffer, "Unable to copy %s to %s.",
-			poser.GetFullPath ().c_str (), dest.GetFullPath ().c_str ());
-		::MessageBox (NULL, buffer, "Error", MB_ICONERROR | MB_OK);
-		return;
-	}
-
-	bool	succeeded = false;
-	HANDLE	hExecutable = ::BeginUpdateResource (dest.GetFullPath ().c_str (),
-		false /* == don't delete existing resources */);
-
-	if (hExecutable)
-	{
-		if (::PrvBindROM (hExecutable) &&
-			::PrvBindConfig (hExecutable) &&
-			::PrvBindSkin (hExecutable))
-		{
-			if (fullSave && ::PrvBindPSF (hExecutable))
-			{
-				succeeded = true;
-			}
-			else
-			{
-				succeeded = true;
-			}
-		}
-
-		::EndUpdateResource (hExecutable, false /* == commit changes */);
-	}
-
-	if (!succeeded)
-	{
-		dest.Delete ();
-
-		char	buffer[200];
-		sprintf (buffer, "Unable to attach necessary resources to %s.",
-			dest.GetFullPath ().c_str ());
-		::MessageBox (NULL, buffer, "Error", MB_ICONERROR | MB_OK);
-	}
-}
-
-
-Bool Platform::ROMResourcePresent (void)
-{
-	return ::PrvResourcePresent (kROMID);
-}
-
-
-Bool Platform::GetROMResource (Chunk& chunk)
-{
-	return ::PrvGetResource (kROMID, chunk);
-}
-
-
-Bool Platform::PSFResourcePresent (void)
-{
-	return ::PrvResourcePresent (kPSFID);
-}
-
-
-Bool Platform::GetPSFResource (Chunk& chunk)
-{
-	return ::PrvGetResource (kPSFID, chunk);
-}
-
-
-Bool Platform::ConfigResourcePresent (void)
-{
-	return ::PrvResourcePresent (kConfigID);
-}
-
-
-Bool Platform::GetConfigResource (Chunk& chunk)
-{
-	return ::PrvGetResource (kConfigID, chunk);
-}
-
-
-Bool Platform::SkinfoResourcePresent (void)
-{
-	return ::PrvResourcePresent (kSkinfoID);
-}
-
-
-Bool Platform::GetSkinfoResource (Chunk& chunk)
-{
-	return ::PrvGetResource (kSkinfoID, chunk);
-}
-
-
-Bool Platform::Skin1xResourcePresent (void)
-{
-	return ::PrvResourcePresent (kSkin1xID);
-}
-
-
-Bool Platform::GetSkin1xResource (Chunk& chunk)
-{
-	return ::PrvGetResource (kSkin1xID, chunk);
-}
-
-
-Bool Platform::Skin2xResourcePresent (void)
-{
-	return ::PrvResourcePresent (kSkin2xID);
-}
-
-
-Bool Platform::GetSkin2xResource (Chunk& chunk)
-{
-	return ::PrvGetResource (kSkin2xID, chunk);
-}
-
-
-/***********************************************************************
- *
- * FUNCTION:	Platform::GetBoundDevice
- *
- * DESCRIPTION:	
- *
- * PARAMETERS:	none
- *
- * RETURNED:	The Device Type in the bound configuration resource
- *
- ***********************************************************************/
-
-EmDevice Platform::GetBoundDevice ()
-{
-	Chunk	data;
-
-	if (!Platform::GetConfigResource (data))
-		EmAssert (false);
-
-	EmAssert (data.GetLength () >= sizeof (DeviceConfig));
-
-	const char*	idName = ((DeviceConfig*) data.GetPointer ())->Device;
-	return EmDevice (idName);
-}
-
-
-/***********************************************************************
- *
- * FUNCTION:	Platform::GetBoundRAMSize
- *
- * DESCRIPTION:	
- *
- * PARAMETERS:	none
- *
- * RETURNED:	The RAM size in the bound configuration resource
- *
- ***********************************************************************/
-
-RAMSizeType Platform::GetBoundRAMSize (void)
-{
-	Chunk	data;
-
-	if (!Platform::GetConfigResource (data))
-		EmAssert (false);
-
-	EmAssert (data.GetLength () >= sizeof (DeviceConfig));
-
-	RAMSizeType	ramSize = ((DeviceConfig*) data.GetPointer ())->RAMSize;
-	return ramSize;
-}
-
-
-/***********************************************************************
- *
  * FUNCTION:	Platform::CopyToClipboard
  *
  * DESCRIPTION:	
@@ -557,8 +324,77 @@ RAMSizeType Platform::GetBoundRAMSize (void)
  *
  ***********************************************************************/
 
-void Platform::CopyToClipboard (const void* data, uint16 length)
+static UINT PrvPalmTextFormat (void)
 {
+	static UINT	format = 0;
+
+	if (format == 0)
+	{
+		format = ::RegisterClipboardFormat ("POSE_PalmText");
+	}
+
+	return format;
+}
+
+static void PrvAddClipboardData (UINT format, ByteList& data)
+{
+	// NULL-terminate the input data.
+
+	data.push_back (0);
+
+	// Create a handle for passing to the Windows clipboard.
+
+	HANDLE	clipHandle = ::GlobalAlloc (GMEM_MOVEABLE, data.size ());
+
+	if (clipHandle)
+	{
+		// Get a pointer to the handle's contents.
+
+		LPVOID	clipPtr = ::GlobalLock (clipHandle);
+
+		if (clipPtr)
+		{
+			// Copy our host text into it
+
+			strcpy ((char*) clipPtr, (char*) &data[0]);
+
+			::GlobalUnlock (clipHandle);
+
+			// Hand over control of the handle to the Windows
+			// clipboard.  If successful, Windows now owns the
+			// handle.  Otherwise, we free it up ourself.
+
+			if (::SetClipboardData (format, clipHandle) == NULL)
+			{
+				::GlobalFree (clipHandle);
+			}
+		}
+		else
+		{
+			// Couldn't lock the handle???  Free it up...
+
+			::GlobalFree (clipHandle);
+		}
+	}
+}
+
+void Platform::CopyToClipboard (const ByteList& palmChars,
+								const ByteList& hostChars)
+{
+	ByteList	palmChars2 (palmChars);
+	ByteList	hostChars2 (hostChars);
+
+	// See if any mapping needs to be done.
+
+	if (hostChars2.size () > 0 && palmChars2.size () == 0)
+	{
+		Platform::RemapHostToPalmChars (hostChars2, palmChars2);
+	}
+	else if (palmChars2.size () > 0 && hostChars2.size () == 0)
+	{
+		Platform::RemapPalmToHostChars (palmChars2, hostChars2);
+	}
+
 	// Open the clipboard.
 
 	if (::OpenClipboard (NULL))
@@ -570,50 +406,14 @@ void Platform::CopyToClipboard (const void* data, uint16 length)
 
 		// If we have something to add, then add it.
 
-		if (length != 0)
+		if (palmChars2.size () > 0)
 		{
-			// Prepare the input text data for copying to the clipboard.
-			// It needs to be NULL terminated, and the EOL sequence must
-			// be the standard newline/linefeed sequence.
+			::PrvAddClipboardData (::PrvPalmTextFormat (), palmChars2);
+		}
 
-			EmAssert (data);
-
-			string	origData ((const char*) data, length);
-			string	convData (::ReplaceString (origData, "\x0A", "\x0D\x0A"));
-
-			// Create a handle for passing to the Windows clipboard.
-
-			HANDLE	clipHandle = ::GlobalAlloc (GMEM_MOVEABLE, convData.size () + 1);
-
-			if (clipHandle)
-			{
-				// Get a pointer to the handle's contents.
-
-				LPVOID	clipPtr = ::GlobalLock (clipHandle);
-				if (clipPtr)
-				{
-					// Copy our converted text into it
-
-					strcpy ((char*) clipPtr, convData.c_str ());
-
-					::GlobalUnlock (clipHandle);
-
-					// Hand over control of the handle to the Windows
-					// clipboard.  If successful, Windows now owns the
-					// handle.  Otherwise, we free it up ourself.
-
-					if (::SetClipboardData (CF_TEXT, clipHandle) == NULL)
-					{
-						::GlobalFree (clipHandle);
-					}
-				}
-				else
-				{
-					// Couldn't lock the handle???  Free it up...
-
-					::GlobalFree (clipHandle);
-				}
-			}
+		if (hostChars2.size () > 0)
+		{
+			::PrvAddClipboardData (CF_TEXT, hostChars2);
 		}
 
 		// Close up shop.
@@ -635,11 +435,38 @@ void Platform::CopyToClipboard (const void* data, uint16 length)
  *
  ***********************************************************************/
 
-void Platform::CopyFromClipboard (Chunk& data)
+static void PrvGetClipbardData (UINT format, ByteList& data)
+{
+	HANDLE	clipHandle =::GetClipboardData (format);
+
+	if (clipHandle != NULL)
+	{
+		// If there was text data, get a pointer to it.
+
+		LPVOID	clipPtr = ::GlobalLock (clipHandle);
+
+		if (clipPtr != NULL)
+		{
+			// Copy the data.
+			size_t	len = strlen ((const char*) clipPtr);
+
+			data.resize (len);
+			memcpy (&data[0], clipPtr, len);
+
+			// Unlock the clipboard's handle.
+
+			::GlobalUnlock (clipHandle);
+		}
+	}
+}
+
+void Platform::CopyFromClipboard (ByteList& palmChars,
+								  ByteList& hostChars)
 {
 	// Assume failure.
 
-	data.SetLength (0);
+	palmChars.clear ();
+	hostChars.clear ();
 
 	// Open the clipboard
 
@@ -647,37 +474,93 @@ void Platform::CopyFromClipboard (Chunk& data)
 	{
 		// Get the text data from the clipboard
 
-		HANDLE	clipHandle =::GetClipboardData (CF_TEXT);
-
-		if (clipHandle != NULL)
-		{
-			// If there was text data, get a pointer to it.
-
-			LPVOID	clipPtr = ::GlobalLock (clipHandle);
-			if (clipPtr != NULL)
-			{
-				// Copy the text data to a string object and convert
-				// line endings.
-
-				string	origData ((const char*) clipPtr);
-				string	convData (::ReplaceString (origData, "\x0D\x0A", "\x0A"));
-
-				// Store the converted string object into the Chunk
-				// parameter passed to us.  Do not copy the terminating
-				// NULL.
-
-				data.SetLength (convData.size ());
-				memcpy (data.GetPointer (), convData.c_str (), convData.size ());
-
-				// Unlock the clipboard's handle.
-
-				::GlobalUnlock (clipHandle);
-			}
-		}
+		::PrvGetClipbardData (::PrvPalmTextFormat (), palmChars);
+		::PrvGetClipbardData (CF_TEXT, hostChars);
 
 		// Close up shop.
 
 		::CloseClipboard ();
+	}
+
+	// See if any mapping needs to be done.
+
+	if (hostChars.size () > 0 && palmChars.size () == 0)
+	{
+		Platform::RemapHostToPalmChars (hostChars, palmChars);
+	}
+	else if (palmChars.size () > 0 && hostChars.size () == 0)
+	{
+		Platform::RemapPalmToHostChars (palmChars, hostChars);
+	}
+}
+
+
+/***********************************************************************
+ *
+ * FUNCTION:	Platform::RemapHostToPalmChars
+ *
+ * DESCRIPTION:	
+ *
+ * PARAMETERS:	none
+ *
+ * RETURNED:	Nothing
+ *
+ ***********************************************************************/
+
+void Platform::RemapHostToPalmChars	(const ByteList& hostChars,
+									 ByteList& palmChars)
+{
+	// Converting line endings is all we do for now.
+
+	ByteList::const_iterator	iter = hostChars.begin ();
+	while (iter != hostChars.end ())
+	{
+		uint8	ch = *iter++;
+
+		if (ch == 0x0D && iter != hostChars.end () && *iter == 0x0A)
+		{
+			++iter;
+			palmChars.push_back (chrLineFeed);
+		}
+		else
+		{
+			palmChars.push_back (ch);
+		}
+	}
+}
+
+
+/***********************************************************************
+ *
+ * FUNCTION:	Platform::RemapHostToPalmChars
+ *
+ * DESCRIPTION:	
+ *
+ * PARAMETERS:	none
+ *
+ * RETURNED:	Nothing
+ *
+ ***********************************************************************/
+
+void Platform::RemapPalmToHostChars	(const ByteList& palmChars,
+									 ByteList& hostChars)
+{
+	// Converting line endings is all we do for now.
+
+	ByteList::const_iterator	iter = palmChars.begin ();
+	while (iter != palmChars.end ())
+	{
+		uint8	ch = *iter++;
+
+		if (ch == chrLineFeed)
+		{
+			hostChars.push_back (0x0D);
+			hostChars.push_back (0x0A);
+		}
+		else
+		{
+			hostChars.push_back (ch);
+		}
 	}
 }
 
@@ -694,9 +577,6 @@ void Platform::CopyFromClipboard (Chunk& data)
  *
  ***********************************************************************/
 
-#define COMPILE_MULTIMON_STUBS
-#include <MultiMon.h>
-
 Bool Platform::PinToScreen (EmRect& r)
 {
 	// Retrieves the size of the work area on the primary display monitor.
@@ -709,21 +589,17 @@ Bool Platform::PinToScreen (EmRect& r)
 	// monitor, call the GetMonitorInfo function.
 
 	RECT		workBounds;
-#if 1
+
 	workBounds = r;
-	HMONITOR	monitor = MonitorFromRect (&workBounds, MONITOR_DEFAULTTONEAREST);
+	HMONITOR	monitor = ::MonitorFromRect (&workBounds, MONITOR_DEFAULTTONEAREST);
 
 	MONITORINFO	info;
 	info.cbSize = sizeof (info);
 
-	if (!GetMonitorInfo (monitor, &info))
+	if (!::GetMonitorInfo (monitor, &info))
 		return false;	// Error, just leave.
 
 	workBounds = info.rcWork;
-#else
-	if (!::SystemParametersInfo (SPI_GETWORKAREA, 0, &workBounds, 0))
-		return false;	// Error, just leave.
-#endif
 
 	// If we're in it, just return now.  We're not changing
 	// the rectangle, so return false.
@@ -749,24 +625,6 @@ Bool Platform::PinToScreen (EmRect& r)
 	// We modified the original rect, so return true.
 
 	return true;
-}
-
-
-/***********************************************************************
- *
- * FUNCTION:    Platform::QueryNewDocument
- *
- * DESCRIPTION: DESCRIPTION
- *
- * PARAMETERS:  None
- *
- * RETURNED:    Nothing
- *
- ***********************************************************************/
-
-Bool Platform::QueryNewDocument (Configuration& cfg)
-{
-	return ::QueryNewDocument (NULL, cfg);
 }
 
 
@@ -1026,114 +884,6 @@ void Platform::RealDisposeMemory (void* p)
 }
 
 
-// ---------------------------------------------------------------------------
-//		¥ Platform::SaveScreen
-// ---------------------------------------------------------------------------
-
-void Platform::SaveScreen (const EmFileRef& fileRef)
-{
-	// This is the same as you'd find in LCD_ScreenShot, but with some
-	// things take out.
-
-//	EmFileRef		result;
-//	string			prompt;
-//	EmDirRef		defaultPath;
-//	EmFileTypeList	filterList;
-//	string			defaultName;
-//
-//	filterList.push_back (kFileTypePicture);
-//	filterList.push_back (kFileTypeAll);
-//
-//	EmDlgItemID	item = EmDlg::DoPutFile (	result,
-//											prompt,
-//											defaultPath,
-//											filterList,
-//											defaultName);
-
-//	if (item == kDlgItemOK)
-	{
-		HANDLE	file = ::CreateFile (fileRef.GetFullPath ().c_str (),
-									GENERIC_WRITE, 0, NULL, CREATE_ALWAYS,
-									FILE_ATTRIBUTE_NORMAL, NULL);
-
-		if (file != INVALID_HANDLE_VALUE)
-		{
-			EmScreenUpdateInfo	info;
-			{
-//				EmSessionStopper	stopper (gSession, kStopNow);
-
-//				if (stopper.Stopped ())
-				{
-					EmScreen::InvalidateAll ();
-					EmScreen::GetBits (info);
-					EmScreen::InvalidateAll ();
-				}
-			}
-
-			if (info.fImage.GetDepth () < 8)
-			{
-				info.fImage.ConvertToFormat (kPixMapFormat8);
-			}
-			else if (info.fImage.GetDepth () == 16)
-			{
-				info.fImage.ConvertToFormat (kPixMapFormat16RGB555);
-			}
-			else if (info.fImage.GetDepth () == 24)
-			{
-				info.fImage.ConvertToFormat (kPixMapFormat24BGR);
-			}
-
-			long	depth					= info.fImage.GetDepth ();
-			long	numColors				= (depth <= 8) ? (1 << depth) : 0;
-			EmPoint	size					= info.fImage.GetSize ();
-
-			DWORD	fileHeaderSize			= sizeof (BITMAPFILEHEADER);
-			DWORD	bitmapHeaderSize		= sizeof (BITMAPINFOHEADER);
-			DWORD	colorTableSize			= numColors * sizeof (RGBQUAD);
-			DWORD	bitmapOffset			= fileHeaderSize + bitmapHeaderSize + colorTableSize;
-			DWORD	bitmapSize				= info.fImage.GetRowBytes () * size.fY;
-			DWORD	fileSize				= bitmapOffset + bitmapSize;
-
-			BITMAPFILEHEADER	fileHeader;
-
-			fileHeader.bfType				= 'MB';
-			fileHeader.bfSize				= fileSize;
-			fileHeader.bfReserved1			= 0;
-			fileHeader.bfReserved2			= 0;
-			fileHeader.bfOffBits			= bitmapOffset;
-
-			BITMAPINFOHEADER	bitmapHeader;
-
-			bitmapHeader.biSize 			= sizeof (BITMAPINFOHEADER);
-			bitmapHeader.biWidth			= size.fX;
-			bitmapHeader.biHeight			= size.fY;
-			bitmapHeader.biPlanes			= 1;
-			bitmapHeader.biBitCount 		= depth;
-			bitmapHeader.biCompression		= BI_RGB;
-			bitmapHeader.biSizeImage		= 0;
-			bitmapHeader.biXPelsPerMeter	= 0;
-			bitmapHeader.biYPelsPerMeter	= 0;
-			bitmapHeader.biClrUsed			= numColors;
-			bitmapHeader.biClrImportant 	= 0;
-
-			RGBQUAD*	colors = (RGBQUAD*) _alloca (colorTableSize);
-			::ConvertFromRGBList (colors, info.fImage.GetColorTable ());
-
-			info.fImage.FlipScanlines ();
-
-			DWORD	written;
-
-			::WriteFile (file, &fileHeader, fileHeaderSize, &written, NULL);
-			::WriteFile (file, &bitmapHeader, bitmapHeaderSize, &written, NULL);
-			::WriteFile (file, colors, colorTableSize, &written, NULL);
-			::WriteFile (file, info.fImage.GetBits (), bitmapSize, &written, NULL);
-
-			::CloseHandle (file);
-		}
-	}
-}
-
-
 /***********************************************************************
  *
  * FUNCTION:	Platform::ForceStartupScreen
@@ -1189,12 +939,13 @@ Bool Platform::StopOnResetKeyDown (void)
 //		¥ Platform::CollectOptions
 // ---------------------------------------------------------------------------
 
-Bool Platform::CollectOptions (int argc, char** argv, int (*cb)(int, char**, int&))
+Bool Platform::CollectOptions (int argc, char** argv, int& errorArg,
+							   int (*cb)(int, char**, int&))
 {
-	int	i = 1;	// Skip argv[0]
-	while (i < argc)
+	errorArg = 1;	// Skip argv[0]
+	while (errorArg < argc)
 	{
-		if (cb (argc, argv, i) == 0)
+		if (cb (argc, argv, errorArg) == 0)
 			return false;
 	}
 
@@ -1266,23 +1017,6 @@ void Platform::ExitDebugger (void)
 {
 }
 
-void DoNew				(HWND hWnd, WPARAM command);
-void DoOpenRecent		(HWND hWnd, WPARAM command);
-
-ErrCode Platform::CreateSession (void)
-{
-	::DoNew (EmWindow::GetWindow()->GetHostData()->GetHostWindow(), kCommandSessionNew);
-
-	return errNone;
-}
-
-ErrCode Platform::OpenSession (void)
-{
-	::DoOpenRecent (EmWindow::GetWindow()->GetHostData()->GetHostWindow(), kCommandSessionOpen0);
-
-	return errNone;
-}
-
 
 /***********************************************************************
  *
@@ -1328,367 +1062,6 @@ void Platform::ViewDrawPixel (int xPos, int yPos)
 	// !!! Do nothing for now, as any drawing we do gets overwritten
 	// by the next blit of the LCD buffer to the screen.
 }
-
-
-// ---------------------------------------------------------------------------
-//		¥ Gremlin Control Window
-// ---------------------------------------------------------------------------
-
-static HWND gGCW_Dlg;
-
-// From Application.cpp
-
-void DoGremlinsStep 	(HWND hWnd, WPARAM command);
-void DoGremlinsResume	(HWND hWnd, WPARAM command);
-void DoGremlinsStop 	(HWND hWnd, WPARAM command);
-
-
-/***********************************************************************
- *
- * FUNCTION:	UpdateEventNumber
- *
- * DESCRIPTION:	
- *
- * PARAMETERS:	none
- *
- * RETURNED:	nothing
- *
- ***********************************************************************/
-
-static void UpdateEventNumber (void)
-{
-	if (!gGCW_Dlg)
-		return;
-
-	// Update the "Event #: xxx of yyy" message.
-
-	char	xxx[20];
-	char	yyy[20];
-	char	buffer[200];
-
-	::FormatInteger (xxx, Hordes::EventCounter ());
-	::FormatInteger (yyy, Hordes::EventLimit ());
-
-	// If there is a max event number (indicated by a non -1 value
-	// for gGCW_MaxEventNumber), display a string including that
-	// value.  Otherwise, the number of events to post is unlimited.
-	// In that case, we just show the current event number.
-
-	if (Hordes::EventLimit () > 0)
-	{
-		static string	fmt (Platform::GetString (kStr_XofYEvents));
-		sprintf(buffer, fmt.c_str (), xxx, yyy);
-	}
-	else
-	{
-		static string	fmt (Platform::GetString (kStr_XEvents));
-		sprintf(buffer, fmt.c_str (), xxx);
-	}
-
-	HWND	dlgItem = ::GetDlgItem (gGCW_Dlg, IDC_EVENT_NUMBER);
-	::PrvSetWindowText (dlgItem, buffer);
-}
-
-
-/***********************************************************************
- *
- * FUNCTION:	UpdateElapsedTime
- *
- * DESCRIPTION:	
- *
- * PARAMETERS:	none
- *
- * RETURNED:	nothing
- *
- ***********************************************************************/
-
-static void UpdateElapsedTime (void)
-{
-	if (!gGCW_Dlg)
-		return;
-
-	// Get hours, minutes, and seconds.
-
-	const long	kMillisecondsPerSecond	= 1000;
-	const long	kSecondsPerMinute		= 60;
-	const long	kMinutesPerHour 		= 60;
-
-	const long	kMillisecondsPerMinute	= kMillisecondsPerSecond * kSecondsPerMinute;
-	const long	kMillisecondsPerHour	= kMillisecondsPerMinute * kMinutesPerHour;
-
-	long	msecs = Hordes::ElapsedMilliseconds ();	//gGCW_ElapsedMilliseconds;
-	long	hours = msecs / kMillisecondsPerHour;		msecs -= hours * kMillisecondsPerHour;
-	long	minutes = msecs / kMillisecondsPerMinute;	msecs -= minutes * kMillisecondsPerMinute;
-	long	seconds = msecs / kMillisecondsPerSecond;	msecs -= seconds * kMillisecondsPerSecond;
-
-	// Format them into a string.
-
-	char	formattedTime[20];
-	sprintf (formattedTime, "%ld:%02ld:%02ld", hours, minutes, seconds);
-
-	// Combine the formatted time with the rest of the string.
-
-	char			msg[200];
-	static string	fmt (Platform::GetString (kStr_ElapsedTime));
-	sprintf (msg, fmt.c_str (), formattedTime);
-
-	// Display the string.
-
-	HWND	dlgItem = ::GetDlgItem (gGCW_Dlg, IDC_ELAPSED_TIME);
-	::PrvSetWindowText (dlgItem, msg);
-}
-
-
-
-/***********************************************************************
- *
- * FUNCTION:	PrvGCW_Close
- *
- * DESCRIPTION:	Closes the GCW window. Should only be called in same
- *				thread that created window.
- *
- * PARAMETERS:	none
- *
- * RETURNED:	nothing
- *
- ***********************************************************************/
-
-static void PrvGCW_Close (void)
-{
-	if (!gGCW_Dlg)
-		return;
-
-	// Do not set gGCW_Dlg to NULL; this is done in the WM_DESTROY handler
-	// of the GCW only if the window was successfully destroyed.
-
-	::DestroyWindow (gGCW_Dlg);
-}
-
-
-
-/***********************************************************************
- *
- * FUNCTION:	GCW_DlgProc
- *
- * DESCRIPTION:	
- *
- * PARAMETERS:	none
- *
- * RETURNED:	nothing
- *
- ***********************************************************************/
-
-static BOOL CALLBACK GCW_DlgProc (	HWND hWnd,
-									UINT msg,
-									WPARAM wParam,
-									LPARAM lParam)
-{
-	UNUSED_PARAM (lParam);
-
-	switch (msg)
-	{
-		case WM_INITDIALOG:
-		{
-			Preference<PointType>	pref (kPrefKeyGCWLocation);
-
-			if (!pref.Loaded ())
-			{
-				::CenterWindow (hWnd);
-			}
-			else
-			{
-				::SetWindowPos (hWnd, NULL, pref->x, pref->y,
-							-1, -1, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
-			}
-
-			// Ensure the window is on the screen.
-
-			RECT	wr;
-			::GetWindowRect (hWnd, &wr);
-
-			EmRect	r (wr);
-			if (Platform::PinToScreen (r))
-			{
-				::SetWindowPos (hWnd, NULL, r.fLeft, r.fTop,
-							-1, -1, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
-			}
-
-			// Set a timer so that we can periodically update the displayed values.
-
-			::SetTimer (hWnd, (UINT) hWnd, 500, NULL);
-
-			return TRUE;	// The dialog box procedure should return TRUE to direct
-							// the system to set the keyboard focus to the control
-							// given by hwndFocus. Otherwise, it should return FALSE
-							// to prevent the system from setting the default keyboard focus.
-		}
-
-		case WM_COMMAND:
-		{
-			switch (wParam)
-			{
-				case IDC_STOP:
-				{
-					EmSessionStopper	stopper (gSession, kStopNow);
-					if (stopper.Stopped())
-						::DoGremlinsStop (EmWindow::GetWindow()->GetHostData()->GetHostWindow(), kCommandGremlinsStop);
-					break;
-				}
-
-				case IDC_RESUME:
-				{
-					// Resuming attempts to make Palm OS calls (for instance,
-					// to reset the pen calibration), so make sure we're stopped
-					// at a good place.
-					EmSessionStopper	stopper (gSession, kStopOnSysCall);
-					if (stopper.Stopped())
-						::DoGremlinsResume (EmWindow::GetWindow()->GetHostData()->GetHostWindow(), kCommandGremlinsResume);
-					break;
-				}
-
-				case IDC_STEP:
-				{
-					EmSessionStopper	stopper (gSession, kStopOnSysCall);
-					if (stopper.Stopped())
-						::DoGremlinsStep (EmWindow::GetWindow()->GetHostData()->GetHostWindow(), kCommandGremlinsStep);
-					break;
-				}
-
-				default:
-					return 0;
-			}
-
-			return 1;
-		}
-
-		case WM_CLOSE:
-		{
-			PrvGCW_Close();
-			return 1;
-		}
-
-		case WM_DESTROY:
-		{
-			RECT	wr;
-			::GetWindowRect (hWnd, &wr);
-
-			PointType	pt = { wr.left, wr.top };
-
-			Preference<PointType>	pref (kPrefKeyGCWLocation);
-			pref = pt;
-
-			::KillTimer (hWnd, (UINT) hWnd);
-
-			gGCW_Dlg = NULL;
-
-			return 1;
-		}
-
-		case WM_TIMER:
-		{
-			// See comments in GCW_SetEventNumber.
-
-//			if (gGCW_NeedUpdate)
-			{
-//				gGCW_NeedUpdate = false;
-
-				::UpdateEventNumber ();
-				::UpdateElapsedTime ();
-
-
-				// Update the "Gremlin #xxx" message.
-
-				char	buffer[200];
-				string	fmt (Platform::GetString (kStr_GremlinNumber));
-				sprintf(buffer, fmt.c_str (), (long) Hordes::GremlinNumber ());
-
-				HWND	dlgItem = ::GetDlgItem (gGCW_Dlg, IDC_GREMLIN_NUMBER);
-				::PrvSetWindowText (dlgItem, buffer);
-
-				// Update the buttons.
-
-				dlgItem = ::GetDlgItem (gGCW_Dlg, IDC_STOP);
-				::EnableWindow (dlgItem, Hordes::CanStop ());
-
-				dlgItem = ::GetDlgItem (gGCW_Dlg, IDC_RESUME);
-				::EnableWindow (dlgItem, Hordes::CanResume ());
-
-				dlgItem = ::GetDlgItem (gGCW_Dlg, IDC_STEP);
-				::EnableWindow (dlgItem, Hordes::CanStep ());
-			}
-
-			return 1;
-		}
-	}
-
-	return 0;	// Except in response to the WM_INITDIALOG message, the dialog box
-				// procedure should return nonzero if it processes the message, and
-				// zero if it does not.
-}
-
-
-/***********************************************************************
- *
- * FUNCTION:	Platform::GCW_Open
- *
- * DESCRIPTION:	
- *
- * PARAMETERS:	none
- *
- * RETURNED:	nothing
- *
- ***********************************************************************/
-
-void Platform::GCW_Open (void)
-{
-	if (!gGCW_Dlg)
-	{
-		gGCW_Dlg = ::CreateDialogParam (	gInstance,
-											MAKEINTRESOURCE (IDD_GREMLIN_CONTROL),
-											::EmWindow::GetWindow()->GetHostData()->GetHostWindow(),
-											GCW_DlgProc,
-											0);
-	}
-
-	::ShowWindow (gGCW_Dlg, SW_SHOW);
-
-	HWND	dlgItem;
-
-	dlgItem = ::GetDlgItem (gGCW_Dlg, IDC_EVENT_NUMBER);
-	::PrvSetWindowText (dlgItem, "");
-
-	dlgItem = ::GetDlgItem (gGCW_Dlg, IDC_GREMLIN_NUMBER);
-	::PrvSetWindowText (dlgItem, "");
-
-	dlgItem = ::GetDlgItem (gGCW_Dlg, IDC_ELAPSED_TIME);
-	::PrvSetWindowText (dlgItem, "");
-}
-
-
-/***********************************************************************
- *
- * FUNCTION:	Platform::GCW_Close
- *
- * DESCRIPTION:	Closes the GCW window. Thread-safe.
- *
- * PARAMETERS:	none
- *
- * RETURNED:	nothing
- *
- ***********************************************************************/
-
-void Platform::GCW_Close (void)
-{
-	if (!gGCW_Dlg)
-		return;
-
-	::SendNotifyMessage(gGCW_Dlg, WM_CLOSE, NULL, NULL);
-}
-
-
-
-
-//sound functions
 
 
 static void PrvQueueNote (int frequency, int duration, int amplitude)
@@ -1742,7 +1115,7 @@ CallROMType Platform::SndDoCmd (SndCommandType& cmd)
 	return kSkipROM;
 }
 
-void Platform::StopSound()
+void Platform::StopSound (void)
 {
 	if (gSounds != NULL)
 	{
@@ -1750,247 +1123,7 @@ void Platform::StopSound()
 	}
 }
 
-
-/***********************************************************************
- *
- * FUNCTION:	PrvSetWindowText
- *
- * DESCRIPTION:	.
- *
- * PARAMETERS:	None.
- *
- * RETURNED:	Nothing.
- *
- ***********************************************************************/
-
-void PrvSetWindowText(HWND hWndCtrl, const char* lpszNew)
+void Platform::Beep (void)
 {
-	int 	nNewLen = strlen (lpszNew);
-	char	szOld[256];
-
-	// fast check to see if text really changes (reduces flash in controls)
-
-	if (nNewLen > countof (szOld) ||
-		::GetWindowText (hWndCtrl, szOld, countof(szOld)) != nNewLen ||
-		strcmp (szOld, lpszNew) != 0)
-	{
-		// change it
-		::SetWindowText (hWndCtrl, lpszNew);
-	}
-}
-
-
-/***********************************************************************
- *
- * FUNCTION:	PrvResourcePresent
- *
- * DESCRIPTION: .
- *
- * PARAMETERS:	
- *
- * RETURNED:	
- *
- ***********************************************************************/
-
-Bool PrvResourcePresent (const char* name)
-{
-	HRSRC hRsrcLoc = ::FindResourceEx ( NULL, kResourceType, name,
-										MAKELANGID (LANG_NEUTRAL, SUBLANG_NEUTRAL));
-	return (hRsrcLoc != NULL);
-}
-
-
-/***********************************************************************
- *
- * FUNCTION:	PrvGetResource
- *
- * DESCRIPTION: .
- *
- * PARAMETERS:	
- *
- * RETURNED:	
- *
- ***********************************************************************/
-
-Bool PrvGetResource (const char* name, Chunk& rom)
-{
-	HRSRC hRsrcLoc = ::FindResourceEx ( NULL, kResourceType, name,
-										MAKELANGID (LANG_NEUTRAL, SUBLANG_NEUTRAL));
-
-	HGLOBAL hResData = ::LoadResource (NULL, hRsrcLoc);
-
-	if (hResData == NULL)
-	{
-		return false;
-	}
-
-	LPVOID	data = ::LockResource (hResData);
-	DWORD	size = ::SizeofResource (NULL, hRsrcLoc);
-
-	rom.SetLength (size);
-	memcpy (rom.GetPointer (), data, size);
-  
-	return true;
-}
-
-
-/***********************************************************************
- *
- * FUNCTION:	PrvBindFile
- *
- * DESCRIPTION: Does the work of binding a file as a resource into an
- *				executable file.
- *
- * PARAMETERS:	hExecutable - Handle from BeginUpdateResource
- *				fileName - file name of file containing resource
- *					information
- *				resourceType - name of resource type
- *				resourceName - name of resource
- *
- * RETURNED:	TRUE if resource bound successfully
- *				FALSE otherwise
- *
- ***********************************************************************/
-
-bool PrvBindFile (HANDLE hExecutable, const EmFileRef& file,
-					const char* resourceName)
-{
-	if (!file.Exists ())
-		return false;
-
-	Chunk	contents;
-	::GetFileContents (file, contents);
-
-	int32	iSize = contents.GetLength ();
-	void*	pData = contents.GetPointer ();
-
-	if (!pData || !::UpdateResource (hExecutable, kResourceType, resourceName,
-		MAKELANGID(LANG_NEUTRAL, SUBLANG_NEUTRAL), pData, iSize))
-	{
-		return false;
-	}
-
-	return true;
-}
-
-
-/***********************************************************************
- *
- * FUNCTION:	PrvBindROM
- *
- * DESCRIPTION: Does the work of binding a ROM file into an
- *				executable file.
- *
- * PARAMETERS:	hExecutable - Handle from BeginUpdateResource
- *
- * RETURNED:	TRUE if resource bound successfully
- *				FALSE otherwise
- *
- ***********************************************************************/
-
-bool PrvBindROM (HANDLE hExecutable)
-{
-	EmAssert (gSession);
-	Configuration	cfg = gSession->GetConfiguration ();
-
-	return ::PrvBindFile (hExecutable, cfg.fROMFile, kROMID);
-}
-
-
-/***********************************************************************
- *
- * FUNCTION:	PrvBindPSF
- *
- * DESCRIPTION: Does the work of binding a PSF file into an
- *				executable file.
- *
- * PARAMETERS:	hExecutable - Handle from BeginUpdateResource
- *
- * RETURNED:	TRUE if resource bound successfully
- *				FALSE otherwise
- *
- ***********************************************************************/
-
-bool PrvBindPSF (HANDLE hExecutable)
-{
-	// !!! Save the current session to a file so that we can read its
-	// contents.  Later, we need a version of Emulator::Save that takes
-	// a stream.  That way, we can call it with a RAM-base stream.
-
-	EmFileRef	tempFile (tmpnam (NULL));
-
-	EmAssert (gSession);
-	gSession->Save (tempFile, false);
-
-	bool	result = ::PrvBindFile (hExecutable, tempFile, kPSFID);
-
-	tempFile.Delete ();
-
-	return result;
-}
-
-
-/***********************************************************************
- *
- * FUNCTION:	PrvBindSkin
- *
- * DESCRIPTION: Does the work of binding a Skin file into an
- *				executable file.
- *
- * PARAMETERS:	hExecutable - Handle from BeginUpdateResource
- *
- * RETURNED:	TRUE if resource bound successfully
- *				FALSE otherwise
- *
- ***********************************************************************/
-
-bool PrvBindSkin (HANDLE hExecutable)
-{
-	EmFileRef	skinfoFile = ::SkinGetSkinfoFile ();
-	EmFileRef	skin1xFile = ::SkinGetSkinFile (1);
-	EmFileRef	skin2xFile = ::SkinGetSkinFile (2);
-
-	if (skinfoFile.Exists () && skin1xFile.Exists () && skin2xFile.Exists ())
-	{
-		if (!::PrvBindFile (hExecutable, skinfoFile, kSkinfoID))
-			return false;
-
-		if (!::PrvBindFile (hExecutable, skin1xFile, kSkin1xID))
-			return false;
-
-		if (!::PrvBindFile (hExecutable, skin2xFile, kSkin2xID))
-			return false;
-	}
-
-	return true;
-}
-
-
-/***********************************************************************
- *
- * FUNCTION:	PrvBindConfig
- *
- * DESCRIPTION: .
- *
- * PARAMETERS:	hExecutable - Handle from BeginUpdateResource
- *
- * RETURNED:	TRUE if resource bound successfully
- *				FALSE otherwise
- *
- ***********************************************************************/
-
-bool PrvBindConfig (HANDLE hExecutable)
-{
-	EmAssert (gSession);
-	Configuration	cfg = gSession->GetConfiguration ();
-
-	DeviceConfig	rc;
-	string			idString (cfg.fDevice.GetIDString ());
-
-	strcpy (rc.Device, idString.c_str ());
-	rc.RAMSize = cfg.fRAMSize;
-
-	return (::UpdateResource (hExecutable, kResourceType, kConfigID,
-				MAKELANGID(LANG_NEUTRAL, SUBLANG_NEUTRAL),
-				&rc, sizeof (DeviceConfig)) != 0);
+	::MessageBeep (-1);
 }

@@ -43,12 +43,20 @@ Bool EmRegs328PalmPilot::GetLCDBacklightOn (void)
 
 
 // ---------------------------------------------------------------------------
-//		¥ EmRegs328PalmPilot::GetSerialPortOn
+//		¥ EmRegs328PalmPilot::GetLineDriverState
 // ---------------------------------------------------------------------------
+// Return whether or not the line drivers for the given object are open or
+// closed.
 
-Bool EmRegs328PalmPilot::GetSerialPortOn (int /*uartNum*/)
+Bool EmRegs328PalmPilot::GetLineDriverState (EmUARTDeviceType type)
 {
-	return (READ_REGISTER (portGData) & hwrTD1PortGSerialOn) != 0;
+	if (type == kUARTSerial)
+		return (READ_REGISTER (portGData) & hwrTD1PortGSerialOn) != 0;
+
+	if (type == kUARTIR)
+		return (READ_REGISTER (portJData) & hwrTD1PortJIrOn) == 0;
+
+	return false;
 }
 
 

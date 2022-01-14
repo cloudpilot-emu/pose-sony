@@ -13,17 +13,19 @@
 
 #include "EmCommon.h"
 #include "PreferenceMgr.h"
+
+#include "EmCPU.h"				// gCPU
+#include "EmHAL.h"				// EmHAL::GetLineDriverState
 #include "EmMapFile.h"			// EmMapFile
 #include "EmSession.h"			// EmSessionStopper
 #include "EmTransportSerial.h"	// EmTransportSerial
 #include "EmTransportSocket.h"	// EmTransportSocket
 #include "EmTransportUSB.h"		// EmTransportUSB
-#include "Hordes.h"				// Hordes::IsOn
-#include "Logging.h"			// LogUpdateCache
-#include "Platform.h"			// GetPreferenceFile, _stricmp
+#include "Platform.h"			// _stricmp
 #include "StringConversions.h"	// ToString, FromString
 
 #include <algorithm>			// find()
+#include <ctype.h>				// isdigit
 
 Preferences*			gPrefs;
 EmulatorPreferences*	gEmuPrefs;
@@ -35,6 +37,8 @@ omni_mutex				Preferences::fgPrefsMutex;
 #define DEFINE_PREF_KEYS(name, type, init)	const char* kPrefKey##name = #name;
 FOR_EACH_PREF(DEFINE_PREF_KEYS)
 
+static void PrvFilterFileRefList (PrefKeyType key);
+static EmTransportType PrvGetTransportTypeFromPortName (const char* portName);
 
 static Bool PrvFirstBeginsWithSecond (const string& first, const string& second)
 {
@@ -324,12 +328,7 @@ bool Preference<T>::DoLoad (void)
 template <class T>
 void Preference<T>::DoSave (void)
 {
-	Bool	skipSave = ::IsBoundFully () && fName == kPrefKeyLastPSF;
-
-	if (!skipSave)
-	{
-		gPrefs->SetPref (fName, ::ToString (fValue));
-	}
+	gPrefs->SetPref (fName, ::ToString (fValue));
 }
 
 
@@ -355,6 +354,7 @@ template class Preference<string>;
 //template class Preference<Bool>;
 template class Preference<CloseActionType>;
 template class Preference<EmDevice>;
+template class Preference<EmErrorHandlingOption>;
 
 
 // ----------------------------------------------------------------------
@@ -379,23 +379,16 @@ bool Preference<Configuration>::DoLoad (void)
 
 	gPrefs->PushPrefix (fName);
 
-	Bool	skipLoad = ::IsBound () && fName == kPrefKeyLastConfiguration;
+	if (gPrefs->GetPref ("fDeviceType", value)	&& ::FromString (value, fValue.fDevice) &&
+		gPrefs->GetPref ("fRAMSize", value) 	&& ::FromString (value, fValue.fRAMSize) &&
+#ifdef SONY_ROM
+		gPrefs->GetPref ("fMSSize", value) 		&& ::FromString (value, fValue.fMSSize) &&
+		gPrefs->GetPref ("fROMFile", value) 	&& ::FromString (value, fValue.fROMFile))
+#else //!SONY_ROM
+		gPrefs->GetPref ("fROMFile", value) 	&& ::FromString (value, fValue.fROMFile))
+#endif //SONY_ROM
 
-	if (!skipLoad)
 	{
-		if (gPrefs->GetPref ("fDeviceType", value)	&& ::FromString (value, fValue.fDevice) &&
-			gPrefs->GetPref ("fRAMSize", value) 	&& ::FromString (value, fValue.fRAMSize) &&
-			gPrefs->GetPref ("fROMFile", value) 	&& ::FromString (value, fValue.fROMFile))
-		{
-			loaded = true;
-		}
-	}
-	else
-	{
-		fValue.fDevice	= Platform::GetBoundDevice ();
-		fValue.fRAMSize	= Platform::GetBoundRAMSize ();
-		fValue.fROMFile	= EmFileRef ();
-
 		loaded = true;
 	}
 
@@ -409,14 +402,12 @@ void Preference<Configuration>::DoSave (void)
 {
 	gPrefs->PushPrefix (fName);
 
-	Bool	skipSave = ::IsBound () && fName == kPrefKeyLastConfiguration;
-
-	if (!skipSave)
-	{
-		gPrefs->SetPref ("fDeviceType", 	::ToString (fValue.fDevice));
-		gPrefs->SetPref ("fRAMSize",		::ToString (fValue.fRAMSize));
-		gPrefs->SetPref ("fROMFile",		::ToString (fValue.fROMFile));
-	}
+	gPrefs->SetPref ("fDeviceType", 	::ToString (fValue.fDevice));
+	gPrefs->SetPref ("fRAMSize",		::ToString (fValue.fRAMSize));
+	gPrefs->SetPref ("fROMFile",		::ToString (fValue.fROMFile));
+#ifdef SONY_ROM
+	gPrefs->SetPref ("fMSSize",			::ToString (fValue.fMSSize));
+#endif //SONY_ROM
 
 	gPrefs->PopPrefix ();
 }
@@ -652,7 +643,8 @@ bool Preference<HordeInfo>::DoLoad (void)
 		gPrefs->GetPref ("fDepthStop", value)			&& ::FromString (value, fValue.fDepthStop) &&
 		gPrefs->GetPref ("fCanSwitch", value)			&& ::FromString (value, fValue.fCanSwitch) &&
 		gPrefs->GetPref ("fCanSave", value)				&& ::FromString (value, fValue.fCanSave) &&
-		gPrefs->GetPref ("fCanStop", value)				&& ::FromString (value, fValue.fCanStop))
+		gPrefs->GetPref ("fCanStop", value)				&& ::FromString (value, fValue.fCanStop) &&
+		gPrefs->GetPref ("fFirstLaunchedAppName", value)	&& ::FromString (value, fValue.fFirstLaunchedAppName))
 	{
 		loaded = true;
 		fValue.NewToOld ();	// Transfer the new fields to the old fields.
@@ -685,12 +677,14 @@ void Preference<HordeInfo>::DoSave (void)
 	gPrefs->SetPref ("fCanSwitch",					::ToString (fValue.fCanSwitch));
 	gPrefs->SetPref ("fCanSave",					::ToString (fValue.fCanSave));
 	gPrefs->SetPref ("fCanStop",					::ToString (fValue.fCanStop));
+	gPrefs->SetPref ("fFirstLaunchedAppName",		::ToString (fValue.fFirstLaunchedAppName));
 
 	// Save the fAppList collection.
 	{
 		Preference<DatabaseInfoList> pref ("fAppList", false);
 		pref = fValue.fAppList;
 	}
+
 
 	gPrefs->PopPrefix ();
 }
@@ -1072,10 +1066,9 @@ Preferences::~Preferences (void)
 
 void Preferences::Load (void)
 {
-	EmFileRef		prefRef (this->GetPrefRef ());
 	StringStringMap	mapData;
 
-	if (!EmMapFile::Read (prefRef, mapData))
+	if (!this->ReadPreferences (mapData))
 		return;
 
 	StringStringMap::iterator	iter = mapData.begin ();
@@ -1107,8 +1100,7 @@ void Preferences::Save (void)
 {
 	this->StripUnused ();
 
-	EmFileRef	prefRef (this->GetPrefRef ());
-	EmMapFile::Write (prefRef, fPreferences);
+	this->WritePreferences (fPreferences);
 }
 
 
@@ -1529,6 +1521,44 @@ void Preferences::DoNotify (const string& key)
 
 /***********************************************************************
  *
+ * FUNCTION:	Preferences::ReadPreferences
+ *
+ * DESCRIPTION: .
+ *
+ * PARAMETERS:	.
+ *
+ * RETURNED:	Nothing
+ *
+ ***********************************************************************/
+
+Bool Preferences::ReadPreferences (StringStringMap& prefData)
+{
+	EmFileRef		prefRef (this->GetPrefRef ());
+	return EmMapFile::Read (prefRef, prefData);
+}
+
+
+/***********************************************************************
+ *
+ * FUNCTION:	Preferences::WritePreferences
+ *
+ * DESCRIPTION: .
+ *
+ * PARAMETERS:	.
+ *
+ * RETURNED:	Nothing
+ *
+ ***********************************************************************/
+
+void Preferences::WritePreferences (const StringStringMap& prefData)
+{
+	EmFileRef	prefRef (this->GetPrefRef ());
+	EmMapFile::Write (prefRef, prefData);
+}
+
+
+/***********************************************************************
+ *
  * FUNCTION:	Preferences::GetPrefRef
  *
  * DESCRIPTION: .
@@ -1541,6 +1571,7 @@ void Preferences::DoNotify (const string& key)
 
 EmFileRef Preferences::GetPrefRef (void)
 {
+	EmDirRef	poserDir (EmDirRef::GetEmulatorDirectory ());
 	EmDirRef	prefDir (EmDirRef::GetPrefsDirectory ());
 
 #if PLATFORM_MAC
@@ -1561,8 +1592,13 @@ EmFileRef Preferences::GetPrefRef (void)
 
 #endif
 
-	EmFileRef	result (prefDir, name);
-	return result;
+	EmFileRef	poserResult (poserDir, name);
+	if (poserResult.Exists ())
+		return poserResult;
+
+	EmFileRef	prefResult (prefDir, name);
+
+	return prefResult;
 }
 
 
@@ -1600,7 +1636,7 @@ void Preferences::WriteBanner (FILE*)
  *
  ***********************************************************************/
 
-bool Preferences::ReadBanner (FILE*)
+Bool Preferences::ReadBanner (FILE*)
 {
 	return true;
 }
@@ -1642,8 +1678,7 @@ void Preferences::StripUnused (void)
 
 EmulatorPreferences::EmulatorPreferences (void) :
 	Preferences (),
-	fTransportForIR (NULL),
-	fTransportForSerial (NULL)
+	fTransports ()
 {
 	if (gEmuPrefs == NULL)
 		gEmuPrefs = this;
@@ -1660,6 +1695,11 @@ EmulatorPreferences::EmulatorPreferences (void) :
 	}
 
 	FOR_EACH_INIT_PREF(INIT_PREF_KEYS)
+
+	for (EmUARTDeviceType ii = kUARTBegin; ii < kUARTEnd; ++ii)
+	{
+		fTransports[ii] = NULL;
+	}
 }
 
 
@@ -1677,6 +1717,11 @@ EmulatorPreferences::EmulatorPreferences (void) :
 
 EmulatorPreferences::~EmulatorPreferences (void)
 {
+	for (EmUARTDeviceType ii = kUARTBegin; ii < kUARTEnd; ++ii)
+	{
+		delete fTransports[ii];
+	}
+
 	if (gEmuPrefs == this)
 		gEmuPrefs = NULL;
 }
@@ -1702,75 +1747,9 @@ void EmulatorPreferences::Load (void)
 {
 	Preferences::Load ();
 
-	// Migrate any old skin preferences to the current format.
+	// Migrate over any old prefs to any new way of handling them.
 
-	{
-		const char*	kDeviceName[] = 
-		{
-			NULL,
-			"Pilot",
-			"Pilot",
-			"PalmPilot",
-			"PalmPilot",
-			NULL,
-			"PalmIII",
-			"PalmVII",
-			NULL,
-			NULL,
-			"PalmV",
-			"PalmIIIx",
-			NULL,
-			"PalmIIIc",
-			"PalmVIIEZ",
-			"PalmIIIe",
-			"PalmVx",
-			"Symbol1700",
-			"TRGpro",
-			"Visor",
-			"PalmM100",
-			"PalmVIIx",
-			NULL,
-			NULL,
-			NULL,
-			NULL,
-			NULL,
-			"VZDevice",
-			NULL,
-			NULL,
-			"VisorPrism",
-			"VisorPlatinum",
-#ifdef SONY_ROM
-			"PEG-S500C",
-			"PEG-S300",
-			"PEG-N700C/N710C",
-			"PEG-S320",
-			"PEG-S360",
-			"PEG-N600C/N610C",
-			"PEG-T400",
-			"PEG-T600",
-#endif
-			NULL
-		};
-
-		for (size_t index = 0; index < countof (kDeviceName); ++index)
-		{
-			if (kDeviceName[index])
-			{
-				char	oldPrefKey[20];
-				sprintf (oldPrefKey, "%s[%d]", kPrefKeySkins, index);
-
-				Preference<SkinName>	oldSkinPref (oldPrefKey);
-				if (!oldSkinPref.Loaded ())
-					break;
-
-				char	newPrefKey[20];
-				sprintf (newPrefKey, "%s.%s", kPrefKeySkins, kDeviceName[index]);
-
-				Preference<SkinName>	newSkinPref (newPrefKey);
-				newSkinPref = *oldSkinPref;
-			}
-		}
-	}
+	this->MigrateOldPrefs ();
 
 	// Let's set up some default configuration in case there isn't
 	// one in the prefs file (or it was invalid).
@@ -1780,31 +1759,15 @@ void EmulatorPreferences::Load (void)
 	{
 #ifdef SONY_ROM
 		prefConfig = Configuration (EmDevice ("PalmIII"), 1024, EmFileRef(), MSSIZE_DEFAULT);	// for Sony & MemoryStick
-#else
+#else //!SONY_ROM
 		prefConfig = Configuration (EmDevice ("PalmIII"), 1024, EmFileRef());
-#endif
+#endif //SONY_ROM
+
 	}
 
 	// Create the transports used by the UARTs.
 
 	this->SetTransports ();
-
-	// Set this preference to FALSE every time we start up.  Force
-	// someone to set it to true via HostSetPreference.
-
-	Preference<Bool>	prefSilentRunning (kPrefKeySilentRunning);
-	prefSilentRunning = false;
-
-	// If there's a CommPortList preference, migrate that over
-	// to the CommPort preference.
-
-	Preference<string>		prefCommPort (kPrefKeyCommPort);
-	Preference<StringList>	prefCommPortList ("CommPortList");
-
-	if (prefCommPortList.Loaded () && prefCommPortList->size () > 0)
-	{
-		prefCommPort = (*prefCommPortList)[0];
-	}
 }
 
 
@@ -1823,6 +1786,27 @@ void EmulatorPreferences::Load (void)
  *				returned.
  *
  ***********************************************************************/
+
+void EmulatorPreferences::GetDatabaseMRU (EmFileRefList& files)
+{
+	Preference<EmFileRefList> pref (kPrefKeyPRC_MRU);
+	files = *pref;
+}
+
+
+void EmulatorPreferences::GetSessionMRU (EmFileRefList& files)
+{
+	Preference<EmFileRefList> pref (kPrefKeyPSF_MRU);
+	files = *pref;
+}
+
+
+void EmulatorPreferences::GetROMMRU (EmFileRefList& files)
+{
+	Preference<EmFileRefList> pref (kPrefKeyROM_MRU);
+	files = *pref;
+}
+
 
 EmFileRef EmulatorPreferences::GetIndPRCMRU (int index)
 {
@@ -1973,76 +1957,184 @@ void EmulatorPreferences::RemoveMRU (EmFileRefList& fileList, const EmFileRef& o
 
 void EmulatorPreferences::SetTransports (void)
 {
-	// Set the transport to use for IR communication.
-
-	this->SetTransportForIR (NULL);
-
-	// Set the serial transport.  Find out from the preferences
-	// the name of the serial port to use (if any).
-	
-	Preference<string> prefCommPort (kPrefKeyCommPort);	
-	string portName (*prefCommPort);
-
-	EmTransportType transportType;	
-	transportType = EmTransport::GetTransportTypeFromPortName (portName.c_str ());
-
-	switch (transportType)
 	{
-		case kTransportSerial:
-		{
-			EmTransportSerial::ConfigSerial	config;
+		Preference<EmTransportDescriptor> pref (kPrefKeyPortSerial);	
+		this->SetTransportForDevice (kUARTSerial, pref->CreateTransport ());
+	}
 
-			config.fPort = portName;
+	{
+		Preference<EmTransportDescriptor> pref (kPrefKeyPortIR);	
+		this->SetTransportForDevice (kUARTIR, pref->CreateTransport ());
+	}
 
-			SetTransportForSerial (config.NewTransport ());
-			break;
-		}
-
-		case kTransportSocket:
-		{
-			EmTransportSocket::ConfigSocket	config;
-
-			Preference<string>	prefSerialTargetHost (kPrefKeySerialTargetHost);
-			Preference<long>	prefSerialTargetPort (kPrefKeySerialTargetPort);
-
-			config.fTargetHost = *prefSerialTargetHost;
-			config.fTargetPort = *prefSerialTargetPort;
-
-			SetTransportForSerial (config.NewTransport ());
-			break;
-		}
-
-		case kTransportUSB:
-		case kTransportNone:
-			SetTransportForSerial (NULL);
+	{
+		Preference<EmTransportDescriptor> pref (kPrefKeyPortMystery);	
+		this->SetTransportForDevice (kUARTMystery, pref->CreateTransport ());
 	}
 }
 
-void EmulatorPreferences::SetTransportForIR (EmTransport* transport)
+
+void EmulatorPreferences::SetTransportForDevice	(EmUARTDeviceType type,
+												 EmTransport* transport)
 {
 	EmSessionStopper	stopper (gSession, kStopNow);
 
-	delete fTransportForIR;
-	fTransportForIR = transport;
+	delete fTransports[type];
+	fTransports[type] = transport;
+
+	// If the transport exists and needs to be opened, open it.
+
+	if (transport && gCPU && EmHAL::GetLineDriverState (type))
+	{
+		transport->Open ();
+	}
 }
 
-void EmulatorPreferences::SetTransportForSerial (EmTransport* transport)
+
+EmTransport* EmulatorPreferences::GetTransportForDevice (EmUARTDeviceType type)
 {
-	EmSessionStopper	stopper (gSession, kStopNow);
-
-	delete fTransportForSerial;
-	fTransportForSerial = transport;
+	return fTransports[type];
 }
 
-EmTransport* EmulatorPreferences::GetTransportForIR (void)
+
+#pragma mark -
+
+// ---------------------------------------------------------------------------
+//		¥ Errors::LogMessage
+// ---------------------------------------------------------------------------
+// Return whether or not the message should be logged.
+
+Bool EmulatorPreferences::LogMessage (Bool isFatal)
 {
-	return fTransportForIR;
+	{
+		if (isFatal && LogErrorMessages ())
+			return true;
+	}
+
+	{
+		if (!isFatal && LogWarningMessages ())
+			return true;
+	}
+
+	{
+		Preference<Bool>	pref ("SilentRunning");
+		if (pref.Loaded () && *pref)
+			return true;
+	}
+
+	return false;
 }
 
-EmTransport* EmulatorPreferences::GetTransportForSerial (void)
+
+// ---------------------------------------------------------------------------
+//		¥ PrvGetPrefKey
+// ---------------------------------------------------------------------------
+// Return the key for the preference that tells us to handle the error or
+// warning in this situation.
+
+static PrefKeyType PrvGetPrefKey (Bool isFatal)
 {
-	return fTransportForSerial;
+	PrefKeyType	prefKey = NULL;
+
+	if (Hordes::IsOn ())
+	{
+		prefKey = isFatal ? kPrefKeyErrorOn : kPrefKeyWarningOn;
+	}
+	else
+	{
+		prefKey = isFatal ? kPrefKeyErrorOff : kPrefKeyWarningOff;
+	}
+
+	return prefKey;
 }
+
+
+// ---------------------------------------------------------------------------
+//		¥ EmulatorPreferences::ShouldQuit
+// ---------------------------------------------------------------------------
+// Return whether or not this error should cause us to quit.
+
+Bool EmulatorPreferences::ShouldQuit (Bool isFatal)
+{
+	// If SilentRunning is set, then we quit on fatal errors.
+
+	if (isFatal)
+	{
+		Preference<Bool>	pref ("SilentRunning");
+		if (pref.Loaded () && *pref)
+			return true;
+	}
+
+	// If the old ExitOnErrors preference is set, then we
+	// quit on fatal errors.
+
+	if (isFatal)
+	{
+		Preference<Bool>	pref ("ExitOnErrors");
+		if (pref.Loaded () && *pref)
+			return true;
+	}
+
+	// Otherwise, get the setting for this situation and
+	// see if it tells us to quit.
+
+	PrefKeyType	prefKey = ::PrvGetPrefKey (isFatal);
+	Preference<EmErrorHandlingOption>	pref (prefKey);
+	return (*pref == kQuit);
+}
+
+
+// ---------------------------------------------------------------------------
+//		¥ EmulatorPreferences::ShouldContinue
+// ---------------------------------------------------------------------------
+// Return whether or not this error should be logged but not displayed.
+
+Bool EmulatorPreferences::ShouldContinue (Bool isFatal)
+{
+	// If SilentRunning is set, then we continue on warnings.
+
+	if (!isFatal)
+	{
+		Preference<Bool>	pref ("SilentRunning");
+		if (pref.Loaded () && *pref)
+			return true;
+	}
+
+	// If the old ContinueOnWarnings preference is set, then we
+	// continue on warnings.
+
+	if (!isFatal)
+	{
+		Preference<Bool>	pref ("ContinueOnWarnings");
+		if (pref.Loaded () && *pref)
+			return true;
+	}
+
+	// Otherwise, get the setting for this situation and
+	// see if it tells us to quit.
+
+	PrefKeyType	prefKey = ::PrvGetPrefKey (isFatal);
+	Preference<EmErrorHandlingOption>	pref (prefKey);
+	return (*pref == kContinue);
+}
+
+
+// ---------------------------------------------------------------------------
+//		¥ EmulatorPreferences::ShouldNextGremlin
+// ---------------------------------------------------------------------------
+// Return whether or not this error should cause us to switch to the next
+// Gremlin in a Horde.
+
+Bool EmulatorPreferences::ShouldNextGremlin (Bool isFatal)
+{
+	// Otherwise, get the setting for this situation and
+	// see if it tells us to quit.
+
+	PrefKeyType	prefKey = ::PrvGetPrefKey (isFatal);
+	Preference<EmErrorHandlingOption>	pref (prefKey);
+	return (*pref == kSwitch);
+}
+
 
 /***********************************************************************
  *
@@ -2076,7 +2168,7 @@ void EmulatorPreferences::WriteBanner (FILE* f)
  *
  ***********************************************************************/
 
-bool EmulatorPreferences::ReadBanner (FILE*)
+Bool EmulatorPreferences::ReadBanner (FILE*)
 {
 	return true;
 }
@@ -2099,7 +2191,7 @@ bool EmulatorPreferences::ReadBanner (FILE*)
 static bool PrvCheckKey (PrefKeyType key)
 {
 	#define REMOVE_UNUSED(name, type, init) 		\
-		if (_stricmp (key, kPrefKey##name) == 0)	\
+		if (::PrefKeysEqual (key, kPrefKey##name))	\
 			return true;
 	FOR_EACH_PREF(REMOVE_UNUSED)
 
@@ -2162,3 +2254,336 @@ void EmulatorPreferences::StripUnused (void)
 	}
 }
 
+
+/***********************************************************************
+ *
+ * FUNCTION:	EmulatorPreferences::MigrateOldPrefs
+ *
+ * DESCRIPTION: .
+ *
+ * PARAMETERS:	None
+ *
+ * RETURNED:	Nothing
+ *
+ ***********************************************************************/
+
+void EmulatorPreferences::MigrateOldPrefs (void)
+{
+	// Migrate any old skin preferences to the current format.
+
+	{
+		const char*	kDeviceName[] = 
+		{
+			NULL,
+			"Pilot",
+			"Pilot",
+			"PalmPilot",
+			"PalmPilot",
+			NULL,
+			"PalmIII",
+			"PalmVII",
+			NULL,
+			NULL,
+			"PalmV",
+			"PalmIIIx",
+			NULL,
+			"PalmIIIc",
+			"PalmVIIEZ",
+			"PalmIIIe",
+			"PalmVx",
+			"Symbol1700",
+			"TRGpro",
+			"Visor",
+			"PalmM100",
+			"PalmVIIx",
+			NULL,
+			NULL,
+			NULL,
+			NULL,
+			NULL,
+			"VZDevice",
+			NULL,
+			NULL,
+			"VisorPrism",
+			"VisorPlatinum",
+#ifdef SONY_ROM
+			"PEG-S500C",
+			"PEG-S300",
+			"PEG-N700C/N710C",
+			"PEG-S320",
+			"PEG-N600C/N610C",
+			"PEG-T400",
+			"PEG-T600",
+			"YSX-1100",
+			"YSX-1230",
+#endif //SONY_ROM
+			NULL
+		};
+
+		for (size_t index = 0; index < countof (kDeviceName); ++index)
+		{
+			if (kDeviceName[index])
+			{
+				char	oldPrefKey[20];
+				sprintf (oldPrefKey, "%s[%d]", kPrefKeySkins, index);
+
+				Preference<SkinName>	oldSkinPref (oldPrefKey);
+				if (!oldSkinPref.Loaded ())
+					break;
+
+				char	newPrefKey[20];
+				sprintf (newPrefKey, "%s.%s", kPrefKeySkins, kDeviceName[index]);
+
+				Preference<SkinName>	newSkinPref (newPrefKey);
+				newSkinPref = *oldSkinPref;
+			}
+		}
+	}
+
+	// Filter the MRU lists, removing references to items no longer there.
+
+	::PrvFilterFileRefList (kPrefKeyPRC_MRU);
+	::PrvFilterFileRefList (kPrefKeyPSF_MRU);
+	::PrvFilterFileRefList (kPrefKeyROM_MRU);
+
+	// If this is the first time Poser 3.3 is being run, then set the
+	// logging options for errors and warnings to true in Gremlin mode.
+
+	StringStringMap	mapData;
+
+	if (this->ReadPreferences (mapData))
+	{
+		if (mapData.find ("DialogBeep") == mapData.end ())
+		{
+			Preference<uint8>	prefLogWarnings (kPrefKeyLogWarningMessages);
+			Preference<uint8>	prefLogErrors (kPrefKeyLogErrorMessages);
+
+			prefLogWarnings	= *prefLogWarnings | kGremlinLogging;
+			prefLogErrors	= *prefLogErrors | kGremlinLogging;
+		}
+	}
+
+	// If there's a CommPortList preference, migrate that over
+	// to the CommPort preference.
+
+	Preference<string>		prefCommPort ("CommPort");
+	Preference<StringList>	prefCommPortList ("CommPortList");
+
+	if (prefCommPortList.Loaded () && prefCommPortList->size () > 0)
+	{
+		prefCommPort = (*prefCommPortList)[0];
+	}
+
+	// Migrate forward old port redirection settings to new ones.
+	// (Yes, this is done in addition to the migration done previously.
+	// Each migration represents different changes in Poser's evolution.)
+
+	// Convert CommPort, SerialTargetHost, and SerialTargetPort.
+
+	{
+		Preference<string>	oldHost ("SerialTargetHost");
+		Preference<string>	oldPort ("SerialTargetPort");
+
+		if (oldHost.Loaded ())
+		{
+			Preference<string>	newHost (kPrefKeyPortSerialSocket);
+
+			newHost = *oldHost + ":" + *oldPort;
+		}
+	}
+
+	{
+		Preference<string>	oldPref ("CommPort");
+		if (oldPref.Loaded ())
+		{
+			Preference<EmTransportDescriptor>	newPref (kPrefKeyPortSerial);
+			EmTransportType	type = PrvGetTransportTypeFromPortName (oldPref->c_str ());
+
+			if (type == kTransportSerial)
+			{
+				newPref = EmTransportDescriptor (kTransportSerial, *oldPref);
+			}
+			else if (type == kTransportSocket)
+			{
+				Preference<string>	newHost (kPrefKeyPortSerialSocket);
+
+				newPref = EmTransportDescriptor (kTransportSocket, *newHost);
+			}
+			else
+			{
+				newPref = EmTransportDescriptor (kTransportNull);
+			}
+		}
+	}
+
+	// Convert IRPort, IRTargetHost, and IRTargetPort.
+
+	{
+		Preference<string>	oldHost ("IRTargetHost");
+		Preference<string>	oldPort ("IRTargetPort");
+
+		if (oldHost.Loaded ())
+		{
+			Preference<string>	newHost (kPrefKeyPortIRSocket);
+
+			newHost = *oldHost + ":" + *oldPort;
+		}
+	}
+
+	{
+		Preference<string>	oldPref ("IRPort");
+		if (oldPref.Loaded ())
+		{
+			Preference<EmTransportDescriptor>	newPref (kPrefKeyPortIR);
+			EmTransportType	type = PrvGetTransportTypeFromPortName (oldPref->c_str ());
+
+			if (type == kTransportSerial)
+			{
+				newPref = EmTransportDescriptor (kTransportSerial, *oldPref);
+			}
+			else if (type == kTransportSocket)
+			{
+				Preference<string>	newHost (kPrefKeyPortIRSocket);
+
+				newPref = EmTransportDescriptor (kTransportSocket, *newHost);
+			}
+			else
+			{
+				newPref = EmTransportDescriptor (kTransportNull);
+			}
+		}
+	}
+
+	// Establish Mystery Port
+
+	{
+		Preference<EmTransportDescriptor>	pref (kPrefKeyPortMystery);
+
+		if (!pref.Loaded ())
+		{
+			pref = EmTransportDescriptor (kTransportNull);
+		}
+	}
+}
+
+
+/***********************************************************************
+ *
+ * FUNCTION:	PrvFilterFileRefList
+ *
+ * DESCRIPTION: Remove files from the given list that no longer appear
+ *				to exist.
+ *
+ * PARAMETERS:	key - the key of the preference containing the list
+ *					of files to check.
+ *
+ * RETURNED:	Nothing, but the preference is altered.
+ *
+ ***********************************************************************/
+
+void PrvFilterFileRefList (PrefKeyType key)
+{
+	Preference<EmFileRefList>	pref (key);
+	EmFileRefList				mruList = *pref;
+
+	EmFileRefList::iterator		iter = mruList.begin ();
+
+	while (iter != mruList.end ())
+	{
+		if (!iter->Exists ())
+		{
+			EmFileRefList::difference_type	index = iter - mruList.begin ();
+			mruList.erase (iter);
+			iter = mruList.begin () + index;
+		}
+		else
+		{
+			++iter;
+		}
+	}
+
+	pref = mruList;
+}
+
+
+/**********************************************************************
+ *
+ * FUNCTION:    PrvGetTransportTypeFromPortName
+ *
+ * DESCRIPTION: .
+ *
+ * PARAMETERS:  .
+ *
+ * RETURNED:    .
+ *
+ ***********************************************************************/
+
+EmTransportType PrvGetTransportTypeFromPortName (const char* portName)
+{
+#if PLATFORM_UNIX
+	if (portName && strlen (portName) > 0)
+	{
+		if (portName[0] == '/')
+		{
+			return kTransportSerial;
+		}
+
+		return kTransportSocket;
+	}
+#else
+	{
+		EmTransportDescriptorList	names;
+		EmTransportSerial::GetDescriptorList (names);
+		EmTransportDescriptorList::iterator	iter = names.begin ();
+
+		while (iter != names.end ())
+		{
+			if (!strcmp (portName, iter->GetSchemeSpecific ().c_str ()))
+			{
+				return kTransportSerial;
+			}
+
+			++iter;
+		}
+	}
+
+	{
+		EmTransportDescriptorList	names;
+		EmTransportSocket::GetDescriptorList (names);
+		EmTransportDescriptorList::iterator	iter = names.begin ();
+
+		while (iter != names.end ())
+		{
+			if (!strcmp (portName, iter->GetSchemeSpecific ().c_str ()))
+			{
+				return kTransportSocket;
+			}
+
+			++iter;
+		}
+	}
+
+	{
+		EmTransportDescriptorList	names;
+		EmTransportUSB::GetDescriptorList (names);
+		EmTransportDescriptorList::iterator	iter = names.begin ();
+
+		while (iter != names.end ())
+		{
+			if (!strcmp (portName, iter->GetSchemeSpecific ().c_str ()))
+			{
+				return kTransportUSB;
+			}
+
+			++iter;
+		}
+	}
+#endif
+
+	return kTransportNull;
+}
+
+bool PrefKeysEqual (PrefKeyType key1, PrefKeyType key2)
+{
+	return _stricmp (key1, key2) == 0;
+}

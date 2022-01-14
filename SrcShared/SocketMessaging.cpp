@@ -777,7 +777,7 @@ Bool CTCPSocket::ConnectPending (void)
 
 		FD_ZERO (&readfds);
 		FD_SET (fListeningSocket, &readfds);
-
+		
 		timeval timeout = {0, 0};	// Don't wait at all
 
 		int result = select (fListeningSocket + 1, &readfds, NULL, NULL, &timeout);
@@ -795,6 +795,11 @@ Bool CTCPSocket::ConnectPending (void)
 			PRINTF ("...error calling select: %08X", this->GetError ());
 
 			result = this->GetError ();
+		}
+		else if (result > 0)
+		{
+			PRINTF ("CTCPSocket(0x%08X)::ConnectPending...", this);
+			PRINTF ("...fell through cases in kSocketState_Listening");
 		}
 	}
 
@@ -1047,10 +1052,8 @@ SOCKET CTCPSocket::NewSocket (void)
 {
 	PRINTF ("CTCPSocket(0x%08X)::NewSocket...", this);
 
-#if !PLATFORM_MAC
 	int 	tmp;
 	int 	result;
-#endif
 
 	SOCKET	newSocket = socket (AF_INET, SOCK_STREAM, 0);
 	if (newSocket == INVALID_SOCKET)
@@ -1059,7 +1062,6 @@ SOCKET CTCPSocket::NewSocket (void)
 		goto Error;
 	}
 
-#if !PLATFORM_MAC
 	// Allow rapid reuse of this port.
 
 	tmp = 1;
@@ -1079,7 +1081,6 @@ SOCKET CTCPSocket::NewSocket (void)
 		PRINTF ("...error calling setsockopt (SO_KEEPALIVE): %08X", this->GetError ());
 		goto Error;
 	}
-#endif
 
 	return newSocket;
 

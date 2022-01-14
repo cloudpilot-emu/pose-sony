@@ -14,17 +14,18 @@
 #include "EmCommon.h"
 #include "EmDlgWin.h"
 
+#include "EmApplicationWin.h"	// gInstance
 #include "EmFileRefWin.h"		// kExtension
-#include "Emulator.h"			// gInstance
-#include "EmWindow.h"			// EmWindow::GetWindow
-#include "EmWindowWin.h"		// GetHostData
+#include "EmWindowWin.h"		// gHostWindow, GetHwnd
+#include "ErrorHandling.h"		// Errors::SetParameter
 #include "Miscellaneous.h"		// ReplaceString
 #include "Platform.h"			// Platform::GetString
+#include "Strings.r.h"			// kStr_AppName
 
 #include <shlobj.h>
 #include <tchar.h>				// _tcsinc, etc.
 
-#include "resource.h"			// IDD_ROM_TRANSFER_QUERY, IDD_ROM_TRANSFER_PROGRESS
+#include "resource.h"			// IDD_ROM_TRANSFER_QUERY, IDD_ROM_TRANSFER_PROGRESS, etc.
 
 typedef char* POSITION;
 typedef vector<char>	FilterList;
@@ -57,7 +58,9 @@ static Bool				PrvIsStatic (HWND hWnd);
 static Bool				PrvIsPopupMenuButton (HWND hWnd);
 static Bool				PrvIsClass (HWND hWnd, const char* className);
 
-static WNDPROC			g_lpfnDialogProc;
+static WNDPROC			gDlgProc;
+HWND					gDlgCurrent;
+
 
 // Array for mapping between MSDEV Resource Editor-assigned resource IDs
 // and our own internal, cross-platform IDs.
@@ -73,24 +76,30 @@ struct
 	{ kDlgAboutBox,					ID__UNMAPPED },
 	{ kDlgSessionNew,				IDD_SESSION_NEW },
 	{ kDlgSessionSave,				ID__UNMAPPED },	// Handled by MessageBox, for now.
+	{ kDlgSessionInfo,				IDD_SESSION_INFO },
 	{ kDlgHordeNew,					IDD_HORDE_NEW },
 	{ kDlgDatabaseImport,			IDD_DATABASE_IMPORT },
 	{ kDlgDatabaseExport,			IDD_DATABASE_EXPORT },
 	{ kDlgROMTransferQuery,			IDD_ROM_TRANSFER_QUERY },
 	{ kDlgROMTransferProgress,		IDD_ROM_TRANSFER_PROGRESS },
-	{ kDlgGremlinControl,			ID__UNMAPPED },
+	{ kDlgGremlinControl,			IDD_GREMLIN_CONTROL },
 	{ kDlgEditPreferences,			IDD_EDIT_PREFERENCES },
 	{ kDlgEditLogging,				IDD_EDIT_LOGGING },
 	{ kDlgEditDebugging,			IDD_EDIT_DEBUGGING },
 	{ kDlgEditSkins,				IDD_EDIT_SKINS },
 	{ kDlgCommonDialog,				IDD_COMMON_DIALOG },
 	{ kDlgSaveBound,				IDD_SAVE_BOUND },
-	{ kDlgEditCards,				IDD_EDIT_CARDS },
+	{ kDlgEditHostFS,				IDD_EDIT_HOSTFS },
 	{ kDlgEditBreakpoints,			IDD_EDIT_BREAKPOINTS },
 	{ kDlgEditCodeBreakpoint,		IDD_EDIT_CODEBREAKPOINT },
 	{ kDlgEditTracingOptions,		IDD_EDIT_TRACING },
 	{ kDlgEditPreferencesFullyBound,IDD_EDIT_PREFERENCES_FULLY_BOUND },
-	{ kDlgReset,					IDD_RESET }
+	{ kDlgReset,					IDD_RESET },
+	{ kDlgGetSocketAddress,			IDD_GET_SOCKET_ADDRESS },
+	{ kDlgEditErrorHandling,		IDD_EDIT_ERROR_HANDLING },
+	{ kDlgMinimizeProgress,			IDD_MINIMIZING },
+
+	{ kDlgNone,						ID__UNMAPPED }
 };
 
 struct
@@ -122,8 +131,8 @@ struct
 	{ kDlgItemNewROM,				IDC_ROMFILE },
 #ifdef SONY_ROM
 	{ kDlgItemNewMSSize,			IDC_MSSIZE },
-#endif
-	
+#endif //SONY_ROM
+
 	{ kDlgItemHrdAppList,			IDC_HORDE_APP_LIST },
 	{ kDlgItemHrdStart,				IDC_HORDE_START_NUMBER },
 	{ kDlgItemHrdStop,				IDC_HORDE_STOP_NUMBER },
@@ -134,6 +143,9 @@ struct
 	{ kDlgItemHrdDepthSave,			IDC_HORDE_SAVE_EVENTS },
 	{ kDlgItemHrdDepthStop,			IDC_HORDE_STOP_EVENTS },
 	{ kDlgItemHrdLogging,			IDC_HORDE_LOGGING },
+	{ kDlgItemHrdFirstLaunchedApp,	IDC_FIRST_APP_LAUNCHED },
+	{ kDlgItemHrdSelectAll,			IDC_SELECT_ALL },
+	{ kDlgItemHrdSelectNone,		IDC_SELECT_NONE },
 
 	{ kDlgItemImpNumFiles,			IDC_NUM_FILES },
 	{ kDlgItemImpProgress,			IDC_PROGRESS_IMPORT },
@@ -147,15 +159,23 @@ struct
 	{ kDlgItemDlpMessage,			IDC_TRANSFER_MESSAGE },
 	{ kDlgItemDlpProgress,			IDC_PROGRESS_DOWNLOAD },
 
-	{ kDlgItemPrfPort,				IDC_PREF_PORT },
-	{ kDlgItemPrfTarget,			IDC_PREF_TARGET },
-	{ kDlgItemPrfRedirect,			IDC_PREF_REDIRECT },
+	{ kDlgItemGrmNumber,			IDC_GREMLIN_NUMBER },
+	{ kDlgItemGrmEventNumber,		IDC_EVENT_NUMBER },
+	{ kDlgItemGrmElapsedTime,		IDC_ELAPSED_TIME },
+	{ kDlgItemGrmStop,				IDC_STOP },
+	{ kDlgItemGrmResume,			IDC_RESUME },
+	{ kDlgItemGrmStep,				IDC_STEP },
+
+	{ kDlgItemPrfRedirectSerial,	IDC_PREF_REDIRECT_SERIAL },
+	{ kDlgItemPrfRedirectIR,		IDC_PREF_REDIRECT_IR },
+	{ kDlgItemPrfRedirectMystery,	IDC_PREF_REDIRECT_MYSTERY },
+	{ kDlgItemPrfRedirectNetLib,	IDC_PREF_REDIRECT_NETLIB },
 	{ kDlgItemPrfEnableSound,		IDC_PREF_ENABLE_SOUND },
 	{ kDlgItemPrfSaveAlways,		IDC_PREF_SAVE_ALWAYS },
 	{ kDlgItemPrfSaveAsk,			IDC_PREF_SAVE_ASK },
 	{ kDlgItemPrfSaveNever,			IDC_PREF_SAVE_NEVER },
 	{ kDlgItemPrfUserName,			IDC_PREF_USER_NAME },
-	
+
 	{ kDlgItemLogNormal,			IDC_LOG_NORMAL },
 	{ kDlgItemLogGremlins,			IDC_LOG_GREMLINS },
 #undef DEFINE_BUTTON_ID_MAPPING
@@ -163,14 +183,19 @@ struct
 	{ kDlgItemLog##name,			IDC_##name },
 	FOR_EACH_LOG_PREF(DEFINE_BUTTON_ID_MAPPING)
 
+	{ kDlgItemDbgDialogBeep,		IDC_DBG_DIALOG_BEEP },
 #undef DEFINE_BUTTON_ID_MAPPING
 #define DEFINE_BUTTON_ID_MAPPING(name)	\
 	{ kDlgItemDbg##name,			IDC_##name },
 	FOR_EACH_REPORT_PREF(DEFINE_BUTTON_ID_MAPPING)
 
-	{ kDlgItemSknSkinList,			IDC_SKINLIST },
-	{ kDlgItemSknDoubleScale,		IDC_SCALE },
-	{ kDlgItemSknWhiteBackground,	IDC_WHITEBACKGROUND },
+	{ kDlgItemSknSkinList,			IDC_SKIN_SKIN_LIST },
+	{ kDlgItemSknDoubleScale,		IDC_SKIN_DOUBLE_SCALE },
+	{ kDlgItemSknWhiteBackground,	IDC_SKIN_WHITE_BACKGROUND },
+	{ kDlgItemSknDim,				IDC_SKIN_DIM },
+	{ kDlgItemSknRed,				IDC_SKIN_RED },
+	{ kDlgItemSknGreen,				IDC_SKIN_GREEN },
+	{ kDlgItemSknStayOnTop,			IDC_SKIN_STAY_ON_TOP },
 
 	{ kDlgItemCmnText,				IDC_MESSAGE },
 	{ kDlgItemCmnIconStop,			ID__UNMAPPED },
@@ -183,10 +208,10 @@ struct
 	{ kDlgItemBndSaveROM,			IDC_BIND_ROM },
 	{ kDlgItemBndSaveRAM,			IDC_BIND_RAM },
 
-	{ kDlgItemCrdList,				IDC_CARD_LIST },
-	{ kDlgItemCrdPath,				IDC_CARD_PATH },
-	{ kDlgItemCrdMounted,			IDC_CARD_MOUNTED },
-	{ kDlgItemCrdBrowse,			IDC_CARD_BROWSE },
+	{ kDlgItemHfsList,				IDC_HOSTFS_LIST },
+	{ kDlgItemHfsPath,				IDC_HOSTFS_PATH },
+	{ kDlgItemHfsMounted,			IDC_HOSTFS_MOUNTED },
+	{ kDlgItemHfsBrowse,			IDC_HOSTFS_BROWSE },
 
 	{ kDlgItemBrkList,				IDC_BREAKPOINT_LIST },
 	{ kDlgItemBrkButtonEdit,		IDC_BREAKPOINT_EDIT },
@@ -209,8 +234,137 @@ struct
 	{ kDlgItemRstDebug,				IDC_RESET_DEBUG },
 	{ kDlgItemRstNoExt,				IDC_RESET_NO_EXTENSIONS },
 
+	{ kDlgItemInfDeviceFld,			IDC_DEVICE_FIELD },
+	{ kDlgItemInfRAMFld,			IDC_RAM_FIELD },
+	{ kDlgItemInfROMFld,			IDC_ROM_FIELD },
+	{ kDlgItemInfSessionFld,		IDC_SESSION_FIELD },
+
+	{ kDlgItemSocketAddress,		IDC_SOCKET_ADDRESS },
+
+	{ kDlgItemErrWarningOff,		IDC_ERROR_WARNING_OFF },
+	{ kDlgItemErrErrorOff,			IDC_ERROR_ERROR_OFF },
+	{ kDlgItemErrWarningOn,			IDC_ERROR_WARNING_ON },
+	{ kDlgItemErrErrorOn,			IDC_ERROR_ERROR_ON },
+
+	{ kDlgItemMinPassNumber,		IDC_MIN_PASS_NUMBER },
+	{ kDlgItemMinEventNumber,		IDC_MIN_EVENT_NUMBER },
+	{ kDlgItemMinElapsed,			IDC_MIN_ELAPSED_TIME },
+	{ kDlgItemMinRange,				IDC_MIN_RANGE },
+	{ kDlgItemMinDiscarded,			IDC_MIN_DISCARDED },
+	{ kDlgItemMinProgress,			IDC_MIN_PROGRESS },
+
 	{ kDlgItemLast,					ID__UNMAPPED }
 };
+
+
+// Control our modal state by hand.  We have to take control from
+// Windows for several reasons:
+//
+//	*	Our window is non-standard.  In particular, it is not a
+//		large frame window with lots of contents.
+//
+//	*	Windows seems to assume that the parent window of the
+//		"Get File" and "Put File" dialogs are large frame windows,
+//		and will resize those dialogs to fit within that parent
+//		window.  For Poser, this often leads to those dialogs
+//		being chopped off at the bottom.
+//
+//	*	Thus, our "Get File" and "Put File" dialogs are NOT
+//		children of our main window.
+//
+//	->	Therefore, in order to disable our main window, we need
+//		to handle that by hand.  We do this with EmModalState.
+//
+//	*	Additionally, our main window can also be an "always on top"
+//		window, meaning that it floats over all other windows
+//		that are not also "always on top" windows, a category
+//		which includes our "Get File" and "Put File" dialogs.
+//
+//	->	Therefore, our dialogs need to be forced into the same window
+//		layer as our main window.  This can be done by temporarily
+//		forcing our main window into the normal application layer,
+//		or by forcing our dialogs into the same layer as the
+//		main window.  The documentation for SetWindowPos says that
+//		we can achieve either of these regardless of the "topmost"
+//		state of the main window by calling it to move the window
+//		in front of the main window.  We do this in the same place
+//		where we center our dialogs.
+//
+//	->	With these changes, I'm seeing something incorrect.  If
+//		I am running a session, bring up the "New Session" dialog,
+//		bring up the "pick a ROM" dialog, and then dismiss that
+//		dialog, the "New Session" dialog remains in the background.
+//		I have no idea if this is supposed to happen, since my PC
+//		seems to be messed up with regards to keeping track of
+//		the active window.  Tt has this problem with *all* applications,
+//		so I have reason to believe that the problem is with Windows.
+//		However, it's really annoying, so I'm adding a call to
+//		SetForegroundWindow, which appears to address the problem.
+
+#define DRIVE_BY_HAND 0
+
+#if DRIVE_BY_HAND
+
+	class EmModalState
+	{
+	public:
+		EmModalState (void) :
+		  fWnd (::GetActiveWindow ())
+		{
+			fOldState = ::IsWindowEnabled (fWnd);
+			::EnableWindow (fWnd, false);
+		}
+
+		~EmModalState (void)
+		{
+			::EnableWindow (fWnd, fOldState);
+			::SetForegroundWindow (fWnd);
+		}
+
+		HWND GetParent (void) const { return NULL; }
+
+	private:
+		HWND fWnd;
+		BOOL fOldState;
+	};
+
+#else
+
+	class EmModalState
+	{
+	public:
+		EmModalState (void) :
+		  fWnd (::GetActiveWindow ())
+		{
+		}
+
+		~EmModalState (void)
+		{
+		}
+
+		HWND GetParent (void) const { return fWnd; }
+
+	private:
+		HWND fWnd;
+	};
+
+#endif
+
+
+static void PrvDrainEvents (void)
+{
+	MSG msg;
+	while (::PeekMessage (&msg, NULL, 0, 0, PM_REMOVE)) 
+	{
+		HWND	dlg = ::GetCurrentModelessDialog ();
+
+		if (dlg == NULL || !::IsDialogMessage (dlg, &msg))
+		{
+			::TranslateMessage (&msg);
+			::DispatchMessage (&msg);
+		}
+	}
+}
 
 
 /***********************************************************************
@@ -229,32 +383,34 @@ struct
  *
  ***********************************************************************/
 
-EmDlgItemID EmDlg::HostRunGetFile (	EmFileRef& result,
-									const string& prompt,
-									const EmDirRef& defaultPath,
-									const EmFileTypeList& filterList)
+EmDlgItemID EmDlg::HostRunGetFile (const void* parameters)
 {
-	FilterList		filters = ::PrvConvertTypeList (filterList);
+	EmModalState	modalState;
+
+	EmAssert (parameters);
+	DoGetFileParameters&	data = *(DoGetFileParameters*) parameters;
+
+	FilterList		filters = ::PrvConvertTypeList (data.fFilterList);
 
 	char			fileName[MAX_PATH] = {0};
 
 	string			initialDir;
 
-	if (defaultPath.IsSpecified ())
-		initialDir = defaultPath.GetFullPath ();
+	if (data.fDefaultPath.IsSpecified ())
+		initialDir = data.fDefaultPath.GetFullPath ();
 
 	OPENFILENAME	reply;
 	memset (&reply, 0, sizeof(reply));
 
 	reply.lStructSize		= sizeof (OPENFILENAME);
-	reply.hwndOwner 		= NULL; 	// hWnd; -- Don't do this, or dialog will be too small!
+	reply.hwndOwner 		= modalState.GetParent ();
 	reply.hInstance 		= gInstance;
 	reply.lpstrFilter		= &filters[0];
 	reply.nFilterIndex		= 1;
 	reply.lpstrFile 		= fileName;
 	reply.nMaxFile			= MAX_PATH;
 	reply.lpstrInitialDir	= initialDir.c_str ();
-	reply.lpstrTitle		= prompt.empty() ? NULL : prompt.c_str ();
+	reply.lpstrTitle		= data.fPrompt.empty() ? NULL : data.fPrompt.c_str ();
 	reply.Flags 			= OFN_ENABLEHOOK | OFN_EXPLORER | OFN_FILEMUSTEXIST;
 	reply.lpfnHook			= &::CenterDlgProc;
 
@@ -262,7 +418,7 @@ EmDlgItemID EmDlg::HostRunGetFile (	EmFileRef& result,
 
 	if (ok)
 	{
-		result = EmFileRef (fileName);
+		data.fResult = EmFileRef (fileName);
 	}
 
 	return ok ? kDlgItemOK : kDlgItemCancel;
@@ -285,12 +441,14 @@ EmDlgItemID EmDlg::HostRunGetFile (	EmFileRef& result,
  *
  ***********************************************************************/
 
-EmDlgItemID EmDlg::HostRunGetFileList (	EmFileRefList& results,
-										const string& prompt,
-										const EmDirRef& defaultPath,
-										const EmFileTypeList& filterList)
+EmDlgItemID EmDlg::HostRunGetFileList (const void* parameters)
 {
-	FilterList		filters = ::PrvConvertTypeList (filterList);
+	EmModalState	modalState;
+
+	EmAssert (parameters);
+	DoGetFileListParameters&	data = *(DoGetFileListParameters*) parameters;
+
+	FilterList		filters = ::PrvConvertTypeList (data.fFilterList);
 
 	// When querying for multiple files, Windows stores the entire list
 	// of files in the buffer pointed to by lpstrFile, where the size
@@ -307,21 +465,21 @@ EmDlgItemID EmDlg::HostRunGetFileList (	EmFileRefList& results,
 
 	string			initialDir;
 
-	if (defaultPath.IsSpecified ())
-		initialDir = defaultPath.GetFullPath ();
+	if (data.fDefaultPath.IsSpecified ())
+		initialDir = data.fDefaultPath.GetFullPath ();
 
 	OPENFILENAME	reply;
 	memset (&reply, 0, sizeof(reply));
 
 	reply.lStructSize		= sizeof (OPENFILENAME);
-	reply.hwndOwner 		= NULL; 	// hWnd; -- Don't do this, or dialog will be too small!
+	reply.hwndOwner 		= modalState.GetParent ();
 	reply.hInstance 		= gInstance;
 	reply.lpstrFilter		= &filters[0];
 	reply.nFilterIndex		= 1;
 	reply.lpstrFile 		= (LPTSTR) malloc (kFileBufferSize);
 	reply.nMaxFile			= kFileBufferSize;
 	reply.lpstrInitialDir	= initialDir.c_str ();
-	reply.lpstrTitle		= prompt.empty() ? NULL : prompt.c_str ();
+	reply.lpstrTitle		= data.fPrompt.empty() ? NULL : data.fPrompt.c_str ();
 	reply.Flags 			= OFN_ENABLEHOOK | OFN_EXPLORER | OFN_FILEMUSTEXIST | OFN_ALLOWMULTISELECT;
 #ifdef use_buffer_resizing_code
 	reply.lpfnHook			= &::PrvOpenMultiFileProc;
@@ -339,7 +497,7 @@ EmDlgItemID EmDlg::HostRunGetFileList (	EmFileRefList& results,
 		while (pos)
 		{
 			string	pathName = ::PrvGetNextPathName (reply, pos);
-			results.push_back (EmFileRef (pathName));
+			data.fResults.push_back (EmFileRef (pathName));
 		}
 	}
 
@@ -365,49 +523,63 @@ EmDlgItemID EmDlg::HostRunGetFileList (	EmFileRefList& results,
  *
  ***********************************************************************/
 
-EmDlgItemID EmDlg::HostRunPutFile (	EmFileRef& result,
-									const string& prompt,
-									const EmDirRef& defaultPath,
-									const EmFileTypeList& filterList,
-									const string& defName)
+EmDlgItemID EmDlg::HostRunPutFile (const void* parameters)
 {
-	EmAssert (filterList.size () > 0);
+	EmModalState	modalState;
 
-	FilterList		filters = ::PrvConvertTypeList (filterList);
-	string			defExt	= ::PrvGetExtension (filterList[0]);
+	EmAssert (parameters);
+	DoPutFileParameters&	data = *(DoPutFileParameters*) parameters;
+
+	// Create a Windows filter list, and make a guess at the default
+	// extension by picking the first off the list.
+
+	FilterList		filters = ::PrvConvertTypeList (data.fFilterList);
+	string			defExt	= ::PrvGetExtension (data.fFilterList[0]);
+
+	// Get the default file name.
 
 	char			fileName[MAX_PATH] = {0};
 
-	if (!defName.empty ())
-		strcpy (fileName, defName.c_str ());
+	if (!data.fDefaultName.empty ())
+		strcpy (fileName, data.fDefaultName.c_str ());
+
+	// Get the starting directory.
 
 	string			initialDir;
 
-	if (defaultPath.IsSpecified ())
-		initialDir = defaultPath.GetFullPath ();
+	if (data.fDefaultPath.IsSpecified ())
+		initialDir = data.fDefaultPath.GetFullPath ();
+
+	// Fill out the OPENFILENAME parameter block for windows and
+	// call GetSaveFileName.
 
 	OPENFILENAME	reply;
 	memset (&reply, 0, sizeof(reply));
 
 	reply.lStructSize		= sizeof (OPENFILENAME);
-	reply.hwndOwner 		= NULL; 	// hWnd; -- Don't do this, or dialog will be too small!
+	reply.hwndOwner 		= modalState.GetParent ();
 	reply.hInstance 		= gInstance;
 	reply.lpstrFilter		= &filters[0];
 	reply.nFilterIndex		= 1;
 	reply.lpstrFile 		= fileName;
 	reply.nMaxFile			= MAX_PATH;
 	reply.lpstrInitialDir	= initialDir.c_str ();
-	reply.lpstrTitle		= prompt.empty() ? NULL : prompt.c_str ();
+	reply.lpstrTitle		= data.fPrompt.empty() ? NULL : data.fPrompt.c_str ();
 	reply.Flags 			= OFN_ENABLEHOOK | OFN_OVERWRITEPROMPT | OFN_EXPLORER;
 	reply.lpstrDefExt		= defExt.size () > 0 ? defExt.c_str () : NULL;
 	reply.lpfnHook			= &::CenterDlgProc;
 
 	BOOL	ok = ::GetSaveFileName (&reply);
 
+	// If the user pressed OK, initialize our return value.
+
 	if (ok)
 	{
-		result = EmFileRef (fileName);
+		data.fResult = EmFileRef (fileName);
 	}
+
+	// Return the EmDlgID of the button that the user used to
+	// dismiss the dialog.
 
 	return ok ? kDlgItemOK : kDlgItemCancel;
 }
@@ -450,10 +622,13 @@ static int CALLBACK BrowseCallbackProc(
 }
 
 
-EmDlgItemID EmDlg::HostRunGetDirectory (EmDirRef& dirRef,
-										const string& prompt,
-										const EmDirRef& defaultPath)
+EmDlgItemID EmDlg::HostRunGetDirectory (const void* parameters)
 {
+	EmModalState	modalState;
+
+	EmAssert (parameters);
+	DoGetDirectoryParameters&	data = *(DoGetDirectoryParameters*) parameters;
+
 	EmDlgItemID	result = kDlgItemCancel;
 
 	::CoInitialize (NULL);
@@ -465,22 +640,25 @@ EmDlgItemID EmDlg::HostRunGetDirectory (EmDirRef& dirRef,
 		char			szTemp[MAX_PATH];
 		BROWSEINFO		brInfo;
 
-		::ZeroMemory (&brInfo, sizeof(brInfo));
+		brInfo.hwndOwner		= modalState.GetParent ();
+		brInfo.pidlRoot			= NULL;
 		brInfo.pszDisplayName	= szTemp;	// Receives display name
-		brInfo.lpszTitle		= prompt.c_str ();
+		brInfo.lpszTitle		= data.fPrompt.c_str ();
 		brInfo.ulFlags			= BIF_RETURNONLYFSDIRS;
 		brInfo.lpfn				= BrowseCallbackProc;
-		brInfo.lParam			= (LPARAM) &defaultPath;
+		brInfo.lParam			= (LPARAM) &data.fDefaultPath;
 
-		// use the shell's folder browser
+		// Use the shell's folder browser
+
 		LPITEMIDLIST	pidlDestination = ::SHBrowseForFolder (&brInfo);
 		
 		if (pidlDestination != NULL)
 		{
-			// get the path for the folder
+			// Get the path for the folder
+
 			if (::SHGetPathFromIDList (pidlDestination, szTemp))
 			{
-				dirRef = szTemp;
+				data.fResult = szTemp;
 				result = kDlgItemOK;
 			}
 
@@ -493,6 +671,142 @@ EmDlgItemID EmDlg::HostRunGetDirectory (EmDirRef& dirRef,
 	::CoUninitialize ();
 
 	return result;
+}
+
+/***********************************************************************
+ *
+ * FUNCTION:	HostRunAboutBox
+ *
+ * DESCRIPTION:	
+ *
+ * PARAMETERS:	None
+ *
+ * RETURNED:	Nothing
+ *
+ ***********************************************************************/
+
+static BOOL CALLBACK PrvAboutDlgProc (	HWND hwnd,
+										UINT msg,
+										WPARAM wparam,
+										LPARAM lparam)
+{
+	// Except in response to the WM_INITDIALOG message, the dialog box procedure
+	// should return nonzero if it processes the message, and zero if it does not.
+	// In response to a WM_INITDIALOG message, the dialog box procedure should
+	// return zero if it calls the SetFocus function to set the focus to one of
+	// the controls in the dialog box. Otherwise, it should return nonzero, in
+	// which case the system sets the focus to the first control in the dialog
+	// box that can be given the focus.
+
+	switch (msg)
+	{
+		case WM_INITDIALOG:
+		{
+			HWND	hdlg = ::GetParent (hwnd);
+
+			::CenterWindow (hdlg);
+
+			Errors::SetParameter ("%application", Platform::GetString (kStr_AppName));
+			Errors::SetParameter ("%version", Platform::GetShortVersionString ());
+
+			string	appAndVersion = Errors::ReplaceParameters (kStr_AppAndVers);
+			::SetDlgItemText (hwnd, IDC_ABOUT, appAndVersion.c_str ());
+
+			// Hide the Cancel button and move the OK button over.
+
+			HWND	cancelButton	= ::GetDlgItem (hdlg, IDCANCEL);
+			HWND	okButton		= ::GetDlgItem (hdlg, IDOK);
+
+			::ShowWindow (cancelButton, SW_HIDE);
+
+			RECT	cancelRect, okRect;
+			::GetWindowRect (cancelButton, &cancelRect);
+			::GetWindowRect (okButton, &okRect);
+
+			long	shift = cancelRect.right - okRect.right;
+
+			::ScreenToClient (hdlg, (POINT*) &okRect.left);
+			::ScreenToClient (hdlg, (POINT*) &okRect.right);
+
+			::MoveWindow (okButton, okRect.left + shift, okRect.top,
+						okRect.right - okRect.left, okRect.bottom - okRect.top, true);
+
+			// Subclass the URLs so that they act like hyperlinks.
+
+			new StaticHyperlink (::GetDlgItem (hwnd, IDC_HTTP));
+			new StaticHyperlink (::GetDlgItem (hwnd, IDC_MAILTO));
+			if (::GetDlgItem (hwnd, IDC_HTTP2) != NULL)
+				new StaticHyperlink (::GetDlgItem (hwnd, IDC_HTTP2));
+
+			return TRUE;
+		}
+
+		case WM_CTLCOLORSTATIC:
+		{
+			// Reflect this one back down to the child.
+
+			LONG		wnd = ::GetWindowLong ((HWND) lparam, GWL_USERDATA);
+			if (wnd)
+				return (BOOL) ::SendMessage ((HWND) lparam, msg, wparam, lparam);
+
+			return FALSE;
+		}
+	}
+
+	return FALSE;
+}
+
+
+EmDlgItemID	EmDlg::HostRunAboutBox (const void* parameters)
+{
+	UNUSED_PARAM (parameters);
+
+	PROPSHEETPAGE	psp[4];
+	::ZeroMemory (psp, sizeof (psp));
+
+	psp[0].dwSize		= sizeof (PROPSHEETPAGE);
+	psp[0].dwFlags		= PSP_DEFAULT;
+	psp[0].hInstance	= gInstance;
+	psp[0].pszTemplate	= MAKEINTRESOURCE (IDD_ABOUT_PALM);
+	psp[0].pfnDlgProc	= PrvAboutDlgProc;
+
+	psp[1].dwSize		= sizeof (PROPSHEETPAGE);
+	psp[1].dwFlags		= PSP_DEFAULT;
+	psp[1].hInstance	= gInstance;
+	psp[1].pszTemplate	= MAKEINTRESOURCE (IDD_ABOUT_WINDOWS);
+	psp[1].pfnDlgProc	= PrvAboutDlgProc;
+
+	psp[2].dwSize		= sizeof (PROPSHEETPAGE);
+	psp[2].dwFlags		= PSP_DEFAULT;
+	psp[2].hInstance	= gInstance;
+	psp[2].pszTemplate	= MAKEINTRESOURCE (IDD_ABOUT_MAC);
+	psp[2].pfnDlgProc	= PrvAboutDlgProc;
+
+	psp[3].dwSize		= sizeof (PROPSHEETPAGE);
+	psp[3].dwFlags		= PSP_DEFAULT;
+	psp[3].hInstance	= gInstance;
+	psp[3].pszTemplate	= MAKEINTRESOURCE (IDD_ABOUT_UAE);
+	psp[3].pfnDlgProc	= PrvAboutDlgProc;
+
+	char	aboutApp[200];
+	string	about (Platform::GetString (IDS_ABOUT));
+	string	app (Platform::GetString (kStr_AppName));
+	sprintf (aboutApp, about.c_str (), app.c_str ());
+
+	PROPSHEETHEADER psh;
+	::ZeroMemory (&psh, sizeof (psh));
+
+	psh.dwSize			= sizeof (psh);
+	psh.dwFlags 		= PSH_PROPSHEETPAGE | PSH_NOAPPLYNOW;
+	psh.hwndParent		= ::GetActiveWindow ();
+	psh.hInstance		= gInstance;
+	psh.pszCaption		= aboutApp;
+	psh.nPages			= 4;
+	psh.ppsp			= psp;
+
+	::PropertySheet (&psh);
+
+	return kDlgItemOK;
 }
 
 
@@ -508,23 +822,26 @@ EmDlgItemID EmDlg::HostRunGetDirectory (EmDirRef& dirRef,
  *
  ***********************************************************************/
 
-EmDlgItemID	EmDlg::HostRunSessionSave (	const string& appName,
-										const string& docName,
-										Bool quitting)
+EmDlgItemID	EmDlg::HostRunSessionSave (const void* parameters)
 {
+	EmModalState	modalState;
+
+	EmAssert (parameters);
+	DoSessionSaveParameters&	data = *(DoSessionSaveParameters*) parameters;
+
 	char	buffer[300];
 	string	saveChanges (Platform::GetString (IDS_SAVECHANGES));
 
-	sprintf (buffer, saveChanges.c_str (), docName.c_str ());
+	sprintf (buffer, saveChanges.c_str (), data.fDocName.c_str ());
 
-	int result = ::MessageBox (NULL, buffer, appName.c_str (),
+	int result = ::MessageBox (modalState.GetParent (), buffer, data.fAppName.c_str (),
 					MB_APPLMODAL | MB_ICONQUESTION | MB_YESNOCANCEL);
 
 	if (result == IDYES)
-		return kDlgItemOK;
+		return kDlgItemYes;
 
 	else if (result == IDNO)
-		return kDlgItemDontSave;
+		return kDlgItemNo;
 
 	return kDlgItemCancel;
 }
@@ -547,11 +864,22 @@ EmDlgItemID	EmDlg::HostRunSessionSave (	const string& appName,
  *
  ***********************************************************************/
 
-static BOOL CALLBACK PrvHostRunDialogProc (	HWND hWnd,
-											UINT msg,
-											WPARAM wParam,
-											LPARAM lParam)
+BOOL CALLBACK EmDlg::PrvHostModalProc (	HWND hWnd,
+										UINT msg,
+										WPARAM wParam,
+										LPARAM lParam)
 {
+#if defined (_DEBUG) && defined (TRACE_MSG)
+	MSG	_msg;
+
+	_msg.hwnd = hWnd;
+	_msg.lParam = lParam;
+	_msg.message = msg;
+	_msg.wParam = wParam;
+
+	_AfxTraceMsg ("PrvHostModalProc", &_msg);
+#endif
+
 	// Except in response to the WM_INITDIALOG message, the dialog box procedure
 	// should return nonzero if it processes the message, and zero if it does not.
 	// In response to a WM_INITDIALOG message, the dialog box procedure should
@@ -580,44 +908,11 @@ static BOOL CALLBACK PrvHostRunDialogProc (	HWND hWnd,
 				// Center the window.
 
 				::CenterWindow (hWnd);
+				::SetWindowPos (hWnd, ::GetActiveWindow (), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
 
-				// If this is the "New Session" window, subclass some of the buttons.
+				// Perform any host-specific initialization.
 
-				if (context.fDlgID == kDlgSessionNew)
-				{
-					new PopupMenuButton (::GetDlgItem (hWnd, IDC_DEVICE));
-					new PopupMenuButton (::GetDlgItem (hWnd, IDC_SKIN));
-					new PopupMenuButton (::GetDlgItem (hWnd, IDC_RAMSIZE));
-					new PopupMenuButton (::GetDlgItem (hWnd, IDC_ROMFILE));
-#ifdef SONY_ROM
-					new PopupMenuButton (::GetDlgItem (hWnd, IDC_MSSIZE));
-#endif
-				}
-
-				// If this is the "ROM Transfer" window, subclass some of the buttons.
-
-				else if (context.fDlgID == kDlgROMTransferQuery)
-				{
-					new PopupMenuButton (::GetDlgItem (hWnd, IDC_PORT_LIST));
-					new PopupMenuButton (::GetDlgItem (hWnd, IDC_SPEED_LIST));
-				}
-
-				// If this is the "Properties" window, subclass some of the buttons.
-
-				else if (context.fDlgID == kDlgEditPreferences ||
-					context.fDlgID == kDlgEditPreferencesFullyBound)
-				{
-					new PopupMenuButton (::GetDlgItem (hWnd, IDC_PREF_PORT));
-				}
-
-				// If this is the Common Dialog, subclass some of the buttons
-
-				else if (context.fDlgID == kDlgCommonDialog)
-				{
-					new ControlCButton (::GetDlgItem (hWnd, IDC_BUTTON1));
-					new ControlCButton (::GetDlgItem (hWnd, IDC_BUTTON2));
-					new ControlCButton (::GetDlgItem (hWnd, IDC_BUTTON3));
-				}
+				EmDlg::HostDialogInit (context);
 
 				// Call the user's Init function.
 
@@ -684,8 +979,9 @@ static BOOL CALLBACK PrvHostRunDialogProc (	HWND hWnd,
 				return TRUE;
 			}
 
-			case WM_CLOSE:
+			case WM_DESTROY:
 			{
+				context.Destroy ();
 				EmDlg::HostStopIdling (context);
 				return FALSE;
 			}
@@ -707,13 +1003,70 @@ static BOOL CALLBACK PrvHostRunDialogProc (	HWND hWnd,
 }
 
 
-static BOOL CALLBACK PrvHostRunPropertySheetProc (	HWND hDlg,
-													UINT msg,
-													WPARAM wParam,
-													LPARAM lParam)
+EmDlgItemID EmDlg::HostRunDialog (const void* parameters)
 {
-	UNUSED_PARAM(wParam)
+	EmModalState	modalState;
 
+	EmAssert (parameters);
+	RunDialogParameters&	data = *(RunDialogParameters*) parameters;
+
+	EmDlgContext			context;
+
+	context.fFn				= data.fFn;
+	context.fDlgID			= data.fDlgID;
+	context.fUserData		= data.fUserData;
+
+	UINT	windowsDlgID	= ::PrvFromDlgID (context.fDlgID);
+	EmAssert (windowsDlgID != ID__UNMAPPED);
+
+	// Insert a small loop here to drain any pending messages.  There
+	// appears to be a circumstance where this is required.  If Poser
+	// closes its main window, creates a new one, and then tries to
+	// show a dialog (this situation can occur when opening a new
+	// event file for Minimization and there's no error record in the
+	// event stream), then the dialog destroys itself just before it's
+	// shown.  Examining the messages sent to windows during successful
+	// and failed window and dialog creation situations seemed to
+	// indicate that the problem had to do with the newly created main
+	// window not being redrawn.  Or something.  I really don't know.
+	// But inserting this loop to handle any pending events fixes the
+	// problem, and the dialog successfully shows up.
+
+	::PrvDrainEvents ();
+
+	int choice = ::DialogBoxParam (
+		gInstance,
+		MAKEINTRESOURCE (windowsDlgID),
+		modalState.GetParent (),
+		&PrvHostModalProc,
+		(LPARAM) &context);
+
+	return (EmDlgItemID) choice;
+}
+
+
+/***********************************************************************
+ *
+ * FUNCTION:	HostDialogOpen
+ *
+ * DESCRIPTION:	Common routine that handles the creation of a dialog,
+ *				initializes it (via the dialog handler), fetches events,
+ *				handles events (via the dialog handler), and closes
+ *				the dialog.
+ *
+ * PARAMETERS:	fn - the custom dialog handler
+ *				userData - custom data passed back to the dialog handler.
+ *				dlgID - ID of dialog to create.
+ *
+ * RETURNED:	ID of dialog item that dismissed the dialog.
+ *
+ ***********************************************************************/
+
+BOOL CALLBACK EmDlg::PrvHostModelessProc (	HWND hWnd,
+											UINT msg,
+											WPARAM wParam,
+											LPARAM lParam)
+{
 	// Except in response to the WM_INITDIALOG message, the dialog box procedure
 	// should return nonzero if it processes the message, and zero if it does not.
 	// In response to a WM_INITDIALOG message, the dialog box procedure should
@@ -726,118 +1079,118 @@ static BOOL CALLBACK PrvHostRunPropertySheetProc (	HWND hDlg,
 
 	if (msg == WM_INITDIALOG)
 	{
-		PROPSHEETPAGE*	page = (PROPSHEETPAGE*) lParam;
-		::SetWindowLong (hDlg, GWL_USERDATA, page->lParam);
+		::SetWindowLong (hWnd, GWL_USERDATA, lParam);
 	}
 
-	EmDlgContext&	context = *(EmDlgContext*) ::GetWindowLong (hDlg, GWL_USERDATA);
+	EmDlgContext&	context = *(EmDlgContext*) ::GetWindowLong (hWnd, GWL_USERDATA);
 
-	switch (msg)
+	try
 	{
-		case WM_INITDIALOG:
+		switch (msg)
 		{
-			context.fDlg = (EmDlgRef) hDlg;
-
-			// Center the window.
-
-			::CenterWindow (::GetParent(hDlg));
-
-			// Call the user's Init function.
-
-			if (context.Init () == kDlgResultClose)
+			case WM_INITDIALOG:
 			{
-			//	::EndDialog (hDlg, kDlgItemNone);
-				PropSheet_PressButton (hDlg, PSBTN_CANCEL);
+				context.fDlg = (EmDlgRef) hWnd;
+
+				// Center the window.
+
+				::CenterWindow (hWnd);
+				::SetWindowPos (hWnd, ::GetActiveWindow (), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+
+				// Perform any host-specific initialization.
+
+				EmDlg::HostDialogInit (context);
+
+				// Call the user's Init function.
+
+				if (context.Init () == kDlgResultClose)
+				{
+					::DestroyWindow (hWnd);
+					return TRUE;
+				}
+
+				// Show the window after it's been set up.
+
+				::ShowWindow (hWnd, SW_SHOW);
+
+				// The dialog box procedure should return TRUE to direct the
+				// system to set the keyboard focus to the control specified
+				// by wParam. Otherwise, it should return FALSE to prevent
+				// the system from setting the default keyboard focus.
+
 				return TRUE;
 			}
 
-			// The dialog box procedure should return TRUE to direct the
-			// system to set the keyboard focus to the control specified
-			// by wParam. Otherwise, it should return FALSE to prevent
-			// the system from setting the default keyboard focus.
-
-			return TRUE;
-		}
-
-		case WM_COMMAND:
-		{
-			UINT		wItemID = LOWORD (wParam);
-			EmDlgItemID	itemID = ::PrvToDlgItemID (wItemID);
-
-			if (context.Event (itemID) == kDlgResultClose)
+			case WM_COMMAND:
 			{
-			//	::EndDialog (hDlg, itemID);
-				PropSheet_PressButton (hDlg, PSBTN_CANCEL);
+				UINT		wItemID	= LOWORD (wParam);
+				EmDlgItemID	itemID	= ::PrvToDlgItemID (wItemID);
+
+				if (wItemID == IDOK && context.fDefaultItem != kDlgItemNone)
+				{
+					itemID = context.fDefaultItem;
+				}
+				else if (wItemID == IDCANCEL && context.fCancelItem != kDlgItemNone)
+				{
+					itemID = context.fCancelItem;
+				}
+
+				if (context.Event (itemID) == kDlgResultClose)
+				{
+					::DestroyWindow (hWnd);
+				}
+
+				return TRUE;
 			}
 
-			return TRUE;
-		}
-
-		case WM_TIMER:
-		{
-			if (context.Idle () == kDlgResultClose)
+			case WM_TIMER:
 			{
-			//	::EndDialog (hDlg, kDlgItemOK);
-				PropSheet_PressButton (hDlg, PSBTN_CANCEL);
+				if (context.Idle () == kDlgResultClose)
+				{
+					::DestroyWindow (hWnd);
+				}
+
+				return TRUE;
 			}
 
-			return TRUE;
-		}
-
-		case WM_CLOSE:
-		{
-			EmDlg::HostStopIdling (context);
-			return FALSE;
-		}
-
-		case WM_NOTIFY:
-		{
-			switch (((NMHDR*) lParam)->code) 
+			case WM_DESTROY:
 			{
-				case PSN_SETACTIVE:
-				{
-					// Returns zero to accept the activation, or -1 to activate 
-					// the next or the previous page (depending on whether the 
-					// user clicked the Next or Back button). To set the activation 
-					// to a particular page, return the resource identifier of the page.
+				context.Destroy ();
 
-					context.PanelEnter ();
-					::SetWindowLong (hDlg, DWL_MSGRESULT, 0);
-					return TRUE;
-				}
+				EmDlg::HostStopIdling (context);
 
-				case PSN_KILLACTIVE:
-				{
-					// Returns TRUE to prevent the page from losing the activation,
-					// or FALSE to allow it.
+				// Clean up the context.
 
-					context.PanelExit ();
-					::SetWindowLong (hDlg, DWL_MSGRESULT, FALSE);
-					return TRUE;
-				}
+				EmDlgContext*	ctxPtr = &context;
+				delete ctxPtr;
 
-				case PSN_APPLY:
-				{
-					// Returns the PSNRET_INVALID_NOCHANGEPAGE value to prevent the
-					// changes from taking effect and to return the focus to the page,
-					// or the PSNRET_NOERROR value to accept the changes and allow the
-					// property sheet to be destroyed.
+				::SetWindowLong (hWnd, GWL_USERDATA, 0);
 
-					context.Event (kDlgItemOK);
-					::SetWindowLong (hDlg, DWL_MSGRESULT, PSNRET_NOERROR);
-					return TRUE;
-				}
+				return FALSE;
+			}
 
-				case PSN_RESET:
-				{
-					context.Event (kDlgItemCancel);
+			case WM_ACTIVATE:
+			{
+				// Knowledgebase article Q71450 -- "HOWTO: Use One
+				// IsDialogMessage() Call for Many Modeless Dialogs"
+				// -- suggests keeping track of the active modeless
+				// dialog in order to avoid having to call
+				// IsDialogMessage for *every* open modeless dialog.
 
-					// No return value.
+				if (0 == wParam)				// becoming inactive
+					gDlgCurrent = NULL;
+				else							// becoming active
+					gDlgCurrent = hWnd;
 
-					return TRUE;
-				}
+				return FALSE;
 			}
 		}
+	}
+	catch (...)
+	{
+		EmAssert (false);
+		::DestroyWindow (hWnd);
+		return TRUE;
 	}
 
 	// Typically, the dialog box procedure should return TRUE if it
@@ -849,75 +1202,161 @@ static BOOL CALLBACK PrvHostRunPropertySheetProc (	HWND hDlg,
 }
 
 
-EmDlgItemID PrvRunEditLoggingOptionsDialog (EmDlgContext& context)
+/***********************************************************************
+ *
+ * FUNCTION:	HostDialogOpen
+ *
+ * DESCRIPTION:	.
+ *
+ * PARAMETERS:	.
+ *
+ * RETURNED:	.
+ *
+ ***********************************************************************/
+
+EmDlgRef EmDlg::HostDialogOpen (EmDlgFn fn, void* data, EmDlgID dlgID)
 {
-#if 0
-	PROPSHEETPAGE	psp[2];
-	::ZeroMemory (psp, sizeof (psp));
+	EmDlgContext*			context = new EmDlgContext;
 
-	EmDlgContext	contexts[2] = {context, context};
+	if (!context)
+		return NULL;
 
-	contexts[0].fPanelID = kDlgPanelLogNormal;
-	contexts[1].fPanelID = kDlgPanelLogGremlins;
+	context->fFn			= fn;
+	context->fDlgID			= dlgID;
+	context->fUserData		= data;
 
-	psp[0].dwSize		= sizeof (PROPSHEETPAGE);
-	psp[0].dwFlags		= PSP_DEFAULT | PSP_USETITLE;
-	psp[0].hInstance	= gInstance;
-	psp[0].pszTemplate	= MAKEINTRESOURCE (IDD_EDIT_LOGGING_OPTIONS);
-	psp[0].pszTitle 	= MAKEINTRESOURCE (IDS_LOGGINGNORMAL);
-	psp[0].pfnDlgProc	= &::PrvHostRunPropertySheetProc;
-	psp[0].lParam		= (LPARAM) &contexts[0];
+	EmAssert (gHostWindow);
 
-	psp[1].dwSize		= sizeof (PROPSHEETPAGE);
-	psp[1].dwFlags		= PSP_DEFAULT | PSP_USETITLE;
-	psp[1].hInstance	= gInstance;
-	psp[1].pszTemplate	= MAKEINTRESOURCE (IDD_EDIT_LOGGING_OPTIONS);
-	psp[1].pszTitle 	= MAKEINTRESOURCE (IDS_LOGGINGGREMLINS);
-	psp[1].pfnDlgProc	= &::PrvHostRunPropertySheetProc;
-	psp[1].lParam		= (LPARAM) &contexts[1];
+	HWND	parent			= gHostWindow ? gHostWindow->GetHwnd () : NULL;
+	UINT	windowsDlgID	= ::PrvFromDlgID (dlgID);
+	EmAssert (windowsDlgID != ID__UNMAPPED);
 
-	PROPSHEETHEADER psh;
-	::ZeroMemory (&psh, sizeof (psh));
+	// Insert a small loop here to drain any pending messages.  There
+	// appears to be a circumstance where this is required.  If Poser
+	// closes its main window, creates a new one, and then tries to
+	// show a dialog (this situation can occur when opening a new
+	// event file for Minimization and there's no error record in the
+	// event stream), then the dialog destroys itself just before it's
+	// shown.  Examining the messages sent to windows during successful
+	// and failed window and dialog creation situations seemed to
+	// indicate that the problem had to do with the newly created main
+	// window not being redrawn.  Or something.  I really don't know.
+	// But inserting this loop to handle any pending events fixes the
+	// problem, and the dialog successfully shows up.
 
-	psh.dwSize			= sizeof (psh);
-	psh.dwFlags 		= PSH_PROPSHEETPAGE | PSH_NOAPPLYNOW;
-	psh.hwndParent		= NULL;
-	psh.hInstance		= gInstance;
-	psh.pszCaption		= MAKEINTRESOURCE (IDS_LOGGINGOPTIONS);
-	psh.nPages			= countof (psp);
-	psh.nStartPage		= *((EmDlgPanelID*) context.fUserData) == kDlgPanelLogNormal ? 0 : 1;
-	psh.ppsp			= psp;
+	::PrvDrainEvents ();
 
-	(void) ::PropertySheet (&psh);
-#endif
+	HWND	hDlg = ::CreateDialogParam (gInstance, MAKEINTRESOURCE (windowsDlgID),
+										parent, &PrvHostModelessProc, (LPARAM) context);
 
-	return kDlgItemOK;
+	return (EmDlgRef) hDlg;
 }
 
 
-EmDlgItemID EmDlg::HostRunDialog (EmDlgFn fn, void* userData, EmDlgID dlgID)
+/***********************************************************************
+ *
+ * FUNCTION:	HostDialogClose
+ *
+ * DESCRIPTION:	Common routine that handles the creation of a dialog,
+ *				initializes it (via the dialog handler), fetches events,
+ *				handles events (via the dialog handler), and closes
+ *				the dialog.
+ *
+ * PARAMETERS:	fn - the custom dialog handler
+ *				userData - custom data passed back to the dialog handler.
+ *				dlgID - ID of dialog to create.
+ *
+ * RETURNED:	ID of dialog item that dismissed the dialog.
+ *
+ ***********************************************************************/
+
+void EmDlg::HostDialogClose (EmDlgRef dlg)
 {
-	EmDlgContext	context;
+	HWND	hDlg = (HWND) dlg;
+	if (!hDlg)
+		return;
 
-	context.fFn			= fn;
-	context.fDlgID		= dlgID;
-	context.fUserData	= userData;
+	// Post a close message so that closing a window works from any thread.
+	// DestroyWindow will fail if we call it from a thread other than the
+	// on that created the window.
 
-	UINT	windowsDlgID= ::PrvFromDlgID (dlgID);
-	EmAssert (windowsDlgID != ID__UNMAPPED);
+//	::DestroyWindow (hDlg);
+	::PostMessage (hDlg, WM_CLOSE, 0, 0);
+}
 
-	HWND	hWnd = NULL;
-	
-	if (EmWindow::GetWindow () &&
-		EmWindow::GetWindow ()->GetHostData ())
+
+/***********************************************************************
+ *
+ * FUNCTION:	HostDialogInit
+ *
+ * DESCRIPTION:	Perform any platform-specific initialization.
+ *
+ * PARAMETERS:	context - dialog context data.
+ *
+ * RETURNED:	Nothing.
+ *
+ ***********************************************************************/
+
+void EmDlg::HostDialogInit (EmDlgContext& context)
+{
+	HWND	hWnd = (HWND) context.fDlg;
+
+	// If this is the "New Session" window, subclass some of the buttons.
+
+	if (context.fDlgID == kDlgSessionNew)
 	{
-		hWnd = EmWindow::GetWindow ()->GetHostData ()->GetHostWindow ();
+		new PopupMenuButton (::GetDlgItem (hWnd, IDC_DEVICE));
+		new PopupMenuButton (::GetDlgItem (hWnd, IDC_SKIN));
+		new PopupMenuButton (::GetDlgItem (hWnd, IDC_RAMSIZE));
+		new PopupMenuButton (::GetDlgItem (hWnd, IDC_ROMFILE));
+#ifdef SONY_ROM
+		new PopupMenuButton (::GetDlgItem (hWnd, IDC_MSSIZE));
+#endif //SONY_ROM
 	}
 
-	int choice = ::DialogBoxParam (gInstance, MAKEINTRESOURCE (windowsDlgID),
-								hWnd, &::PrvHostRunDialogProc, (LPARAM) &context);
+	// If this is the "ROM Transfer" window, subclass some of the buttons.
 
-	return (EmDlgItemID) choice;
+	else if (context.fDlgID == kDlgROMTransferQuery)
+	{
+		new PopupMenuButton (::GetDlgItem (hWnd, IDC_PORT_LIST));
+		new PopupMenuButton (::GetDlgItem (hWnd, IDC_SPEED_LIST));
+	}
+
+	// If this is the "Properties" window, subclass some of the buttons.
+
+	else if (context.fDlgID == kDlgEditPreferences ||
+		context.fDlgID == kDlgEditPreferencesFullyBound)
+	{
+		new PopupMenuButton (::GetDlgItem (hWnd, IDC_PREF_REDIRECT_SERIAL));
+		new PopupMenuButton (::GetDlgItem (hWnd, IDC_PREF_REDIRECT_IR));
+		new PopupMenuButton (::GetDlgItem (hWnd, IDC_PREF_REDIRECT_MYSTERY));
+	}
+
+	// If this is the "New Horde" window, subclass some of the buttons.
+	
+	else if (context.fDlgID == kDlgHordeNew)
+	{
+		new PopupMenuButton (::GetDlgItem (hWnd, IDC_FIRST_APP_LAUNCHED));
+	}
+
+	// If this is the Common Dialog, subclass some of the buttons
+
+	else if (context.fDlgID == kDlgCommonDialog)
+	{
+		new ControlCButton (::GetDlgItem (hWnd, IDC_BUTTON1));
+		new ControlCButton (::GetDlgItem (hWnd, IDC_BUTTON2));
+		new ControlCButton (::GetDlgItem (hWnd, IDC_BUTTON3));
+	}
+
+	// If this is the "Error Handling" window, subclass some of the buttons.
+
+	else if (context.fDlgID == kDlgEditErrorHandling)
+	{
+		new PopupMenuButton (::GetDlgItem (hWnd, IDC_ERROR_WARNING_OFF));
+		new PopupMenuButton (::GetDlgItem (hWnd, IDC_ERROR_ERROR_OFF));
+		new PopupMenuButton (::GetDlgItem (hWnd, IDC_ERROR_WARNING_ON));
+		new PopupMenuButton (::GetDlgItem (hWnd, IDC_ERROR_ERROR_ON));
+	}
 }
 
 
@@ -1019,6 +1458,17 @@ EmRect EmDlg::GetDlgBounds (EmDlgRef dlg)
 
 	return result;
 }
+
+
+void EmDlg::CenterDlg (EmDlgRef dlg)
+{
+	HWND	hDlg = (HWND) dlg;
+	if (!hDlg)
+		return;
+
+	::CenterWindow (hDlg);
+}
+
 
 void EmDlg::SetDlgDefaultButton (EmDlgContext& context, EmDlgItemID item)
 {
@@ -1696,6 +2146,51 @@ void EmDlg::SelectListItems (EmDlgRef dlg, EmDlgItemID item, const EmDlgListInde
 
 /***********************************************************************
  *
+ * FUNCTION:	EmDlg::UnselectListItems
+ *
+ * DESCRIPTION:	
+ *
+ * PARAMETERS:	None
+ *
+ * RETURNED:	Nothing
+ *
+ ***********************************************************************/
+
+void EmDlg::UnselectListItems (EmDlgRef dlg, EmDlgItemID item, const EmDlgListIndexList& itemList)
+{
+	HWND	hDlg = (HWND) dlg;
+	if (!hDlg)
+		return;
+
+	HWND	hWnd = ::GetDlgItem (hDlg, ::PrvFromDlgItemID (item));
+	if (!hWnd)
+		return;
+
+	EmAssert (::PrvIsListBox (hWnd));
+
+	UINT	style = ::GetWindowLong (hWnd, GWL_STYLE);
+
+	int	err;
+
+	if ((style & (LBS_MULTIPLESEL | LBS_EXTENDEDSEL)) != 0)
+	{
+		EmDlgListIndexList::const_iterator	iter = itemList.begin();
+		while (iter != itemList.end())
+		{
+			err = ListBox_SetSel (hWnd, false, *iter);
+
+			++iter;
+		}
+	}
+	else
+	{
+		err = ListBox_SetCurSel (hWnd, itemList[0]);
+	}
+}
+
+
+/***********************************************************************
+ *
  * FUNCTION:	EmDlg::GetSelectedItems
  *
  * DESCRIPTION:	
@@ -1719,7 +2214,7 @@ void EmDlg::GetSelectedItems (EmDlgRef dlg, EmDlgItemID item, EmDlgListIndexList
 	EmAssert (::PrvIsListBox (hWnd));
 
 	UINT	style = ::GetWindowLong (hWnd, GWL_STYLE);
-	
+
 	if ((style & (LBS_MULTIPLESEL | LBS_EXTENDEDSEL)) != 0)
 	{
 		int	numSelItems = ListBox_GetSelCount (hWnd);
@@ -1844,6 +2339,7 @@ UINT CALLBACK CenterDlgProc (	HWND hWnd,
 		case WM_INITDIALOG:
 		{
 			::CenterWindow (::GetParent (hWnd));
+			::SetWindowPos (::GetParent (hWnd), ::GetActiveWindow (), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
 			break;
 		}
 
@@ -1852,6 +2348,25 @@ UINT CALLBACK CenterDlgProc (	HWND hWnd,
 	}
 
 	return TRUE;
+}
+
+
+/***********************************************************************
+ *
+ * FUNCTION:	GetCurrentModelessDialog
+ *
+ * DESCRIPTION:	Returns the handle to the currently-active modeless
+ *				dialog, or NULL if there is none.
+ *
+ * PARAMETERS:	None.
+ *
+ * RETURNED:	Window handle or NULL.
+ *
+ ***********************************************************************/
+
+HWND GetCurrentModelessDialog (void)
+{
+	return gDlgCurrent;
 }
 
 
@@ -1999,12 +2514,6 @@ EmDlgItemID PrvToDlgItemID (UINT id)
 		{
 			if (kDlgItemIDMap[iii].fWinID != ID__UNMAPPED)
 			{
-// maki-debug
-				if (kDlgItemIDMap[iii].fWinID == kDlgItemIDMap[jjj].fWinID)
-				{
-					char	breakPoint = 1;
-				}
-// maki-debug
 				EmAssert (kDlgItemIDMap[iii].fWinID != kDlgItemIDMap[jjj].fWinID);
 			}
 		}
@@ -2039,6 +2548,8 @@ FilterList PrvConvertTypeList (const EmFileTypeList& typeList)
 {
 	FilterList	filter;
 
+	EmAssert (typeList.size () > 0);
+
 	EmFileTypeList::const_iterator	iter = typeList.begin ();
 
 	while (iter != typeList.end ())
@@ -2055,6 +2566,10 @@ FilterList PrvConvertTypeList (const EmFileTypeList& typeList)
 
 			case kFileTypeSession:
 				::PrvAddFilter (filter, "Emulator Session Files (*.psf)", "*.psf");
+				break;
+
+			case kFileTypeEvents:
+				::PrvAddFilter (filter, "Emulator Event Files (*.pev)", "*.pev");
 				break;
 
 			case kFileTypePreference:
@@ -2129,9 +2644,11 @@ void PrvAddFilter (FilterList& filter, const char* desc, const char* pattern)
 
 /***********************************************************************
  *
- * FUNCTION:	PrvConvertTypeList
+ * FUNCTION:	PrvGetExtension
  *
- * DESCRIPTION:	.
+ * DESCRIPTION:	Return an extension appropriate for the given file
+ *				type.  If there is no extension for the type. return
+ *				an empty string.
  *
  * PARAMETERS:	None.
  *
@@ -2141,12 +2658,20 @@ void PrvAddFilter (FilterList& filter, const char* desc, const char* pattern)
 
 string PrvGetExtension (EmFileType type)
 {
+	string		result;
 	const char*	extension = kExtension[type];
-	string		result (extension);
 
-	if (result.size () > 0 && result[0] == '.')
+	if (extension)
 	{
-		result.erase (0, 1);
+		result = extension;
+
+		// If we got an extension and it starts with a '.'.  remove
+		// the '.'.
+
+		if (result.size () > 0 && result[0] == '.')
+		{
+			result.erase (result.begin ());
+		}
 	}
 
 	return result;
@@ -2339,6 +2864,7 @@ UINT CALLBACK PrvOpenMultiFileProc (HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM 
 
 			::SetProp (hWnd, "OFN", (HANDLE) lParam);
 			::CenterWindow (::GetParent (hWnd));
+			::SetWindowPos (::GetParent (hWnd), ::GetActiveWindow (), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
 			return (0);
 
 		case WM_NOTIFY:
@@ -2353,7 +2879,7 @@ UINT CALLBACK PrvOpenMultiFileProc (HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM 
 					// button.
 
 					hwndParentDialog = ::GetParent (hWnd);
-					g_lpfnDialogProc = (WNDPROC) ::SetWindowLong (hwndParentDialog,
+					gDlgProc = (WNDPROC) ::SetWindowLong (hwndParentDialog,
 											DWL_DLGPROC, (LONG) &::PrvOpenMultiFileHook);
 					break;
 
@@ -2362,7 +2888,7 @@ UINT CALLBACK PrvOpenMultiFileProc (HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM 
 
 		case WM_DESTROY:
 			// Need to clean up the subclassing we did on the dialog.
-			::SetWindowLong (hwndParentDialog, DWL_DLGPROC, (LONG) g_lpfnDialogProc);
+			::SetWindowLong (hwndParentDialog, DWL_DLGPROC, (LONG) gDlgProc);
 
 			// Also need to free the property with the OPENFILENAME struct
 			::RemoveProp (hWnd, "OFN");
@@ -2442,7 +2968,7 @@ LRESULT CALLBACK PrvOpenMultiFileHook (HWND hWnd, UINT uMsg, WPARAM wParam, LPAR
 			break;
 	}
 
-	return ::CallWindowProc (g_lpfnDialogProc, hWnd, uMsg, wParam, lParam);
+	return ::CallWindowProc (gDlgProc, hWnd, uMsg, wParam, lParam);
 }
 #endif	// use_buffer_resizing_code
 
@@ -2655,11 +3181,13 @@ Bool PrvIsClass (HWND hWnd, const char* className)
  ***********************************************************************/
 
 SubclassedWindow::SubclassedWindow (HWND hWnd) :
-	fWnd(hWnd)
+	fWnd (hWnd)
 {
+	EmAssert (fWnd);
+
 	fOldWndProc = (WNDPROC) ::GetWindowLong (fWnd, GWL_WNDPROC);
-	::SetWindowLong (fWnd, GWL_WNDPROC, (long) &StaticWndProc);
-	::SetWindowLong (fWnd, GWL_USERDATA, (long) this);
+	::SetWindowLong (fWnd, GWL_WNDPROC, (LONG) &StaticWndProc);
+	::SetWindowLong (fWnd, GWL_USERDATA, (LONG) this);
 }
 
 
@@ -2677,7 +3205,7 @@ SubclassedWindow::SubclassedWindow (HWND hWnd) :
 
 SubclassedWindow::~SubclassedWindow (void)
 {
-	::SetWindowLong (fWnd, GWL_WNDPROC, (long) fOldWndProc);
+	::SetWindowLong (fWnd, GWL_WNDPROC, (LONG) fOldWndProc);
 }
 
 
@@ -2702,12 +3230,12 @@ LRESULT CALLBACK SubclassedWindow::StaticWndProc (HWND hWnd, UINT msg,
 										::GetWindowLong (hWnd, GWL_USERDATA));
 
 	EmAssert (hWnd == This->fWnd);
-	
+
 	LRESULT 			r = This->WndProc (hWnd, msg, wParam, lParam);
 
 	if (msg == WM_NCDESTROY)		// last message this window will get
 	{
-		::SetWindowLong (This->fWnd, GWL_WNDPROC, (long) This->fOldWndProc);
+		::SetWindowLong (This->fWnd, GWL_WNDPROC, (LONG) This->fOldWndProc);
 		delete This;
 	}
 
@@ -2987,25 +3515,86 @@ PopupMenuButton::~PopupMenuButton (void)
  *
  ***********************************************************************/
 
+static BOOL CALLBACK DrawStateProc (HDC hDC,
+									LPARAM lData, WPARAM wData,
+									int cx, int cy)
+{
+	RECT	bounds;
+
+	// Draw the text.
+
+	bounds.left		= 10;
+	bounds.top		= 0;
+	bounds.right	= cx - 10;
+	bounds.bottom	= cy;
+
+	::DrawText (hDC, (LPCTSTR) lData, -1, &bounds, DT_SINGLELINE | DT_VCENTER);
+
+	// Draw the triangle.
+
+	HBRUSH	brush = (HBRUSH) ::GetStockObject (BLACK_BRUSH);
+
+	bounds.left		= cx - 11;
+	bounds.top		= cy / 2;
+	bounds.right	= cx - 10;
+	bounds.bottom	= cy / 2 + 1;
+
+	for (int yy = 0; yy < 4; ++yy)
+	{
+		::FillRect (hDC, &bounds, brush);
+
+		bounds.left--;		// Move out...
+		bounds.right++;
+		bounds.top--;		// ...and up.
+		bounds.bottom--;
+	}
+
+	return TRUE;
+}
+
 void PopupMenuButton::OnPaint (HWND hWnd)
 {
+	// Start the painting operation.
+
 	PAINTSTRUCT ps;
 	HDC 		hDC = ::BeginPaint (hWnd, &ps);
 
-	RECT	bounds;
-	::GetWindowRect (hWnd, &bounds);
-	::GetClientRect (hWnd, &bounds);
+	// Get the bounds of the button.
 
-	UINT	uStyle = DFCS_BUTTONPUSH;
+	RECT	buttonBounds;
+	::GetClientRect (hWnd, &buttonBounds);
 
-	// If drawing selected, add the pushed style to DrawFrameControl.
+	RECT	interiorBounds = buttonBounds;
+
+	// Get the styles to use for our calls to DrawFrameControl
+	// and DrawState.
+
+	UINT	dfStyle	= DFCS_BUTTONPUSH;
+	UINT	dsStyle	= DST_COMPLEX;
+
+	// If drawing selected, add the pushed style to DrawFrameControl,
+	// and adjust the location of the graphic items down and to the right.
 
 	if (this->fSelected)
-		uStyle |= DFCS_PUSHED;
+	{
+		dfStyle |= DFCS_PUSHED;
+
+		interiorBounds.left += 1;
+		interiorBounds.top += 2;
+	}
+
+	// If drawing disabled, add the inactive style to DrawFrameControl,
+	// and add the disabled style to DrawState.
+
+	if (!::IsWindowEnabled (hWnd))
+	{
+		dfStyle |= DFCS_INACTIVE;
+		dsStyle |= DSS_DISABLED;
+	}
 
 	// Draw the button frame.
 
-	::DrawFrameControl (hDC, &bounds, DFC_BUTTON, uStyle);
+	::DrawFrameControl (hDC, &buttonBounds, DFC_BUTTON, dfStyle);
 	
 	// Get the button's text.
 
@@ -3023,16 +3612,6 @@ void PopupMenuButton::OnPaint (HWND hWnd)
 		fFont = ::CreateFontIndirect (&lf);
 	}
 
-	// Determine the bounds for the text.  If the button is selected,
-	// move the text down and to the right a little.
-
-	RECT	textBounds = bounds;
-	if (this->fSelected)
-	{
-		textBounds.left += 1;
-		textBounds.top += 2;
-	}
-
 	// Get and install the right colors and font.
 
 	DWORD		textColor		= ::GetSysColor (COLOR_BTNTEXT);
@@ -3043,10 +3622,25 @@ void PopupMenuButton::OnPaint (HWND hWnd)
 
 	HFONT		oldTextFont		= SelectFont (hDC, fFont);
 
-	// Draw the text.
+	// Draw the button contents.
+	//
+	// (May want to use "DitherBlt" if DrawState is not drawing the
+	//  way you want it to.)
+	//
+	//	<http://www.vckbase.com/english/code/bitmap/dither_blt.shtml.htm>
+	//
 
-	textBounds.left += 10;
-	::DrawText (hDC, strText, strlen (strText), &textBounds, DT_SINGLELINE | DT_VCENTER);
+	::DrawState (
+		hDC,							// handle to DC
+		NULL,							// handle to the brush
+		DrawStateProc,					// callback function
+		(LPARAM) strText,				// application-defined data
+		0,								// number of characters
+		interiorBounds.left,			// horizontal position
+		interiorBounds.top,				// vertical position
+		interiorBounds.right - interiorBounds.left,		// width
+		interiorBounds.bottom - interiorBounds.top,		// height
+		dsStyle);						// image type and state
 
 	// Restore the drawing environment.
 
@@ -3055,30 +3649,7 @@ void PopupMenuButton::OnPaint (HWND hWnd)
 	::SetTextColor (hDC, oldForeColor);
 	::SetBkColor (hDC, oldBackColor);
 
-	// Draw the triangle.
-
-	HBRUSH	brush = (HBRUSH) ::GetStockObject (BLACK_BRUSH);
-
-	RECT triangleBounds = bounds;
-	if (this->fSelected)
-	{
-		triangleBounds.right += 1;
-		triangleBounds.top += 2;
-	}
-
-	triangleBounds.right -= 10;
-	triangleBounds.left = triangleBounds.right - 1;
-	triangleBounds.top = (triangleBounds.top + triangleBounds.bottom) / 2 + 1;
-	triangleBounds.bottom = triangleBounds.top + 1;
-
-	for (int yy = 0; yy < 4; ++yy)
-	{
-		::FillRect (hDC, &triangleBounds, brush);
-		triangleBounds.left--;
-		triangleBounds.right++;
-		triangleBounds.top--;
-		triangleBounds.bottom--;
-	}
+	// Finish the painting operation.
 
 	::EndPaint (hWnd, &ps);
 }

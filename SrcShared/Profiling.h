@@ -140,16 +140,6 @@
 	else ProfileIncrementWrite (1, waitstates)
 
 
-
-// 16MHz, more or less
-#define kCyclesPerSecond16 16580608
-#define kCyclesPerMilliSecond16 16580
-
-// 20MHz, approx
-#define kCyclesPerSecond20 20000000
-#define kCyclesPerMilliSecond20 20000
-
-
 	// Declare these before including UAE.h, as UAE.h refers
 	// to them (well, gProfilingEnabled at least).
 
@@ -289,6 +279,14 @@ extern int64 gReadCycles;
 extern int64 gWriteCycles;
 
 
+#if _DEBUG
+
+void ProfileIncrementClock(unsigned long by);
+void ProfileIncrementRead(int reads, int waitstates);
+void ProfileIncrementWrite(int writes, int waitstates);
+
+#else
+
 STATIC_INLINE void ProfileIncrementClock(unsigned long by)
 {
 	gClockCycles += by;
@@ -305,6 +303,7 @@ STATIC_INLINE void ProfileIncrementWrite(int writes, int waitstates)
 	gClockCycles += writes * (4 + waitstates);
 	gWriteCycles += writes;
 }
+#endif
 
 
 extern void ProfileFnEnter(emuptr destAddress, emuptr returnAddress);

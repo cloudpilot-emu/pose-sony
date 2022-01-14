@@ -1,9 +1,11 @@
 /******************************************************************************
  *
- * Copyright (c) 1995-1999 Palm Computing, Inc. or its subsidiaries.
+ * Copyright (c) 1995-2000 Palm, Inc. or its subsidiaries.
  * All rights reserved.
  *
  * File: Preferences.h
+ *
+ * Release: 
  *
  * Description:
  *		Header for the system preferences
@@ -30,6 +32,23 @@
  *							"pegged" auto-off duration values (when the value
  *							is pegged, we no longer automatically shut off).
  *		12/23/99	jmp	Fix <> vs. "" problem.
+ *		04/30/00	CS		Use LmCountryType instead of CountryType.  Also removed
+ *							deprecated countryNameLength, currencyNameLength, and
+ *							currencySymbolLength, replacing usage with new
+ *							kMaxCountryNameLen, kMaxCurrencyNameLen, and
+ *							kMaxCurrencySymbolLen.
+ *		05/16/00	CS		LmCountryType/LmLanguageType are now back to
+ *							CountryType/LanguageType.
+ *		08/01/00	CS		Added prefLanguage & prefLocale to selector set, and
+ *							locale to SystemPreferencesType.
+ *		08/01/00	kwk	Added timeZoneCountry to SystemPreferencesType, and
+ *							prefTimeZoneCountry to SystemPreferencesChoice.
+ *		08/08/00	CS		Moved obsolete CountryPreferencesType to RezConvert.cp,
+ *							since that's the only code that still needs access to
+ *							this private, obsolete resource.
+ *		08/08/00	peter	Added attentionFlags to SystemPreferencesType, and
+ *							prefAttentionFlags to SystemPreferencesChoice.
+ *		11/07/00	grant	Added button default assignment resource type.
  *
  *****************************************************************************/
 
@@ -39,6 +58,8 @@
 #include <DateTime.h>
 #include <Localize.h>
 #include <SystemMgr.h>
+#include <LocaleMgr.h>	// CountryType, kMaxCountryNameLen, etc.
+#include <AttentionMgr.h>		// AttnFlagsType
 
 /***********************************************************************
  *	Constants
@@ -53,9 +74,10 @@
 #define preferenceDataVer5			5 // Palm OS 3.2a
 #define preferenceDataVer6			6 // Palm OS 3.2b/3.3
 #define preferenceDataVer8			8 // Palm OS 3.5
+#define preferenceDataVer9			9 // Palm OS 4.0
 
 // Be SURE to update "preferenceDataVerLatest" when adding a new prefs version...
-#define preferenceDataVerLatest	preferenceDataVer8
+#define preferenceDataVerLatest	preferenceDataVer9
 
 
 #define defaultAutoOffDuration		2								//	minutes
@@ -64,6 +86,9 @@
 #define peggedAutoOffDuration			0xFF							// minutes (UInt8)
 #define peggedAutoOffDurationSecs	0xFFFF						// seconds (UInt16)
 
+#define defaultAutoLockType			never 						//Never auto lock device
+#define defaultAutoLockTime			0								
+#define defaultAutoLockTimeFlag		0
 
 // Obsolete after V20
 #if EMULATION_LEVEL == EMULATION_NONE
@@ -89,73 +114,6 @@
 
 typedef enum
 	{
-	cAustralia = 0,		// 0
-	cAustria,				// 1
-	cBelgium,				// 2
-	cBrazil,					// 3
-	cCanada,					// 4
-	cDenmark,				// 5
-	cFinland,				// 6
-	cFrance,					// 7
-	cGermany,				// 8
-	cHongKong,				// 9
-	cIceland,				// 10
-	cIreland,				// 11
-	cItaly,					// 12
-	cJapan,					// 13
-	cLuxembourg,			// 14
-	cMexico,					// 15
-	cNetherlands,			// 16
-	cNewZealand,			// 17
-	cNorway,					// 18
-	cSpain,					// 19
-	cSweden,					// 20
-	cSwitzerland,			// 21
-	cUnitedKingdom,		// 22
-	cUnitedStates,			// 23
-	cIndia,					// 24
-	cIndonesia,				// 25
-	cKorea,					// 26
-	cMalaysia,				// 27
-	cRepChina,				// 28
-	cPhilippines,			// 29
-	cSingapore,				// 30
-	cThailand,				// 31
-	cTaiwan					// 32
-	
-	// Always add new countries at the end!
-	// Always update OverlayMgr.cp!
-	
-	} CountryType;
-	
-#define countryFirst		cAustralia
-#define countryLast		cTaiwan
-#define countryCount		(countryLast - countryFirst + 1)
-
-
-typedef enum
-	{
-	languageFirst = 0,
-	lEnglish = languageFirst,	// 0
-	lFrench,							// 1
-	lGerman,							// 2
-	lItalian,						// 3
-	lSpanish,						// 4
-										// 5 (English WorkPad - unused)
-	lJapanese = 6,					// 6
-	lDutch,							// 7
-	
-	
-	// Always add new languages at the end!
-	// Always update OverlayMgr.cp!
-	
-	languageLast = lDutch
-	} LanguageType;
-	
-#define languageCount		(languageLast - languageFirst + 1)
-
-typedef enum
-	{
 	unitsEnglish = 0,		// Feet, yards, miles, gallons, pounds, slugs, etc.
 	unitsMetric				//	Meters, liters, grams, newtons, etc.
 	} MeasurementSystemType;
@@ -169,33 +127,14 @@ typedef enum {
 	slOff = 1
 	} SoundLevelTypeV20;
 	
+//	Device Automatic Locking options.
+typedef enum {
+   never = 0,					//Auto-Lock disabled.
+   uponPowerOff,				// Auto lock when the device powers off.
+   atPresetTime,				//Auto lock at HH:MM every day.
+   afterPresetDelay				//Auto lock after x minutes or hours.
+   } SecurityAutoLockType;
 
-#define countryNameLength		20
-#define currencyNameLength		20
-#define currencySymbolLength	6
-
-// An array of these structures (one per country) is kept in the system
-// resource.
-typedef struct 
-	{
-	CountryType country;					// Country the structure represents
-	UInt8 filler1;							// (Word alignment)
-	Char countryName[countryNameLength];
-	DateFormatType dateFormat;			// Format to display date in
-	DateFormatType longDateFormat;	// Format to display date in
-	Int8 weekStartDay;					// Sunday or Monday
-	TimeFormatType timeFormat;			// Format to display time in
-	NumberFormatType numberFormat;	// Format to display numbers in
-	UInt8 filler2;							// (Word alignment)
-	Char currencyName[currencyNameLength];					// Dollars
-	Char currencySymbol[currencySymbolLength];			// $
-	Char uniqueCurrencySymbol[currencySymbolLength];	// US$
-	UInt8 currencyDecimalPlaces;		// 2 for 1.00
-	DaylightSavingsTypes	daylightSavings;	// Type of daylight savings correction
-	UInt32 minutesWestOfGMT;				// minutes west of Greenwich
-	MeasurementSystemType measurementSystem; // metric, english, etc.
-	UInt8 filler3;							// (Word alignment)
-	} CountryPreferencesType;
 
 // The number format (thousands separator and decimal point).  This defines
 // how numbers are formatted and not neccessarily currency numbers (i.e. Switzerland).
@@ -226,8 +165,8 @@ typedef enum
 	prefRemoteSyncRequiresPassword,
 	prefSysBatteryKind,
 	prefAllowEasterEggs,
-	prefMinutesWestOfGMT,
-	prefDaylightSavings,
+	prefMinutesWestOfGMT,				// deprecated old unsigned minutes EAST of GMT
+	prefDaylightSavings,					// deprecated old daylight saving time rule
 	prefRonamaticChar,
 	prefHard1CharAppCreator,			// App creator for hard key #1
 	prefHard2CharAppCreator,			// App creator for hard key #2
@@ -244,7 +183,7 @@ typedef enum
 	prefSysSoundVolume,					// actual amplitude - error beeps and other non-alarm/game sounds
 	prefGameSoundVolume,					// actual amplitude - game sound effects
 	prefAlarmSoundVolume,				// actual amplitude - alarm sound effects
-	prefBeamReceive,						// False turns off IR sniffing, sends still work.
+	prefBeamReceive,						// not used - use ExgLibControl with ir(Get/Set)ScanningMode instead
 	prefCalibrateDigitizerAtReset,	// True makes the user calibrate at soft reset time
 	prefSystemKeyboardID,				// ID of the preferred keyboard resource
 	prefDefSerialPlugIn,					// creator ID of the default serial plug-in
@@ -261,7 +200,24 @@ typedef enum
 	
 	// Additions for PalmOS 3.5:
 	prefShowPrivateRecords,				// returns privateRecordViewEnum
-	prefAutoOffDurationSecs				// auto-off duration in seconds
+	prefAutoOffDurationSecs,			// auto-off duration in seconds
+	
+	// Additions for PalmOS 4.0:
+	prefTimeZone,							// GMT offset in minutes, + for east of GMT, - for west
+	prefDaylightSavingAdjustment,		// current DST adjustment in minutes (typically 0 or 60)
+
+	prefAutoLockType,						// Never, on poweroff, after preset delay or at preset time.
+	prefAutoLockTime,						// Auto lock preset time or delay.
+	prefAutoLockTimeFlag,    			// For Minutes or Hours.
+
+	prefLanguage,							// Language spoken in country selected via Setup app/Formats panel
+	prefLocale,								// Locale for country selected via Setup app/Formats panel 
+	
+	prefTimeZoneCountry,					// Country used to specify time zone.
+	
+	prefAttentionFlags,					// User prefs for getting user's attention
+
+	prefDefaultAppCreator				// Default application launched on reset.
 
 	} SystemPreferencesChoice;
 	
@@ -299,13 +255,19 @@ typedef struct {
 
 // Any entries added to this structure must be initialized in 
 // Prefereces.c:GetPreferenceResource
+//
+// DOLATER CS -	We should move SystemPreferencesType, SystemPreferencesTypeV10,
+//						PrefGetPreferences, and PrefSetPreferences to a private header
+//						file, since any code compiled against an old version of this
+//						struct will trash memory when run on a version of the Palm OS
+//						that makes the struct longer.
 
 typedef struct 
 	{
 	UInt16 version;						// Version of preference info
 	
 	// International preferences
-	CountryType country;					// Country the device is in
+	CountryType country;					// Country the device is in (see PalmLocale.h)
 	DateFormatType dateFormat;			// Format to display date in
 	DateFormatType longDateFormat;	// Format to display date in
 	Int8 weekStartDay;					// Sunday or Monday
@@ -381,11 +343,36 @@ typedef struct
 	UInt8						reserved3;				
 	UInt16 autoOffDurationSecs;					// Time period in seconds before shutting off.
 	
+	// Additions for PalmOS 4.0:
+	Int16 timeZone;							// minutes east of Greenwich
+	Int16	daylightSavingAdjustment;		// current daylight saving correction in minutes
+	CountryType timeZoneCountry;			// country used to specify time zone.
+	SecurityAutoLockType  autoLockType;		// Never, on power off, after preset delay or at preset time
+	UInt32				autoLockTime;		// Auto lock preset time or delay.
+	Boolean				autoLockTimeFlag;	// For Minutes or Hours.
+	LanguageType		language;			// Language spoken in country selected via Setup app/Formats panel
+
+	AttnFlagsType		attentionFlags;		// User prefs for getting user's attention
+	
+	UInt32				defaultAppCreator;	// Creator of the default "safe" app that is launched
+											// on a reset.
 	} SystemPreferencesType;
 
 
 	
 typedef SystemPreferencesType *SystemPreferencesPtr;
+
+
+// structure of the resource that holds hard/soft button defaults
+typedef struct {
+	UInt16 keyCode;						// virtual key code of the hard/soft button
+	UInt32 creator;						// app creator code
+} ButtonDefaultAppType;
+
+typedef struct {
+	UInt16 numButtons;					// number of default button assignments
+	ButtonDefaultAppType button[1];	// array of button assignments
+} ButtonDefaultListType;
 
 
 //-------------------------------------------------------------------
@@ -425,7 +412,7 @@ extern Boolean PrefGetAppPreferencesV10 (UInt32 type, Int16 version, void *prefs
 		SYS_TRAP(sysTrapPrefGetAppPreferencesV10);
 
 extern void PrefSetAppPreferences (UInt32 creator, UInt16 id, Int16 version, 
-	void *prefs, UInt16 prefsSize, Boolean saved)
+	const void *prefs, UInt16 prefsSize, Boolean saved)
 		SYS_TRAP(sysTrapPrefSetAppPreferences);
 
 extern void PrefSetAppPreferencesV10 (UInt32 creator, Int16 version, void *prefs,

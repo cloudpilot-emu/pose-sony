@@ -18,12 +18,11 @@
 #include "Platform.h"			// Platform::AllocateMemory
 
 
-#define WINDOWS_95_SUCKS	1
-
-
 static void PrvSearchForPorts (HKEY HLM, HKEY key, EmTransportSerial::PortNameList& results);
 
+
 #define PRINTF	if (!LogSerial ()) ; else LogAppendMsg
+#define DPRINTF	if (1) ; else LogAppendMsg
 
 
 /***********************************************************************
@@ -173,7 +172,7 @@ ErrCode EmTransportSerial::HostWrite (long& len, const void* data)
  *
  ***********************************************************************/
 
-long EmTransportSerial::HostBytesInBuffer (void)
+long EmTransportSerial::HostBytesInBuffer (long /*minBytes*/)
 {
 	return fHost->IncomingDataSize ();
 }
@@ -200,8 +199,8 @@ ErrCode EmTransportSerial::HostSetConfig (const ConfigSerial& config)
 
 	// Get the current state.
 
-	DCB dcb;
-	dcb.DCBlength		= sizeof (dcb);
+	DCB dcb = { sizeof (DCB) };
+
 	if (!::GetCommState (fHost->fCommHandle, &dcb))
 	{
 		err = (ErrCode) ::GetLastError ();
@@ -229,14 +228,14 @@ ErrCode EmTransportSerial::HostSetConfig (const ConfigSerial& config)
 	dcb.fParity 		= TRUE;
 	dcb.fOutxCtsFlow	= config.fHwrHandshake;
 	dcb.fOutxDsrFlow	= FALSE;
-	dcb.fDtrControl 	= DTR_CONTROL_ENABLE;
+	dcb.fDtrControl 	= DTR_CONTROL_DISABLE;
 	dcb.fDsrSensitivity = FALSE;
 	dcb.fOutX			= FALSE;
 	dcb.fInX			= FALSE;
 	dcb.fErrorChar		= FALSE;
 	dcb.fNull			= FALSE;
 	dcb.fRtsControl 	= RTS_CONTROL_HANDSHAKE;
-	dcb.fAbortOnError	= TRUE;
+	dcb.fAbortOnError	= FALSE;
 	dcb.ByteSize		= config.fDataBits;
 	dcb.Parity			= config.fParity == EmTransportSerial::kNoParity ? NOPARITY :
 						  config.fParity == EmTransportSerial::kOddParity ? ODDPARITY : EVENPARITY;
@@ -284,7 +283,160 @@ ErrCode EmTransportSerial::HostSetConfig (const ConfigSerial& config)
 
 /***********************************************************************
  *
- * FUNCTION:	EmTransportSerial::HostGetSerialPortNameList
+ * FUNCTION:	EmTransportSerial::HostSetRTS
+ *
+ * DESCRIPTION:	.
+ *
+ * PARAMETERS:	.
+ *
+ * RETURNED:	Nothing
+ *
+ ***********************************************************************/
+
+void EmTransportSerial::HostSetRTS (RTSControl state)
+{
+	// I implemented this stuff, but don't have a way to test it, so
+	// I'm not turning it on for now...
+
+#if 0
+	DWORD	err;
+
+	// Get the desired setting for fRtsControl.
+
+	DWORD	fRtsControl =	state == kRTSAuto ? RTS_CONTROL_HANDSHAKE :
+							state == kRTSOff ? RTS_CONTROL_DISABLE :
+							RTS_CONTROL_ENABLE;
+
+	// Get the actual state of fRtsControl.
+
+	DCB		dcb = { sizeof (DCB) };
+
+	if (!::GetCommState (fHost->fCommHandle, &dcb))
+	{
+		err = ::GetLastError ();
+		EmAssert (false);
+	}
+
+	// If fRtsControl needs to be changed, then do it.
+
+	if (dcb.fRtsControl != fRtsControl)
+	{
+		dcb.fRtsControl = fRtsControl;
+
+		if (!::SetCommState (fHost->fCommHandle, &dcb))
+		{
+			err = ::GetLastError ();
+			EmAssert (false);
+		}
+	}
+
+	// Given the call to SetCommState, I'm not sure if the following is needed.
+
+#if 0
+	// If we are manually controlling the RTS bit, then do that now.
+
+	if (state != kRTSAuto)
+	{
+		if (!::EscapeCommFunction (fHost->fCommHandle, state == kRTSOn ? SETRTS : CLRRTS))
+		{
+			err = ::GetLastError ();
+			EmAssert (false);
+		}
+	}
+#endif
+#endif
+}
+
+
+/***********************************************************************
+ *
+ * FUNCTION:	EmTransportSerial::HostSetDTR
+ *
+ * DESCRIPTION:	.
+ *
+ * PARAMETERS:	.
+ *
+ * RETURNED:	Nothing
+ *
+ ***********************************************************************/
+
+void EmTransportSerial::HostSetDTR (Bool state)
+{
+	if (!::EscapeCommFunction (fHost->fCommHandle, state ? SETDTR : CLRDTR))
+	{
+		DWORD	err = ::GetLastError ();
+		EmAssert (false);
+	}
+}
+
+
+/***********************************************************************
+ *
+ * FUNCTION:	EmTransportSerial::HostSetBreak
+ *
+ * DESCRIPTION:	.
+ *
+ * PARAMETERS:	.
+ *
+ * RETURNED:	Nothing
+ *
+ ***********************************************************************/
+
+void EmTransportSerial::HostSetBreak (Bool state)
+{
+	if (!::EscapeCommFunction (fHost->fCommHandle, state ? SETBREAK : CLRBREAK))
+	{
+		DWORD	err = ::GetLastError ();
+		EmAssert (false);
+	}
+}
+
+
+/***********************************************************************
+ *
+ * FUNCTION:	EmTransportSerial::HostGetCTS
+ *
+ * DESCRIPTION:	.
+ *
+ * PARAMETERS:	.
+ *
+ * RETURNED:	Nothing
+ *
+ ***********************************************************************/
+
+Bool EmTransportSerial::HostGetCTS (void)
+{
+	omni_mutex_lock lock (fHost->fFlagsMutex);
+
+	return fHost->fCtsOn;
+}
+
+
+/***********************************************************************
+ *
+ * FUNCTION:	EmTransportSerial::HostGetDSR
+ *
+ * DESCRIPTION:	.
+ *
+ * PARAMETERS:	.
+ *
+ * RETURNED:	Nothing
+ *
+ ***********************************************************************/
+
+Bool EmTransportSerial::HostGetDSR (void)
+{
+	omni_mutex_lock lock (fHost->fFlagsMutex);
+
+	DPRINTF ("EmTransportSerial::HostGetDSR: returning %d", (int) fHost->fDsrOn);
+
+	return fHost->fDsrOn;
+}
+
+
+/***********************************************************************
+ *
+ * FUNCTION:	EmTransportSerial::HostGetPortNameList
  *
  * DESCRIPTION:	Return the list of serial ports on this computer.  Used
  *				to prepare a menu of serial port choices.
@@ -295,7 +447,7 @@ ErrCode EmTransportSerial::HostSetConfig (const ConfigSerial& config)
  *
  ***********************************************************************/
 
-void EmTransportSerial::HostGetSerialPortNameList (PortNameList& results)
+void EmTransportSerial::HostGetPortNameList (PortNameList& results)
 {
 	HKEY	curRootKey;
 
@@ -398,7 +550,11 @@ EmHostTransportSerial::EmHostTransportSerial (void) :
 	fReadBuffer (),
 
 	fWriteMutex (),
-	fWriteBuffer ()
+	fWriteBuffer (),
+
+	fFlagsMutex (),
+	fCtsOn (false),
+	fDsrOn (false)
 {
 }
 
@@ -466,11 +622,19 @@ ErrCode EmHostTransportSerial::OpenCommPort (const EmTransportSerial::ConfigSeri
 
 		// Configure the timeout values.
 		//
-		// These COMMTIMEOUTS seem to work pretty well for me.  With them,
-		// I can download a Palm III ROM in 2.4 minutes.  With the settings
-		// I used to use (50/0/100/0/0), I would download the ROM in 4 minutes.
-		// With the settings HotSync uses (3000/25/2000/25/2500), downloading
-		// would be so slow that I couldn't bear waiting for it to complete.
+		// If an application sets ReadIntervalTimeout and ReadTotalTimeoutMultiplier
+		// to MAXDWORD and sets ReadTotalTimeoutConstant to a value greater than zero
+		// and less than MAXDWORD, one of the following occurs when the ReadFile
+		// function is called:
+		//
+		//	*	If there are any characters in the input buffer, ReadFile returns
+		//		immediately with the characters in the buffer.
+		//
+		//	*	If there are no characters in the input buffer, ReadFile waits until
+		//		a character arrives and then returns immediately.
+		//
+		//	*	If no character arrives within the time specified by
+		//		ReadTotalTimeoutConstant, ReadFile times out. 
 
 		COMMTIMEOUTS	ctmo;
 
@@ -487,6 +651,13 @@ ErrCode EmHostTransportSerial::OpenCommPort (const EmTransportSerial::ConfigSeri
 		PRINTF ("	ctmo.WriteTotalTimeoutConstant		= %ld", (long) ctmo.WriteTotalTimeoutConstant);
 
 		if (!::SetCommTimeouts (fCommHandle, &ctmo))
+		{
+			err = (ErrCode) ::GetLastError ();
+			return err;
+		}
+
+		DWORD	commMask = EV_CTS | EV_DSR /*| EV_ERR | EV_BREAK | EV_RXCHAR */;	// EV_RING | EV_RLSD | fRXFLAG | fTXEMPTY
+		if (!::SetCommMask (fCommHandle, commMask))
 		{
 			err = (ErrCode) ::GetLastError ();
 			return err;
@@ -602,12 +773,12 @@ ErrCode EmHostTransportSerial::DestroyCommThreads (void)
 
 		// Remove our references.
 
-		fCommReadThread = NULL;
-		fCommReadQuitEvent = NULL;
+		fCommReadThread		= NULL;
+		fCommReadQuitEvent	= NULL;
 
-		fCommWriteThread = NULL;
-		fCommWriteQuitEvent = NULL;
-		fCommWriteDataEvent = NULL;
+		fCommWriteThread	= NULL;
+		fCommWriteQuitEvent	= NULL;
+		fCommWriteDataEvent	= NULL;
 	}
 
 	return errNone;
@@ -743,7 +914,10 @@ void EmHostTransportSerial::PutOutgoingData	(const void* data, long& len)
 	while (begin < end)
 		fWriteBuffer.push_back (*begin++);
 
+	//
 	// Wake up CommWrite.
+	//
+
 	::SetEvent (fCommWriteDataEvent);
 }
 
@@ -802,6 +976,78 @@ long EmHostTransportSerial::OutgoingDataSize (void)
 }
 
 
+void EmHostTransportSerial::PrvCheckModemStatus (BOOL forceUpdate)
+{
+	DWORD	dwModemStatus;
+
+	if (::GetCommModemStatus (this->fCommHandle, &dwModemStatus))
+	{
+		Bool	ctsOn = (dwModemStatus & MS_CTS_ON) != 0;
+		Bool	dsrOn = (dwModemStatus & MS_DSR_ON) != 0;
+
+		Bool	changedFlags = forceUpdate ||
+			(ctsOn != this->fCtsOn) ||
+			(dsrOn != this->fDsrOn);
+
+		if (changedFlags)
+		{
+			omni_mutex_lock lock (fFlagsMutex);
+
+			if (dsrOn != this->fDsrOn)
+			{
+				DPRINTF ("EmHostTransportSerial::PrvCheckModemStatus: DSR changed to %d", (int) dsrOn);
+			}
+
+			this->fCtsOn = ctsOn;
+			this->fDsrOn = dsrOn;
+		}
+	}
+}
+
+
+void EmHostTransportSerial::PrvCheckComStat (BOOL forceUpdate)
+{
+	COMSTAT	comStat;
+	DWORD	dwErrors;
+
+	if (::ClearCommError (this->fCommHandle, &dwErrors, &comStat))
+	{
+	}
+}
+
+
+void EmHostTransportSerial::PrvHandleCommEvent (DWORD dwStatus)
+{
+	if ((dwStatus & (EV_CTS | EV_DSR)) != 0)
+	{
+		EmHostTransportSerial::PrvCheckModemStatus (false);
+	}
+}
+
+
+void EmHostTransportSerial::PrvBufferData (const void* data, DWORD len)
+{
+	if (len > 0)
+	{
+		//
+		// Log the data.
+		//
+
+		if (LogSerialData ())
+			LogAppendData (data, len, "CommRead: Received data:");
+		else
+			PRINTF ("CommRead: Received %ld bytes.", len);
+
+		//
+		// Add the data to the EmHostTransportSerial object's buffer.
+		//
+
+		long n = (long) len;
+		this->PutIncomingData (data, n);
+	}
+}
+
+
 /***********************************************************************
  *
  * FUNCTION:	EmHostTransportSerial::CommRead
@@ -809,8 +1055,11 @@ long EmHostTransportSerial::OutgoingDataSize (void)
  * DESCRIPTION:	This function sits in its own thread, waiting for data
  *				to show up in the serial port.	If data arrives, this
  *				function plucks it out and stores it in a thread-safe
- *				queue.  It quits when it detects that the comm handle
- *				has been deleted.
+ *				queue.
+ *
+ *				This function is largely modelled after ReaderAndStatusProc
+ *				from Allen Denver's "Serial Communications in Win32"
+ *				article in MSL.
  *
  * PARAMETERS:	data - pointer to owning EmHostTransportSerial.
  *
@@ -822,78 +1071,215 @@ DWORD __stdcall EmHostTransportSerial::CommRead (void* data)
 {
 	EmHostTransportSerial*	This = (EmHostTransportSerial*) data;
 
+	return This->CommRead ();
+}
+
+
+DWORD EmHostTransportSerial::CommRead (void)
+{
 	PRINTF ("CommRead starting.");
 
-	HANDLE	hOverlappedEvent = ::CreateEvent (	NULL,		// pointer to security attributes
-												TRUE,		// flag for manual-reset event
-												FALSE,		// flag for initial state
-												NULL);		// pointer to event-object name
+#define AMOUNT_TO_READ          512
 
-	while (This->fCommHandle)
+	OVERLAPPED	osReader		= {0};		// Overlapped structure for read operations.
+	OVERLAPPED	osStatus		= {0};		// Overlapped structure for status operations.
+	DWORD		dwCommEvent;				// Result from WaitCommEvent.
+	DWORD		dwOvRes;					// Result from GetOverlappedResult.
+	DWORD 		dwRead;						// Bytes actually read.
+	DWORD		dwRes;						// Result from WaitForMultipleObjects.
+	DWORD		err;
+	BOOL		waitingOnRead	= FALSE;
+	BOOL		waitingOnStat	= FALSE;
+	BOOL		threadDone		= FALSE;
+	char		lpBuf[AMOUNT_TO_READ];
+
+	//
+	// Create two overlapped structures, one for read events
+	// and another for status events.
+	//
+
+	osReader.hEvent = ::CreateEvent (NULL, TRUE, FALSE, NULL);
+	osStatus.hEvent = ::CreateEvent (NULL, TRUE, FALSE, NULL);
+
+	//
+	// We want to detect the following events:
+	//	Thread exit events (from our shutdown functions)
+	//	Read events (from ReadFile)
+	//	Status events (from WaitCommEvent)
+	//
+
+	HANDLE		hArray[] =
 	{
-		// Prepare to read some data.
+		this->fCommReadQuitEvent,
+		osReader.hEvent,
+		osStatus.hEvent
+	};
 
-		OVERLAPPED	ov;
-		memset (&ov, 0, sizeof(ov));
-		ov.hEvent = hOverlappedEvent;
+	//
+	// Initial check, forces updates.
+	//
 
-		char	buf[1024];
-#if WINDOWS_95_SUCKS
-		DWORD	len = 1;
-#else
-		DWORD	len = 1024;
-#endif
+	this->PrvCheckModemStatus (TRUE);
+	this->PrvCheckComStat(TRUE);
 
-		// See if there's any data on the port.  If not, ReadFile will return
-		// false and GetLastError will return ERROR_IO_PENDING.
+	while (!threadDone)
+	{
+		//
+		// If no read is outstanding, then issue another one.
+		//
 
-		BOOL	readFinished = ::ReadFile (This->fCommHandle, buf, len, &len, &ov);
-
-		if (!readFinished)
+		if (!waitingOnRead)
 		{
-			DWORD	err = ::GetLastError();
-			if (err != ERROR_IO_PENDING)
+			DPRINTF ("CommRead: Queuing up a ReadFile.");
+
+			if (::ReadFile (this->fCommHandle, lpBuf, AMOUNT_TO_READ, &dwRead, &osReader))
 			{
-				::GetOverlappedResult (This->fCommHandle, &ov, &len, FALSE);
-				break;	// !!! What else to do?
+				//
+				// Read completed immediately.
+				//
+
+				this->PrvBufferData (lpBuf, dwRead);
+
+				DPRINTF ("CommRead: ReadFile: completed (immediate).");
 			}
-
-			// No data is pending.  Block on the serial port, as well as the object
-			// that gets signalled when we want the thread to quit.
-
-			HANDLE	objects[] = { This->fCommReadQuitEvent, ov.hEvent };
-			DWORD	object = ::WaitForMultipleObjects (countof (objects), objects, FALSE, INFINITE);
-
-			// "Wake up! Time to die!"  Cancel the read operation and blow.
-
-			if (object == WAIT_OBJECT_0)
+			else if ((err = ::GetLastError ()) == ERROR_IO_PENDING)
 			{
-				break;
+				waitingOnRead = TRUE;
+
+				DPRINTF ("CommRead: ReadFile: deferred.");
 			}
-
-			if (object != WAIT_OBJECT_0 + 1)
-				continue;	// !!! What else to do?
-
-			BOOL	ovRes = ::GetOverlappedResult (This->fCommHandle, &ov, &len, FALSE);
-			if (ovRes == FALSE)
-				continue;	// !!! What else to do?
+			else
+			{
+				DPRINTF ("CommRead: ReadFile: error %ld.", err);
+			}
+		}
+		else
+		{
+			DPRINTF ("CommRead: ReadFile already queued.");
 		}
 
-		if (len > 0)
-		{
-			// Log the data.
-			if (LogSerialData ())
-				LogAppendData (buf, len, "EmHostTransportSerial::CommRead: Received data:");
-			else
-				PRINTF ("EmHostTransportSerial::CommRead: Received %ld serial bytes.", len);
+		//
+		// If no status check is outstanding, then issue another one.
+		//
 
-			// Add the data to the EmHostTransportSerial object's buffer.
-			long	n = (long) len;
-			This->PutIncomingData (buf, n);
+		if (!waitingOnStat)
+		{
+			DPRINTF ("CommRead: Queuing up a WaitCommEvent.");
+
+			if (::WaitCommEvent (this->fCommHandle, &dwCommEvent, &osStatus))
+			{
+				//
+				// WaitCommEvent returned immediately.
+				//
+
+				this->PrvHandleCommEvent (dwCommEvent);
+
+				DPRINTF ("CommRead: WaitCommEvent: completed (immediate).");
+			}
+			else if ((err = ::GetLastError ()) == ERROR_IO_PENDING)
+			{
+				waitingOnStat = TRUE;
+
+				DPRINTF ("CommRead: WaitCommEvent: deferred.");
+			}
+			else
+			{
+				DPRINTF ("CommRead: WaitCommEvent: error %ld.", err);
+			}
+		}
+		else
+		{
+			DPRINTF ("CommRead: WaitCommEvent already queued.");
+		}
+
+		//
+		// Wait for pending operations to complete.
+		//
+
+		if (waitingOnStat && waitingOnRead)
+		{
+			DPRINTF ("CommRead: Waiting for events.");
+
+			dwRes = ::WaitForMultipleObjects (countof (hArray), hArray, FALSE, INFINITE);
+
+			DPRINTF ("CommRead: WaitForMultipleObjects: dwRes = %d.", dwRes - WAIT_OBJECT_0);
+
+			switch (dwRes)
+			{
+				//
+				// Thread exit event.
+				//
+
+				case WAIT_OBJECT_0 + 0:
+					threadDone = TRUE;
+					DPRINTF ("CommRead: time to die.");
+					break;
+
+				//
+				// Read completed.
+				//
+
+				case WAIT_OBJECT_0 + 1:
+					//
+					// See how the read operation went.
+					//
+
+					if (::GetOverlappedResult (this->fCommHandle, &osReader, &dwRead, FALSE))
+					{
+						//
+						// Read completed successfully.
+						//
+
+						this->PrvBufferData (lpBuf, dwRead);
+
+						DPRINTF ("CommRead: ReadFile: completed (deferred).");
+					}
+					else
+					{
+						err = ::GetLastError ();
+						DPRINTF ("CommRead: ReadFile: GetOverlappedResult error %ld.", err);
+					}
+
+					waitingOnRead = FALSE;
+					break;
+
+				//
+				// Status completed.
+				//
+
+				case WAIT_OBJECT_0 + 2: 
+					//
+					// See how the status operation went.
+					//
+
+					if (::GetOverlappedResult (this->fCommHandle, &osStatus, &dwOvRes, FALSE))
+					{
+						//
+						// Status check completed successfully.
+						//
+
+						this->PrvHandleCommEvent (dwCommEvent);
+
+						DPRINTF ("CommRead: WaitCommEvent: completed (deferred).");
+					}
+					else
+					{
+						err = ::GetLastError ();
+						DPRINTF ("CommRead: WaitCommEvent: GetOverlappedResult error %ld.", err);
+					}
+
+					waitingOnStat = FALSE;
+					break;
+			}
 		}
 	}
 
-	::CloseHandle (hOverlappedEvent);
+	//
+	// Close event handles.
+	//
+
+	::CloseHandle (osReader.hEvent);
+	::CloseHandle (osStatus.hEvent);
 
 	PRINTF ("CommRead exitting.");
 
@@ -921,87 +1307,194 @@ DWORD __stdcall EmHostTransportSerial::CommWrite (void* data)
 {
 	EmHostTransportSerial*	This = (EmHostTransportSerial*) data;
 
+	return This->CommWrite ();
+}
+
+
+DWORD EmHostTransportSerial::CommWrite (void)
+{
 	PRINTF ("CommWrite starting.");
 
-	HANDLE	hOverlappedEvent = ::CreateEvent (	NULL,		// pointer to security attributes
-												TRUE,		// flag for manual-reset event
-												FALSE,		// flag for initial state
-												NULL);		// pointer to event-object name
+	OVERLAPPED	osWriter		= {0};		// Overlapped structure for write operations.
+	DWORD		dwRes;						// Result from WaitForMultipleObjects.
+	BOOL		waitingOnWrite	= FALSE;
+	BOOL		threadDone		= FALSE;
+	ByteList	buffer;
+	DWORD		err;
 
-	BOOL	timeToDie = false;
-	while (!timeToDie)
+	//
+	// Create an overlapped structure for write events.
+	//
+
+	osWriter.hEvent = ::CreateEvent (NULL, TRUE, FALSE, NULL);
+
+	//
+	// We want to detect the following events:
+	//
+	//	Thread exit events (from our shutdown functions).
+	//	Requests to write data.
+	//	Write events (from WriteFile).
+
+	HANDLE	hArray[] =
 	{
-		// Wait for some data to show up.  This is an automatic reset
-		// event, so we don't have to clear it.  Similarly, if more
-		// data comes in while we're elsewhere in this loop, the
-		// event will be set when we come back here, allowing us
-		// to pick up that new data.
+		this->fCommWriteQuitEvent,
+		this->fCommWriteDataEvent,
+		osWriter.hEvent
+	};
 
-		HANDLE	objects[] = { This->fCommWriteQuitEvent, This->fCommWriteDataEvent };
-		DWORD	object = ::WaitForMultipleObjects (countof (objects), objects, FALSE, INFINITE);
+	while (!threadDone)
+	{
+		//
+		// Determine how many events we're looking for.  We do NOT want
+		// to look for the event that says a pending write operation has
+		// completed if there is, in fact, no pending write operation.
+		// If we were to do that, we'd get pelted with those events.
 
-		if (object == WAIT_OBJECT_0)
+		int	count = waitingOnWrite ? countof (hArray) : countof (hArray) - 1;
+
+		DPRINTF ("CommWrite: Waiting for %d events.", count);
+
+		dwRes = ::WaitForMultipleObjects (count, hArray, FALSE, INFINITE);
+
+		DPRINTF ("CommWrite: WaitForMultipleObjects: dwRes = %d.", dwRes - WAIT_OBJECT_0);
+
+		switch (dwRes)
 		{
-			timeToDie = true;	// Send any data, then die.
-			PRINTF ("CommWrite: Time To Die.");
-		}
+			//
+			// Thread exit event.
+			//
 
-		if (object != WAIT_OBJECT_0 && object != WAIT_OBJECT_0 + 1)
-			continue;	// !!! What else to do?
+			case WAIT_OBJECT_0 + 0:
+				threadDone = TRUE;
+				DPRINTF ("CommWrite: time to die.");
+				break;
 
-		// Get the data to write.
+			//
+			// Write request.
+			//
 
-		long	len = This->OutgoingDataSize ();
-
-		// If there really wasn't any, go back to sleep.
-
-		if (len == 0)
-			continue;
-
-		// Get the data.
-
-		void*	buf = Platform::AllocateMemory (len);
-		This->GetOutgoingData (buf, len);
-
-		// Log the data.
-
-		if (LogSerialData ())
-			LogAppendData (buf, len, "EmHostTransportSerial::CommWrite: Transmitted data:");
-		else
-			PRINTF ("EmHostTransportSerial::CommWrite: Transmitted %ld serial bytes.", len);
-
-		// Prepare to write the data.
-
-		OVERLAPPED ov;
-		memset (&ov, 0, sizeof (ov));
-		ov.hEvent = hOverlappedEvent;
-
-		DWORD	n = (DWORD) len;
-		DWORD	err = 0;
-
-		// Write the data.  If the operation doesn't complete, block until it does.
-
-		if (!::WriteFile (This->fCommHandle, buf, n, &n, &ov) &&
-			(err = ::GetLastError ()) == ERROR_IO_PENDING)
-		{
-			BOOL	result = ::GetOverlappedResult (This->fCommHandle, &ov, &n, TRUE);	// Wait for operation to end.
-			if (!result)
+			case WAIT_OBJECT_0 + 1:
 			{
-				err = ::GetLastError ();
-				PRINTF ("CommWrite: GetOverlappedResult: err = %ld, n = %ld", err, n);
+				//
+				// If we're already in the middle of a write, then reset
+				// this event so that we don't keep getting interrupted
+				// before it's done.  We'll set the event again after the
+				// write has completed.
+				//
+
+				if (waitingOnWrite)
+				{
+					DPRINTF ("CommWrite: clearing 'have data' event.");
+					::ResetEvent (fCommWriteDataEvent);
+				}
+				else
+				{
+					//
+					// See if there's any data to write.
+					//
+
+					long	len = this->OutgoingDataSize ();
+
+					if (len > 0)
+					{
+						//
+						// Get the data.
+						//
+
+						buffer.resize (len);
+
+						void*	bufPtr = &buffer[0];
+						this->GetOutgoingData (bufPtr, len);
+
+						//
+						// Log the data.
+						//
+
+						if (LogSerialData ())
+							LogAppendData (bufPtr, len, "CommWrite: Transmitted data:");
+						else
+							DPRINTF ("CommWrite: Transmitted %ld bytes.", len);
+
+						//
+						// Write the data.  If the operation doesn't complete, block until it does.
+						//
+
+						DWORD	n = (DWORD) len;
+
+						if (::WriteFile (this->fCommHandle, bufPtr, len, &n, &osWriter))
+						{
+							//
+							// Write completed immediately.
+							//
+							DPRINTF ("CommWrite: WriteFile: completed (immediate).");
+						}
+						else if ((err = ::GetLastError ()) == ERROR_IO_PENDING)
+						{
+							//
+							// Write is delayed.
+							//
+
+							waitingOnWrite = TRUE;
+
+							DPRINTF ("CommWrite: WriteFile: deferred.");
+						}
+						else
+						{
+							//
+							// Some other write error occurred...what to do?
+							//
+							DPRINTF ("CommWrite: WriteFile: error %ld.", err);
+						}
+					}
+				}
+
+				break;
+			}
+
+			//
+			// Write completed.
+			//
+
+			case WAIT_OBJECT_0 + 2:
+			{
+				//
+				// See how the write operation went.
+				//
+
+				DWORD	n;
+				if (::GetOverlappedResult (this->fCommHandle, &osWriter, &n, TRUE))
+				{
+					DPRINTF ("CommWrite: WriteFile: completed (deferred).");
+				}
+				else
+				{
+					err = ::GetLastError ();
+					DPRINTF ("CommWrite: WriteFile: GetOverlappedResult error %ld.", err);
+				}
+
+				waitingOnWrite = FALSE;
+
+				//
+				// If any data has come in while we were away, signal our
+				// event object so that WaitForMultipleEvents will indicate
+				// that data is ready.
+
+				if (this->OutgoingDataSize ())
+				{
+					DPRINTF ("CommWrite: signalling 'have data' event.");
+					::SetEvent (fCommWriteDataEvent);
+				}
+
+				break;
 			}
 		}
-		else if (err != 0)
-		{
-			PRINTF ("CommWrite: WriteFile: err = %ld", err);
-		}
-
-		// Dispose of the data.
-
-		Platform::DisposeMemory (buf);
 	}
 
-	::CloseHandle (hOverlappedEvent);
+	//
+	// Close event handle.
+	//
+
+	::CloseHandle (osWriter.hEvent);
 
 	PRINTF ("CommWrite exitting.");
 

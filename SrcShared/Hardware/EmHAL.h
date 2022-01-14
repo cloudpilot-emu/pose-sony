@@ -27,6 +27,21 @@ enum
 	kLEDRed		= 0x02
 };
 
+enum EmUARTDeviceType
+{
+	kUARTBegin		= 0,
+
+	kUARTSerial		= kUARTBegin,
+	kUARTIR,
+	kUARTBluetooth,
+	kUARTMystery,
+	kUARTNone,
+
+	kUARTEnd
+};
+
+DEFINE_SCALAR_MODIFIERS (EmUARTDeviceType)
+
 class EmHALHandler
 {
 	public:
@@ -50,9 +65,6 @@ class EmHALHandler
 		virtual void			GetLCDBeginEnd			(emuptr&, emuptr&);
 		virtual void			GetLCDScanlines			(EmScreenUpdateInfo& info);
 
-		virtual Bool			GetIRPortOn				(int uartNum);
-		virtual Bool			GetSerialPortOn			(int uartNum);
-
 		virtual int32			GetDynamicHeapSize		(void);
 		virtual int32			GetROMSize				(void);
 		virtual emuptr			GetROMBaseAddress		(void);
@@ -67,7 +79,10 @@ class EmHALHandler
 		virtual void			GetKeyInfo				(int* numRows, int* numCols,
 														 uint16* keyMap, Bool* rows);
 
-		virtual void			LineDriverChanged		(int uartNum);
+		virtual Bool			GetLineDriverState		(EmUARTDeviceType);
+		virtual EmUARTDeviceType	GetUARTDevice		(int uartNum);
+
+		virtual Bool			GetDTR					(int uartNum);
 
 		virtual Bool			GetVibrateOn			(void);
 		virtual uint16			GetLEDState				(void);
@@ -107,9 +122,6 @@ class EmHAL
 		static void				GetLCDBeginEnd			(emuptr&, emuptr&);
 		static void				GetLCDScanlines			(EmScreenUpdateInfo& info);
 
-		static Bool				GetIRPortOn				(int uartNum);
-		static Bool				GetSerialPortOn			(int uartNum);
-
 		static int32			GetDynamicHeapSize		(void);
 		static int32			GetROMSize				(void);
 		static emuptr			GetROMBaseAddress		(void);
@@ -124,7 +136,15 @@ class EmHAL
 		static void				GetKeyInfo				(int* numRows, int* numCols,
 														 uint16* keyMap, Bool* rows);
 
-		static void				LineDriverChanged		(int uartNum);
+		static void				LineDriverChanged		(EmUARTDeviceType);
+		static Bool				GetLineDriverState		(EmUARTDeviceType);
+		static EmUARTDeviceType	GetUARTDevice			(int uartNum);
+
+		static void				GetLineDriverStates		(Bool* states);
+		static void				CompareLineDriverStates	(const Bool* oldStates);
+
+		static Bool				GetDTR					(int uartNum);
+		static void				DTRChanged				(int uartNum);
 
 		static Bool				GetVibrateOn			(void);
 		static uint16			GetLEDState				(void);

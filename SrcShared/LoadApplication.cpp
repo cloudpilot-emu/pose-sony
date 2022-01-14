@@ -15,13 +15,13 @@
 #include "LoadApplication.h"
 
 #include "EmErrCodes.h"			// kError_OutOfMemory
+#include "EmMemory.h"			// EmMem_memcpy
 #include "EmPalmStructs.h"		// RecordEntryType, RsrcEntryType, etc.
 #include "EmStreamFile.h"		// EmStreamFile
 #include "ErrorHandling.h"		// Errors::ThrowIfPalmError
 #include "Miscellaneous.h"		// StMemory
 #include "ROMStubs.h"			// DmFindDatabase, DmGetLastErr, DmDatabaseInfo, DmOpenDatabase, ...
 #include "Strings.r.h"			// kStr_ values
-#include "UAE_Utils.h"			// uae_memcpy
 
 
 static Bool PrvIsResources (UInt16 attributes)
@@ -173,7 +173,7 @@ static void PrvMyShlExportAsPilotFile(EmStreamFile& fh, UInt16 cardNo, const cha
 				UInt32		srcP;
 				StMemory	outP (appInfoSize);
 				srcP = (UInt32) ::MemHandleLock (appInfoH);
-				uae_memcpy ((void*) outP.Get(), srcP, appInfoSize);
+				EmMem_memcpy ((void*) outP.Get(), srcP, appInfoSize);
 				::MemPtrUnlock ((MemPtr) srcP);
 				fh.PutBytes (outP.Get (), appInfoSize);
 			}
@@ -183,7 +183,7 @@ static void PrvMyShlExportAsPilotFile(EmStreamFile& fh, UInt16 cardNo, const cha
 				UInt32		srcP;
 				StMemory	outP (sortInfoSize);
 				srcP = (UInt32) ::MemHandleLock (sortInfoH);
-				uae_memcpy ((void*) outP.Get(), srcP, sortInfoSize);
+				EmMem_memcpy ((void*) outP.Get(), srcP, sortInfoSize);
 				::MemPtrUnlock ((MemPtr) srcP);
 				fh.PutBytes (outP.Get (), sortInfoSize);
 			}
@@ -208,7 +208,7 @@ static void PrvMyShlExportAsPilotFile(EmStreamFile& fh, UInt16 cardNo, const cha
 
 					StMemory	outP (resSize);
 					srcP = (UInt32) ::MemHandleLock (srcResH);
-					uae_memcpy ((void*) outP.Get (), srcP, resSize);
+					EmMem_memcpy ((void*) outP.Get (), srcP, resSize);
 					::MemPtrUnlock ((MemPtr) srcP);
 					fh.PutBytes (outP.Get (), resSize);
 
@@ -315,7 +315,7 @@ static void PrvMyShlExportAsPilotFile(EmStreamFile& fh, UInt16 cardNo, const cha
 				UInt32		srcP;
 				StMemory	outP (appInfoSize);
 				srcP = (UInt32) ::MemHandleLock (appInfoH);
-				uae_memcpy ((void*) outP.Get(), srcP, appInfoSize);
+				EmMem_memcpy ((void*) outP.Get(), srcP, appInfoSize);
 				::MemPtrUnlock ((MemPtr) srcP);
 				fh.PutBytes (outP.Get (), appInfoSize);
 			}
@@ -325,7 +325,7 @@ static void PrvMyShlExportAsPilotFile(EmStreamFile& fh, UInt16 cardNo, const cha
 				UInt32		srcP;
 				StMemory	outP (sortInfoSize);
 				srcP = (UInt32) ::MemHandleLock (sortInfoH);
-				uae_memcpy ((void*) outP.Get(), srcP, sortInfoSize);
+				EmMem_memcpy ((void*) outP.Get(), srcP, sortInfoSize);
 				::MemPtrUnlock ((MemPtr) srcP);
 				fh.PutBytes (outP.Get (), sortInfoSize);
 			}
@@ -350,7 +350,7 @@ static void PrvMyShlExportAsPilotFile(EmStreamFile& fh, UInt16 cardNo, const cha
 					recSize = ::MemHandleSize(srcH);
 					StMemory	outP (recSize);
 					srcP = (UInt32) ::MemHandleLock (srcH);
-					uae_memcpy ((void*) outP.Get(), srcP, recSize);
+					EmMem_memcpy ((void*) outP.Get(), srcP, recSize);
 					::MemPtrUnlock ((MemPtr) srcP);
 					fh.PutBytes (outP.Get (), recSize);
 				}

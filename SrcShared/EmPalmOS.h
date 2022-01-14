@@ -15,6 +15,8 @@
 #define EmPalmOS_h
 
 #include "EmCPU68K.h"			// ExceptionNumber
+#include "EmStructs.h"			// EmStackFrameList
+#include "PreferenceMgr.h"		// PrefKeyType
 
 #pragma mark StackRange
 
@@ -85,6 +87,10 @@ class EmPalmOS
 		static void 			ForgetStack					(emuptr);
 		static void 			ForgetStacksIn				(emuptr, uint32);
 		static StackRange		GetBootStack				(void);
+		static Bool				IsInStack					(emuptr);
+		static Bool				IsInStackBlock				(emuptr);
+		static void				GenerateStackCrawl			(EmStackFrameList& frameList);
+		static void				PrefsChanged				(PrefKeyType, void*);
 
 	protected:
 		static Bool				HandleTrap15				(ExceptionNumber);

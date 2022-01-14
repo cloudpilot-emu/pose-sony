@@ -14,344 +14,161 @@
 #include "EmCommon.h"
 #include "EmTRGDiskIO.h"
 
+/************************************************************************
+ * This class handles the generic low level disk access.
+ ************************************************************************/
+#include <stdio.h>
 
-//-------------------------------------------------------------------------
-//  This file implements card I/O emulation by performing read and write
-//  operations on a file on the PC.  Note that this file doesn't know 
-//  anything about ATA registers ... it's more of a state machine for
-//  a continuous series of reads and writes
-//
-//  These functions will create a disk file on the PC ... if one doesn't
-//  exist, it will create it in a formatted state.
-//
-//  The code should work even if the disk file is replaced by an image
-//  from a real card ... there is no additional info stored with the card
-//  however, the tuple info won't agree with the card
-//---------------------------------------------------------------------------
+#include "EmCommon.h"
+#include "EmTRGDiskIO.h"
 
-// ---------------------------------------------------------------------------
-//		¥ EmDiskIO::EmDiskIO
-// ---------------------------------------------------------------------------
-EmDiskIO::EmDiskIO (void)
+#define CFFILE_NAME   "trgdrv.dat"
+#define SDFILE_NAME   "trgdrvsd.dat"
+
+#define SECTOR_SIZE   512
+
+
+EmTRGDiskIO::EmTRGDiskIO()
+{
+    m_driveNo = UNKNOWN_DRIVE;
+}
+
+
+EmTRGDiskIO::~EmTRGDiskIO()
 {
 }
 
-// ---------------------------------------------------------------------------
-//		¥ EmDiskIO::~EmDiskIO
-// ---------------------------------------------------------------------------
-EmDiskIO::~EmDiskIO (void)
-{
-}
 
-// ---------------------------------------------------------------------------
-//		¥ EmDiskIO::~EmDiskIO
-// ---------------------------------------------------------------------------
-void EmDiskIO::Reset(void)
+char * EmTRGDiskIO::GetFilePath(int driveNo)
 {
-	State.NumSectorsRequested = 0;
-	State.NumSectorsCompleted = 0;
-	State.SectorIndex         = 0;
-	State.Status              = DIO_SUCCESS;
-	State.Error               = DIO_ERR_NONE;
-	myFile = NULL;
-}
-
-// ---------------------------------------------------------------------------
-//		¥ EmDiskIO::Initialize
-// ---------------------------------------------------------------------------
-void EmDiskIO::Initialize (EmDiskTypeID ID)
-{
-	DiskTypeID     = ID;
-	Reset();
-}
-
-// ---------------------------------------------------------------------------
-//		¥ EmDiskIO::CloseFile
-// ---------------------------------------------------------------------------
-void EmDiskIO::CloseFile(void)
-{
-	if (myFile != NULL)
-	{
-		fclose(myFile);
-		myFile = NULL;
-	}
-}
-
-// ---------------------------------------------------------------------------
-//		¥ EmDiskIO::Dispose
-// ---------------------------------------------------------------------------
-void EmDiskIO::Dispose (void)
-{
-	CloseFile();
-}
-
-// ---------------------------------------------------------------------------
-//		¥ EmDiskIO::GetFileName
-// ---------------------------------------------------------------------------
-char * EmDiskIO::GetFileName(void)
-{
-	#ifdef PLATFORM_WINDOWS
+#if PLATFORM_WINDOWS
 	static char tmp[MAX_PATH];
 
-	_snprintf(tmp, sizeof(tmp), "%s\\%s", getenv("WINDIR"), DISKFILE_NAME);
+    if (driveNo == CF_DRIVE)
+	    _snprintf(tmp, sizeof(tmp), "%s\\%s", getenv("WINDIR"), CFFILE_NAME);
+    else
+	    _snprintf(tmp, sizeof(tmp), "%s\\%s", getenv("WINDIR"), SDFILE_NAME);
 	return(tmp);
-	#else
-	return DISKFILE_NAME;
-	#endif
+#else
+    if (driveNo == CF_DRIVE)
+    	return CFFILE_NAME;
+    else
+    	return SDFILE_NAME;
+#endif
 }
 
-// ---------------------------------------------------------------------------
-//		¥ EmDiskIO::TryToFormat
-// ---------------------------------------------------------------------------
-DiskIOStatus EmDiskIO::TryToFormat(void)
+int EmTRGDiskIO::Format(void)
 {
-	uint32           num;
-	LogicalBlockAddr lba;
+    EmSector *buffer;
+    uint32    num, lba;
+    FILE      *fp;
 
-	num = CurrDisk.GetNumSectors(DiskTypeID);
+   	fp = fopen(GetFilePath(m_driveNo), "wb");
+    if (fp == NULL)
+        return -1;
+
+    buffer = new EmSector;
+	num = m_currDisk.GetNumSectors(m_diskTypeID);
 	for (lba=0; lba<num; lba++)
 	{
-		CurrDisk.GetSector(DiskTypeID,
-	                   	lba,
-	                   	&State.Sector);		                   
+		m_currDisk.GetSector(m_diskTypeID, lba, buffer);		                   
 
 		// The most probable error condition is
 		// attempting to write to a full drive ... it could also
 		// be write-protected, or on a disconnected network drive.
-		if (fwrite((const char *)State.Sector.Bytes,
-                     	            SECTOR_SIZE, 1, myFile) == 0)
-			return DIO_ERROR;
+		if (fwrite(buffer, SECTOR_SIZE, 1, fp) == 0)
+        {
+            delete buffer;
+            fclose(fp);
+			return -1;
+        }
 	}
-	return DIO_SUCCESS;
+    delete buffer;
+
+	return 0;
 }
 
-// ---------------------------------------------------------------------------
-//		¥ EmDiskIO::Format
-// ---------------------------------------------------------------------------
-DiskIOStatus EmDiskIO::Format(void)
+int EmTRGDiskIO::Read(uint32 sectorNum, void *buffer)
 {
-	DiskIOStatus     retVal;	
+    FILE *fp;
 
-	CloseFile();
-	retVal = DIO_ERROR;
-   	myFile = fopen(GetFileName(), "wb");
-	if (myFile != NULL)
-	{
-		retVal = TryToFormat();
-		CloseFile();
-	}
-	return retVal;
+    if ((fp = fopen(GetFilePath(m_driveNo), "rb")) == NULL)
+        return -1;
+
+    if (fseek(fp, sectorNum * SECTOR_SIZE, SEEK_SET) == -1)
+    {
+        fclose(fp);
+        return -1;
+    }
+
+    if (fread(buffer, SECTOR_SIZE, 1, fp) != 1)
+    {
+        fclose(fp);
+        return -1;
+    }
+    fclose(fp);
+
+    return 0;
 }
 
-// ---------------------------------------------------------------------------
-//		¥ EmDiskIO::TryToRead
-// ---------------------------------------------------------------------------
-DiskIOStatus EmDiskIO::TryToRead(void)
+int EmTRGDiskIO::Write(uint32 sectorNum, void *buffer)
 {
-	uint32       offset;
-	DiskIOStatus retVal;
+    FILE *fp;
 
-	offset = State.Lba * SECTOR_SIZE;
-	retVal = DIO_ERROR;
-	myFile = fopen(GetFileName(), "rb");
-	if (myFile != NULL)
-	{	
-		// the error condition here would be the file doesn't exist,
-		// which will happen when the program is first run, or
-		// something accidentally deletes our data file from the disk
-		//
-		// there is an extremely unlikely possibility that another file exists
-		// with our name 
-		if (fseek(myFile, offset, SEEK_SET) == 0)
-		{
-			if (fread((char *)State.Sector.Bytes, SECTOR_SIZE, 1, myFile) != 0)
-				retVal = DIO_SUCCESS;
-		}
-		CloseFile();
-	}
-	return retVal;
+    if ((fp = fopen(GetFilePath(m_driveNo), "r+b")) == NULL)
+        return -1;
+
+    if (fseek(fp, sectorNum * SECTOR_SIZE, SEEK_SET) == -1)
+    {
+        fclose(fp);
+        return -1;
+    }
+
+    if (fwrite(buffer, SECTOR_SIZE, 1, fp) != 1)
+    {
+        fclose(fp);
+        return -1;
+    }
+    fclose(fp);
+
+    return 0;
 }
 
-// ---------------------------------------------------------------------------
-//		¥ EmDiskIO::ReadSector
-// ---------------------------------------------------------------------------
-DiskIOStatus EmDiskIO::ReadSector(void)
-{
-	DiskIOStatus retVal;
 
-	retVal = DIO_SUCCESS;
-	if (TryToRead() == DIO_ERROR)
-	{
-		// If we can't read ... reformat the drive and try again
-		if ((retVal=Format()) != DIO_ERROR)
-			retVal = TryToRead();
-	}
-	return retVal;
+void EmTRGDiskIO::Initialize(EmDiskTypeID DiskTypeID, int driveNo)
+{
+    m_diskTypeID = DiskTypeID;
+    m_driveNo = driveNo;
 }
 
-// ---------------------------------------------------------------------------
-//		¥ EmDiskIO::TryToWrite
-// ---------------------------------------------------------------------------
-DiskIOStatus EmDiskIO::TryToWrite(void)
+void EmTRGDiskIO::Dispose(void)
 {
-	uint32       offset;
-	DiskIOStatus retVal;
-
-	offset = State.Lba * SECTOR_SIZE;
-	retVal = DIO_ERROR;
-
-	// the error conditions here would indicate the drive is full
-	// or write-protected
-	myFile = fopen(GetFileName(), "r+b");
-	if (myFile != NULL)
-	{	
-		if (fseek(myFile, offset, SEEK_SET) == 0)
-		{
-			if (fwrite((char *)State.Sector.Bytes, SECTOR_SIZE, 1, myFile) != 0)
-				retVal = DIO_SUCCESS;
-		}
-		CloseFile();
-	}
-	return retVal;
 }
 
-// ---------------------------------------------------------------------------
-//		¥ EmDiskIO::WriteSector
-// ---------------------------------------------------------------------------
-DiskIOStatus EmDiskIO::WriteSector(void)
+int EmTRGDiskIO::ReadSector(uint32 sectorNum, void *buffer)
 {
-	DiskIOStatus retVal;
+    int retval;
 
-	retVal = DIO_SUCCESS;
-	if (TryToWrite() == DIO_ERROR)
-	{
-		if ((retVal=Format()) != DIO_ERROR)
-			retVal = TryToWrite();
-	}
-	return(retVal);
+    if ((retval = Read(sectorNum, buffer)) != 0)
+    {
+        Format();
+        retval = Read(sectorNum, buffer);
+    }
+
+    return retval;
 }
 
-// ---------------------------------------------------------------------------
-//		¥ EmDiskIO::ReadNextDataByte
-// ---------------------------------------------------------------------------
-void EmDiskIO::ReadNextDataByte(uint8 * val)
-{
-	// this first statement will likely not be called except when someone's
-	// dumping memory at our address range
-	if (State.NumSectorsCompleted >= State.NumSectorsRequested)
-		*val = 0;
-	else
-	{
-		*val = State.Sector.Bytes[State.SectorIndex++];
-		if (State.SectorIndex >= SECTOR_SIZE)
-		{
-			if (++State.NumSectorsCompleted < State.NumSectorsRequested)
-			{
-				State.Lba++;
-				State.SectorIndex = 0;
-				State.Status = ReadSector();
-			}
-		}
-	}
-}
 
-// ---------------------------------------------------------------------------
-//		¥ EmDiskIO::WriteNextDataByte
-// ---------------------------------------------------------------------------
-void EmDiskIO::WriteNextDataByte(uint8 val)
-{
-	DiskIOStatus status;
 
-	status = DIO_SUCCESS;
-	if (State.NumSectorsCompleted < State.NumSectorsRequested)
-	{
-		State.Sector.Bytes[State.SectorIndex++] = val;
-		if (State.SectorIndex >= SECTOR_SIZE)
-		{
-			if (WriteSector() == DIO_ERROR)
-				status = DIO_ERROR;
-			else if (++State.NumSectorsCompleted < State.NumSectorsRequested)
-			{
-				status = DIO_SUCCESS;
-				State.Lba++;
-				State.SectorIndex = 0;
-			}
-		}
-	}
-	State.Status = status;
-}
-
-// ---------------------------------------------------------------------------
-//		¥ EmDiskIO::GetSectorCount
-// ---------------------------------------------------------------------------
-uint32 EmDiskIO::GetSectorCount(void)
+int EmTRGDiskIO::WriteSector(uint32 sectorNum, void *buffer)
 {
-	return State.NumSectorsCompleted;
-}
+    int retval;
 
-// ---------------------------------------------------------------------------
-//		¥ EmDiskIO::StartDriveID
-// ---------------------------------------------------------------------------
-void EmDiskIO::StartDriveID(void)
-{
-	CurrDisk.GetDriveID(DiskTypeID,
-                            &State.Sector);
-	State.NumSectorsRequested = 1;
-	State.NumSectorsCompleted = 0;
-	State.SectorIndex    = 0;
-	State.Status         = DIO_SUCCESS;
-	State.Error  = DIO_ERR_NONE;
-}
+    if ((retval = Write(sectorNum, buffer)) != 0)
+    {
+        Format();
+        retval = Write(sectorNum, buffer);
+    }
 
-// ---------------------------------------------------------------------------
-//		¥ EmDiskIO::StartRead
-// ---------------------------------------------------------------------------
-void EmDiskIO::StartRead(DiskIOParams * params)
-{
-	State.Lba = params->Lba;
-	State.NumSectorsRequested = params->SectorCnt;
-	State.NumSectorsCompleted = 0;
-	State.SectorIndex    = 0;
-	State.Error  = DIO_ERR_NONE;
-	State.Status = ReadSector();
-}
-
-// ---------------------------------------------------------------------------
-//		¥ EmDiskIO::StartWrite
-// ---------------------------------------------------------------------------
-void EmDiskIO::StartWrite(DiskIOParams * params)
-{
-	State.Lba = params->Lba;
-	State.NumSectorsRequested = params->SectorCnt;
-	State.NumSectorsCompleted = 0;
-	State.SectorIndex    = 0;
-	State.Status = DIO_SUCCESS;
-	State.Error  = DIO_ERR_NONE;
-}
-
-// ---------------------------------------------------------------------------
-//		¥ EmDiskIO::GetStatus
-// ---------------------------------------------------------------------------
-void EmDiskIO::GetStatus(DiskIOStatus *   status,
-                         DiskDataStatus * dataStatus)
-{
-	*status = State.Status;
-	if (State.NumSectorsCompleted == State.NumSectorsRequested)
-		*dataStatus = DIO_DATA_COMPLETE;
-	else
-		*dataStatus = DIO_MORE_DATA;
-}	
-
-// ---------------------------------------------------------------------------
-//		¥ EmDiskIO::GetError
-// ---------------------------------------------------------------------------
-DiskIOError EmDiskIO::GetError(void)
-{
-	if (State.Status == DIO_SUCCESS)
-		return(DIO_ERR_NONE);
-	else
-	// at this point, all errors are pretty much the same ... we can't
-	// create our emulation file ... we probably will need to include
-	// some more refined error codes at some point
-		return(DIO_ERR_GENERIC);
+    return retval;
 }

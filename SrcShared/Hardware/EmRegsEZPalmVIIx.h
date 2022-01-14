@@ -24,7 +24,7 @@ class EmRegsEZPalmVIIx : public EmRegsEZ
 
 		virtual Bool			GetLCDScreenOn			(void);
 		virtual Bool			GetLCDBacklightOn		(void);
-		virtual Bool			GetSerialPortOn			(int uartNum);
+		virtual Bool			GetLineDriverState		(EmUARTDeviceType type);
 
 		virtual uint8			GetPortInputValue		(int);
 		virtual uint8			GetPortInternalValue	(int);

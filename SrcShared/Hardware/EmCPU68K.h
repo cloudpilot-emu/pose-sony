@@ -18,9 +18,42 @@
 
 #include <vector>				// vector
 
+#if REGISTER_HISTORY
 #include "UAE.h"				// regstruct
+#else
+struct regstruct;
+#endif
 
 const uint16	kATrapReturnTrapNum	= 0x0C;
+
+/*---------------------------------------------------------------------
+ *	Register numbering for 68K. Each register must have a unique 
+ *	non-zero register number.
+ *--------------------------------------------------------------------*/
+enum EmCPU68KRegID
+{
+	e68KRegID_Invalid		= 0,	/* Zero is an invalid register number */
+	e68KRegID_D0 			= 1,
+	e68KRegID_D1			= 2,
+	e68KRegID_D2			= 3,
+	e68KRegID_D3			= 4,
+	e68KRegID_D4 			= 5,
+	e68KRegID_D5			= 6,
+	e68KRegID_D6			= 7,
+	e68KRegID_D7			= 8,
+	e68KRegID_A0 			= 9,
+	e68KRegID_A1			= 10,
+	e68KRegID_A2			= 11,
+	e68KRegID_A3			= 12,
+	e68KRegID_A4 			= 13,
+	e68KRegID_A5			= 14,
+	e68KRegID_A6			= 15,
+	e68KRegID_USP			= 16,
+	e68KRegID_SSP			= 17,
+	e68KRegID_PC			= 18,
+	e68KRegID_SR			= 19
+};
+
 
 enum ExceptionNumber
 {
@@ -198,6 +231,18 @@ class EmCPU68K : public EmCPU
 
 		virtual void 			Execute 			(void);
 		virtual void 			CheckAfterCycle		(void);
+
+		// Low-level access to CPU state.
+
+		virtual emuptr			GetPC				(void);
+		virtual emuptr			GetSP				(void);
+		virtual uint32			GetRegister			(int);
+
+		virtual void			SetPC				(emuptr);
+		virtual void			SetSP				(emuptr);
+		virtual void			SetRegister			(int, uint32);
+
+		virtual Bool			Stopped				(void);
 
 		// Called from routines in EmUAEGlue.cpp
 

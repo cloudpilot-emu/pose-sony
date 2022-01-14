@@ -16,7 +16,7 @@
 
 #include "EmBankDRAM.h"			// EmBankDRAM::ValidAddress
 #include "EmBankSRAM.h"			// EmBankSRAM::GetMemoryStart
-#include "EmCPU68K.h"			// ProcessException
+#include "EmCPU68K.h"			// gCPU68K
 #include "EmPalmHeap.h"			// EmPalmHeap::GetHeapByPtr
 #include "EmMemory.h"			// Memory::InitializeBanks
 
@@ -51,7 +51,7 @@ inline Bool HackForHwrGetRAMSize (emuptr address)
 #ifdef SONY_ROM
 	if (address >= 0x80000000 && address <= 0x800FFFFF)
 		return true;	// for A5 regster error 
-#endif
+#endif //SONY_ROM
 
 	return false;
 }
@@ -185,7 +185,7 @@ uint32 EmBankDummy::GetLong (emuptr address)
 	if (HackForHwrGetRAMSize (address))
 		return 0;
 
-	InvalidAccess (address, sizeof (uae_u32), true);
+	InvalidAccess (address, sizeof (uint32), true);
 	return ~0;
 }
 
@@ -202,7 +202,7 @@ uint32 EmBankDummy::GetWord (emuptr address)
 	if (HackForHwrGetRAMSize (address))
 		return 0;
 
-	InvalidAccess (address, sizeof (uae_u16), true);
+	InvalidAccess (address, sizeof (uint16), true);
 	return ~0;
 }
 
@@ -219,7 +219,7 @@ uint32 EmBankDummy::GetByte (emuptr address)
 	if (HackForHwrGetRAMSize (address))
 		return 0;
 
-	InvalidAccess (address, sizeof (uae_u8), true);
+	InvalidAccess (address, sizeof (uint8), true);
 	return ~0;
 }
 
@@ -236,7 +236,7 @@ void EmBankDummy::SetLong (emuptr address, uint32)
 	if (HackForHwrGetRAMSize (address))
 		return;
 
-	InvalidAccess (address, sizeof (uae_u32), true);
+	InvalidAccess (address, sizeof (uint32), true);
 }
 
 
@@ -252,7 +252,7 @@ void EmBankDummy::SetWord (emuptr address, uint32)
 	if (HackForHwrGetRAMSize (address))
 		return;
 
-	InvalidAccess (address, sizeof (uae_u16), true);
+	InvalidAccess (address, sizeof (uint16), true);
 }
 
 
@@ -268,7 +268,7 @@ void EmBankDummy::SetByte (emuptr address, uint32)
 	if (HackForHwrGetRAMSize (address))
 		return;
 
-	InvalidAccess (address, sizeof (uae_u8), true);
+	InvalidAccess (address, sizeof (uint8), true);
 }
 
 

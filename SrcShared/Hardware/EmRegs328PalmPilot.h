@@ -22,7 +22,7 @@ class EmRegs328PalmPilot : public EmRegs328
 	public:
 		virtual Bool			GetLCDScreenOn			(void);
 		virtual Bool			GetLCDBacklightOn		(void);
-		virtual Bool			GetSerialPortOn			(int uartNum);
+		virtual Bool			GetLineDriverState		(EmUARTDeviceType);
 
 		virtual uint8			GetPortInputValue		(int);
 };

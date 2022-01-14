@@ -42,6 +42,14 @@ class EmHostTransportSerial
 		static DWORD __stdcall	CommRead (void*);
 		static DWORD __stdcall	CommWrite (void*);
 
+		DWORD 					CommRead (void);
+		DWORD 					CommWrite (void);
+
+		void					PrvCheckModemStatus		(BOOL bUpdateNow);
+		void					PrvCheckComStat			(BOOL bUpdateNow);
+		void					PrvHandleCommEvent		(DWORD dwStatus);
+		void					PrvBufferData			(const void* data, DWORD len);
+
 	public:
 		HANDLE					fCommHandle;
 
@@ -57,6 +65,10 @@ class EmHostTransportSerial
 
 		omni_mutex				fWriteMutex;
 		deque<char>				fWriteBuffer;
+
+		omni_mutex				fFlagsMutex;
+		BOOL					fCtsOn;
+		BOOL					fDsrOn;
 };
 
-#endif /* EmTransportSerialWin_h */
+#endif	/* EmTransportSerialWin_h */

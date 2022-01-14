@@ -8,7 +8,6 @@
 #include "EmMemory.h"
 #include "EmBankRegs.h"			// EmBankRegs::InvalidAccess
 #include "EmScreen.h"			// EmScreenUpdateInfo
-#include "UAE_Utils.h"			// uae_memcpy
 
 
 #include "EmSPISlaveADS784x.h"	// EmSPISlaveADS784x
@@ -153,7 +152,7 @@ void EmRegsVzPegVenice::GetLCDScanlines (EmScreenUpdateInfo& info)
 	long	firstLineOffset	= info.fFirstLine * rowBytes;
 	long	lastLineOffset	= info.fLastLine * rowBytes;
 
-	uae_memcpy (
+	EmMem_memcpy (
 		(void*) ((uint8*) info.fImage.GetBits () + firstLineOffset),
 		baseAddr + firstLineOffset,
 		lastLineOffset - firstLineOffset);

@@ -14,8 +14,8 @@
 #include "EmCommon.h"
 #include "EmDirRefWin.h"
 
+#include "EmApplicationWin.h"	// gInstance
 #include "EmFileRef.h"
-#include "Emulator.h"			// gInstance
 #include "Miscellaneous.h"		// EndsWith
 
 #include <ShlObj.h>
@@ -184,10 +184,17 @@ EmDirRef::Exists (void) const
 void
 EmDirRef::Create (void) const
 {
-	if (!this->Exists ())
+	DWORD	err;
+	if (!this->Exists () && this->IsSpecified ())
 	{
+		// Make sure all directories down to us are created, too.
+
+		EmDirRef	parent = this->GetParent ();
+		parent.Create ();
+
 		if (!::CreateDirectory (fDirPath.c_str (), NULL))
 		{
+			err = ::GetLastError ();
 			// !!! throw...
 		}
 	}
@@ -578,15 +585,20 @@ string PrvMaybeResolveLink (const string& path)
 			tempPath.erase (tempPath.end () - 1);
 		}
 
-		// If it's a file, try resolving it.
+		// If it ends with ".lnk", see if it's a file to be resolved.
 
-		if (::PrvIsExistingFile (tempPath))
+		if (::EndsWith (path.c_str (), ".lnk"))
 		{
-			resolvedPath = ::PrvResolveLink (tempPath);
+			// If it's a file, try resolving it.
+
+			if (::PrvIsExistingFile (tempPath))
+			{
+				resolvedPath = ::PrvResolveLink (tempPath);
+			}
 		}
 
-		// If it's not an existing file, perhaps the entity was
-		// specified without the ".lnk" at the end.  Try adding
+		// If it doesn't end in .lnk, perhaps it was specified without
+		// it (say, on the command line, or something).  Try adding
 		// that and see what happens.
 
 		else

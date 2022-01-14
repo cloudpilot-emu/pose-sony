@@ -82,7 +82,7 @@ private:
 
 #ifdef	SONY_ROM
 extern	Int16		g_nCardInserted;
-#endif
+#endif //SONY_ROM
 
 static	UINT		gidJogKeyRepeat = NULL;
 static	CPrvBrush	gbrsHatch;

@@ -433,9 +433,11 @@ uint8 EmROMTransfer::HandleNewBlock (void)
 		memcpy (fROMBuffer.Get () + fROMRead, &fTempBuffer[3], kXModemBlockSize);
 		fROMRead += kXModemBlockSize;
 
+#ifndef NDEBUG
 		int	blocksRead = fROMRead / kXModemBlockSize;
 		EmAssert ((blocksRead % 256) == receivedBlock);
 		EmAssert (fROMRead <= fROMSize);
+#endif
 	}
 
 	fLastValidBlock = receivedBlock;
@@ -462,7 +464,7 @@ uint8 EmROMTransfer::HandleNewBlock (void)
  *					sending back to the client.
  *
  * RETURNED:	The ackChar to *really* send back to the client.  If
- *				the timeout hasn't occured, just send back what the
+ *				the timeout hasn't occurred, just send back what the
  *				caller sent us.  If it has timed out, return an ackChar
  *				based on whether we're in the middle of a download or
  *				just starting up.
@@ -503,7 +505,7 @@ void EmROMTransfer::BufferPendingData (void)
 	// Get some data.  Read as much as we can, but don't overflow
 	// our local buffer.
 
-	long	bytesInPort = fTransport->BytesInBuffer();
+	long	bytesInPort = fTransport->BytesInBuffer (kXModemBufferSize);
 
 	if (bytesInPort > 0)
 	{

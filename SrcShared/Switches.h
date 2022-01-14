@@ -52,7 +52,42 @@
 
 #endif
 
-#if (defined (__BYTE_ORDER) && __BYTE_ORDER == __LITTLE_ENDIAN) || (defined (BYTE_ORDER) && BYTE_ORDER == LITTLE_ENDIAN) || (defined (_LITTLE_ENDIAN))
+// Settle on a canonical name.
+
+#if defined (__BYTE_ORDER)
+
+	#define	EM_LITTLE_ENDIAN	__LITTLE_ENDIAN
+	#define	EM_BIG_ENDIAN		__BIG_ENDIAN
+	#define	EM_PDP_ENDIAN		__PDP_ENDIAN
+	#define EM_HOST_BYTE_ORDER	__BYTE_ORDER
+
+#elif defined (BYTE_ORDER)
+
+	#define	EM_LITTLE_ENDIAN	LITTLE_ENDIAN
+	#define	EM_BIG_ENDIAN		BIG_ENDIAN
+	#define	EM_PDP_ENDIAN		PDP_ENDIAN
+	#define EM_HOST_BYTE_ORDER	BYTE_ORDER
+
+#elif defined (_BIG_ENDIAN) || defined (_LITTLE_ENDIAN)
+
+	#define	EM_LITTLE_ENDIAN	1234
+	#define	EM_BIG_ENDIAN		4321
+	#define	EM_PDP_ENDIAN		3412
+
+	#if defined (_BIG_ENDIAN)
+		#define EM_HOST_BYTE_ORDER	EM_BIG_ENDIAN
+	#else
+		#define EM_HOST_BYTE_ORDER	EM_LITTLE_ENDIAN
+	#endif
+
+#else
+
+	#error "Neither BYTE_ORDER nor __BYTE_ORDER defined for this platform."
+
+#endif
+
+
+#if (EM_HOST_BYTE_ORDER == EM_LITTLE_ENDIAN)
 	#define BYTESWAP			1
 	#define WORDSWAP_MEMORY		1		// Gives us 12% speedup.
 

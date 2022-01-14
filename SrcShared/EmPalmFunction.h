@@ -14,7 +14,7 @@
 #ifndef EmPalmFunction_h
 #define EmPalmFunction_h
 
-#include "UAE.h"				// m68k_getpc
+#include "EmCPU.h"				// GetPC
 
 struct SystemCallContext;
 
@@ -65,14 +65,66 @@ void	EmPalmFunctionInit					(void);
 // Declare a bunch of InFoo(emuptr) functions that can be used
 // to determine if a memory location is within a particular
 // Palm OS function.
+//
+// Note that the following macro used to declare just one function
+// that took a default emuptr parameter set to gCPU->GetPC ().
+// However, gcc 2.95.x and 2.96.x ran into internal compiler errors
+// trying to compile it (egcs 1.1.x and gcc 3.0 appear to be OK).
+// So the single function was broken into two, avoiding the error.
+
+#ifdef BROKEN_VIRTUAL_DEFAULT_ARGUMENTS
 
 #define DECLARE_FUNCTION(fn_name)	\
-	Bool In##fn_name (emuptr = m68k_getpc ());
+	Bool In##fn_name (emuptr);		\
+	inline Bool In##fn_name () { return In##fn_name (gCPU->GetPC ()); }
+
+#else
+
+#define DECLARE_FUNCTION(fn_name)	\
+	Bool In##fn_name (emuptr = gCPU->GetPC ());
+
+#endif
+
 
 FOR_EACH_FUNCTION(DECLARE_FUNCTION)
 
 #undef DECLARE_FUNCTION
 
+
+// Inline function to turn a trap word (0xA###) into an index into the
+// trap table.  The method used here (masking off the uppermost nybble
+// instead of, say, subtracting sysTrapBase) matches the ROM.
+
+inline uint16 SysTrapIndex (uint16 trapWord)
+{
+	return (uint16) (trapWord & ~0xF000);
+}
+
+inline uint16 LibTrapIndex (uint16 trapWord)
+{
+	return (uint16) (SysTrapIndex (trapWord) - SysTrapIndex (sysLibTrapBase));
+}
+
+inline Bool IsSystemTrap (uint16 trapWord)
+{
+	return SysTrapIndex (trapWord) < SysTrapIndex (sysLibTrapBase);
+}
+
+inline Bool IsLibraryTrap (uint16 trapWord)
+{
+	return !IsSystemTrap (trapWord);
+}
+
+#define kProscribedDocumentedSystemUseOnly		1
+#define kProscribedUndocumentedSystemUseOnly	2
+#define kProscribedKernelUseOnly				3
+#define kProscribedObsolete						4
+#define kProscribedGhost						5
+#define kProscribedSystemUseOnlyAnyway			6
+#define kProscribedRare							7
+
+Bool	ProscribedFunction		(const SystemCallContext& context);
+int		GetProscribedReason		(const SystemCallContext& context);
 
 emuptr	GetFunctionAddress		(uint16 trapWord, uint32 extra = sysInvalidRefNum, Bool digDeep = false);
 emuptr	GetLibFunctionAddress	(uint16 trapWord, UInt16 refNum, Bool digDeep);

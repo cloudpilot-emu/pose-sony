@@ -116,12 +116,20 @@ void EmRegsEZPalmIIIc::GetLCDScanlines (EmScreenUpdateInfo& info)
 
 
 // ---------------------------------------------------------------------------
-//		¥ EmRegsEZPalmIIIc::GetSerialPortOn
+//		¥ EmRegsEZPalmIIIc::GetLineDriverState
 // ---------------------------------------------------------------------------
+// Return whether or not the line drivers for the given object are open or
+// closed.
 
-Bool EmRegsEZPalmIIIc::GetSerialPortOn (int /*uartNum*/)
+Bool EmRegsEZPalmIIIc::GetLineDriverState (EmUARTDeviceType type)
 {
-	return (READ_REGISTER (portBData) & hwrEZPortBRS232Enable) != 0;
+	if (type == kUARTSerial)
+		return (READ_REGISTER (portBData) & hwrEZPortBRS232Enable) != 0;
+
+	if (type == kUARTIR)
+		return (READ_REGISTER (portGData) & hwrEZPortGIRShutdown) == 0;
+
+	return false;
 }
 
 

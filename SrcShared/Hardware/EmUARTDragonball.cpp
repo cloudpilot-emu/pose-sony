@@ -14,10 +14,11 @@
 #include "EmCommon.h"
 #include "EmUARTDragonball.h"
 
-#include "EmHAL.h"				// EmHAL
+#include "EmHAL.h"				// EmHAL, EmUARTDeviceType
 #include "EmTransportSerial.h"	// EmTransportSerial
 #include "Logging.h"			// LogAppendMsg
 #include "Preferences.h"		// gEmuPrefs
+#include "ErrorHandling.h"		// ReportErrCommPort
 
 
 /*
@@ -56,8 +57,11 @@
 //	Private functions
 // ======================================================================
 
+static const int	kMaxFifoSize	= 64;
+
 static Bool			PrvPinBaud		(EmTransportSerial::Baud& newBaud);
-static Bool			PrvPinBaud		(EmTransportSerial::Baud& newBaud, EmTransportSerial::Baud testBaud);
+static Bool			PrvPinBaud		(EmTransportSerial::Baud& newBaud,
+									 EmTransportSerial::Baud testBaud);
 
 #define PRINTF	if (!LogSerial ()) ; else LogAppendMsg
 
@@ -80,8 +84,8 @@ static Bool			PrvPinBaud		(EmTransportSerial::Baud& newBaud, EmTransportSerial::
 EmUARTDragonball::EmUARTDragonball (UART_Type type, int uartNum) :
 	fUARTNum (uartNum),
 	fState (type),
-	fRxFIFO (8),
-	fTxFIFO (8)
+	fRxFIFO (this->PrvFIFOSize (true)),
+	fTxFIFO (this->PrvFIFOSize (false))
 {
 }
 
@@ -100,61 +104,15 @@ EmUARTDragonball::EmUARTDragonball (UART_Type type, int uartNum) :
 
 EmUARTDragonball::~EmUARTDragonball (void)
 {
-	EmTransport*	irTransport = this->GetTransport (true);
+	// All line drivers are effectively disabled, so close the transports.
 
-	if (irTransport)
+	for (EmUARTDeviceType ii = kUARTBegin; ii < kUARTEnd; ++ii)
 	{
-		irTransport->Close ();
-	}
+		EmTransport* transport = gEmuPrefs->GetTransportForDevice (ii);
 
-	EmTransport*	serTransport = this->GetTransport (false);
-
-	if (serTransport)
-	{
-		serTransport->Close ();
-	}
-}
-
-
-/***********************************************************************
- *
- * FUNCTION:	EmUARTDragonball::LineDriverChanged
- *
- * DESCRIPTION:	.
- *
- * PARAMETERS:	none.
- *
- * RETURNED:	nothing
- *
- ***********************************************************************/
-
-void EmUARTDragonball::LineDriverChanged (void)
-{
-	EmTransport*	irTransport = this->GetTransport (true);
-
-	if (irTransport)
-	{
-		if (EmHAL::GetIRPortOn (fUARTNum))
+		if (transport)
 		{
-			irTransport->Open ();
-		}
-		else
-		{
-			irTransport->Close ();
-		}
-	}
-
-	EmTransport*	serTransport = this->GetTransport (false);
-
-	if (serTransport)
-	{
-		if (EmHAL::GetSerialPortOn (fUARTNum))
-		{
-			serTransport->Open ();
-		}
-		else
-		{
-			serTransport->Close ();
+			transport->Close ();
 		}
 	}
 }
@@ -176,39 +134,13 @@ void EmUARTDragonball::StateChanged (State& newState, Bool sendTxData)
 {
 	EmAssert (fState.UART_TYPE == newState.UART_TYPE);
 
-	// The following registers are not referenced by the ROM and
-	// are currently not supported.
-	//
-	//		RX_CLK_CONT
-	//		GPIO_DELTA_ENABLE
-	//		OLD_ENABLE
-	//		CTS_DELTA_ENABLE
-	//		RX_FULL_ENABLE
-	//		RX_HALF_ENABLE
-	//		TX_EMPTY_ENABLE
-	//		TX_HALF_ENABLE
-	//		TX_AVAIL_ENABLE
-	//		GPIO_DELTA
-	//		GPIO
-	//		GPIO_DIR
-	//		GPIO_SRC
-	//		UCLK_DIR
-	//		BAUD_SRC
-	//		BAUD_TEST
-	//		CLK_SRC
-	//		FORCE_PERR
-	//		BAUD_RESET
-	//		IR_TEST
-	//		IRDA_LOOP
-	//		RX_POL
-	//		TX_POL
-	//		RX_CLK_CONT
-
 	// (Changing the configuration is the only place where we assume that
 	// the transport we're using is a serial transport.)
 
 	EmTransportSerial::ConfigSerial	config;
-	EmTransportSerial*	serTransport = dynamic_cast<EmTransportSerial*> (this->GetTransport (false));
+	EmTransport*		transport = this->GetTransport ();
+	EmTransportSerial*	serTransport = dynamic_cast<EmTransportSerial*> (transport);
+
 	if (serTransport)
 	{
 		serTransport->GetConfig (config);
@@ -286,17 +218,6 @@ void EmUARTDragonball::StateChanged (State& newState, Bool sendTxData)
 	config.fDataBits = newState.CHAR8_7 ? 8 : 7;
 
 
-	// ========== RX_RDY_ENABLE ==========
-	//
-	// When this bit is high, it enables an interrupt when the receiver has at least one data byte in
-	// the FIFO. When it is low, this interrupt is disabled.
-
-	if (fState.RX_RDY_ENABLE != newState.RX_RDY_ENABLE)
-	{
-		// Nothing to do here.  Interrupt generated elsewhere.
-	}
-
-
 	// ========== DIVIDE ==========
 	//
 	// These bits control the clock frequency produced by the baud rate generator.
@@ -360,8 +281,24 @@ void EmUARTDragonball::StateChanged (State& newState, Bool sendTxData)
 	if (fState.RTS_CONT != newState.RTS_CONT ||
 		fState.RTS != newState.RTS)
 	{
-		// Nothing to do here.  These settings are looked at in the cycle code
-		// that generates interrupts. !!! TBD
+		if (serTransport)
+		{
+			if (newState.RTS_CONT)
+			{
+				serTransport->SetRTS (EmTransportSerial::kRTSAuto);
+			}
+			else
+			{
+				if (newState.RTS)
+				{
+					serTransport->SetRTS (EmTransportSerial::kRTSOn);
+				}
+				else
+				{
+					serTransport->SetRTS (EmTransportSerial::kRTSOff);
+				}
+			}
+		}
 	}
 
 
@@ -388,11 +325,13 @@ void EmUARTDragonball::StateChanged (State& newState, Bool sendTxData)
 	// and to help prevent the installation of invalid settings (which
 	// could appear in the UART registers as it's being configured).
 
-	if (serTransport && newState.UART_ENABLE)
+	if (newState.UART_ENABLE)
 	{
-		serTransport->SetConfig (config);
+		if (serTransport)
+		{
+			serTransport->SetConfig (config);
+		}
 	}
-
 
 	// ========== SEND_BREAK ==========
 	//
@@ -401,8 +340,10 @@ void EmUARTDragonball::StateChanged (State& newState, Bool sendTxData)
 
 	if (fState.SEND_BREAK != newState.SEND_BREAK)
 	{
-		// Nothing to do right now.  External cycling will send out the breaks.
-		// !!! TBD.
+		if (serTransport)
+		{
+			serTransport->SetBreak (newState.SEND_BREAK);
+		}
 	}
 
 
@@ -412,7 +353,11 @@ void EmUARTDragonball::StateChanged (State& newState, Bool sendTxData)
 	// mode, all of the bits are used. Data is transmitted LSB first. A new character is transmitted
 	// when these bits are written and have passed through the FIFO.
 
-	EmTransport*	transport = this->GetTransport (newState.IRDA_ENABLE);
+	// ========== LOOP ==========
+	//
+	// This bit controls loopback for system testing purposes. When this bit is high, the receiver
+	// input is internally connected to the transmitter and ignores the RXD pin. The TXD pin is
+	// unaffected by this bit.
 
 	if (sendTxData && newState.UART_ENABLE && newState.TX_ENABLE)
 	{
@@ -467,18 +412,6 @@ void EmUARTDragonball::StateChanged (State& newState, Bool sendTxData)
 		}
 	}
 
-	// ========== LOOP ==========
-	//
-	// This bit controls loopback for system testing purposes. When this bit is high, the receiver
-	// input is internally connected to the transmitter and ignores the RXD pin. The TXD pin is
-	// unaffected by this bit.
-
-	if (fState.LOOP != newState.LOOP)
-	{
-		// Nothing to do here.  This bit is examined in the code
-		// that reacts to TX_DATA.
-	}
-
 
 	// Update the state in case any of the above operations have side-effects.
 
@@ -509,7 +442,7 @@ void EmUARTDragonball::UpdateState (State& state, Bool refreshRxData)
 
 	// Update the RxFIFO if there's been any buffered data.
 
-	EmTransport*	transport = this->GetTransport (fState.IRDA_ENABLE);
+	EmTransport*	transport = this->GetTransport ();
 	if (transport)
 	{
 		this->ReceiveRxFIFO (transport);
@@ -526,7 +459,7 @@ void EmUARTDragonball::UpdateState (State& state, Bool refreshRxData)
 	// latency time, the FIFO FULL interrupt in the Receiver register can be enabled. The FIFO has
 	// one remaining space available when this interrupt is generated.
 
-	state.RX_FIFO_FULL = fRxFIFO.GetFree () == 0;	// Interrupt generated in Foo::Cycle.
+	state.RX_FIFO_FULL = fRxFIFO.GetFree () == 0;
 
 
 	// === RX_FIFO_HALF ===
@@ -534,7 +467,7 @@ void EmUARTDragonball::UpdateState (State& state, Bool refreshRxData)
 	// This read-only bit indicates that the receiver FIFO has four or fewer slots remaining in the
 	// FIFO. This bit generates a maskable interrupt.
 
-	state.RX_FIFO_HALF = fRxFIFO.GetFree () <= 4;	// Interrupt generated in Foo::Cycle.
+	state.RX_FIFO_HALF = fRxFIFO.GetFree () <= this->PrvLevelMarker (true);
 
 
 	// === DATA_READY ===
@@ -542,10 +475,10 @@ void EmUARTDragonball::UpdateState (State& state, Bool refreshRxData)
 	// This read-only bit indicates that at least one byte is present in the receive FIFO. The
 	// character bits are valid only while this bit is set. This bit generates a maskable interrupt.
 
-	state.DATA_READY = fRxFIFO.GetUsed () > 0;	// Interrupt generated in Foo::Cycle.
+	state.DATA_READY = fRxFIFO.GetUsed () > 0;
 
 
-	// === OLD_DATA ===	// 68EZ328 only
+	// === OLD_DATA ===	// non-68328 only
 	//
 	// This read-only bit indicates that data in the FIFO is older than 30 bit times. It is useful in
 	// situations where the FIFO FULL or FIFO HALF interrupts are used. If there is data in the
@@ -597,9 +530,6 @@ void EmUARTDragonball::UpdateState (State& state, Bool refreshRxData)
 	// DATA READY bit is 0. In 7-bit mode, the MSB is forced to 0 and in 8-bit mode, all bits are
 	// active.
 
-		// !!! Should probably test against RTS, too.  Actually, that test should
-		// happen before putting the byte into the Rx FIFO.
-
 	if (state.DATA_READY && state.UART_ENABLE && state.RX_ENABLE && refreshRxData)
 	{
 		state.RX_DATA = fRxFIFO.Get ();
@@ -609,7 +539,7 @@ void EmUARTDragonball::UpdateState (State& state, Bool refreshRxData)
 			state.RX_DATA &= 0x07F;
 		}
 
-		PRINTF ("Serial Emulation: Put 0x%02X into RX_DATA.", (uint32) (uint8) state.RX_DATA);
+		PRINTF ("UART: Put 0x%02X into RX_DATA.", (uint32) (uint8) state.RX_DATA);
 	}
 
 
@@ -618,7 +548,7 @@ void EmUARTDragonball::UpdateState (State& state, Bool refreshRxData)
 	// This read-only bit indicates that the transmit FIFO is empty. This bit generates a maskable
 	// interrupt.
 
-	state.TX_FIFO_EMPTY = fTxFIFO.GetUsed () == 0;	// Interrupt generated in Foo::Cycle.
+	state.TX_FIFO_EMPTY = fTxFIFO.GetUsed () == 0;
 
 
 	// === TX_FIFO_HALF ===
@@ -626,7 +556,7 @@ void EmUARTDragonball::UpdateState (State& state, Bool refreshRxData)
 	// This read-only bit indicates that the transmit FIFO is less than half full. This bit generates a
 	// maskable interrupt.
 
-	state.TX_FIFO_HALF = fTxFIFO.GetUsed () < 4;	// Interrupt generated in Foo::Cycle.
+	state.TX_FIFO_HALF = fTxFIFO.GetUsed () < this->PrvLevelMarker (false);
 
 
 	// === TX_AVAIL ===
@@ -634,15 +564,15 @@ void EmUARTDragonball::UpdateState (State& state, Bool refreshRxData)
 	// This read-only bit indicates that the transmit FIFO has at least one slot available for data.
 	// This bit generates a maskable interrupt.
 
-	state.TX_AVAIL = fTxFIFO.GetFree () > 0;	// Interrupt generated in Foo::Cycle.
+	state.TX_AVAIL = fTxFIFO.GetFree () > 0;
 
 
-	// === BUSY ===	// 68EZ328 only
+	// === BUSY ===	// non-68328 only
 	//
 	// When this bit is high, it indicates that the transmitter is busy sending a character. This signal
 	// is asserted while the transmitter state machine is not idle or the FIFO has data in it.
 
-	// Not supported right now.
+	state.BUSY = !state.TX_FIFO_EMPTY;
 
 
 	// === CTS_STATUS ===
@@ -680,7 +610,7 @@ void EmUARTDragonball::UpdateState (State& state, Bool refreshRxData)
  *
  * FUNCTION:	EmUARTDragonball::TransmitTxFIFO
  *
- * DESCRIPTION:	Transmit any bytes in the Tx FIFO out the serial port.
+ * DESCRIPTION:	Transmit any bytes in the TX FIFO out the serial port.
  *				Assumes that the serial port is open.
  *
  * PARAMETERS:	None
@@ -698,7 +628,7 @@ void EmUARTDragonball::TransmitTxFIFO (EmTransport* transport)
 		// Write out any outgoing bytes.
 
 		ErrCode	err = errNone;
-		char	buffer[8];
+		char	buffer[kMaxFifoSize];
 		long	spaceInTxFIFO = fTxFIFO.GetUsed ();
 
 		if (spaceInTxFIFO > 0)
@@ -709,9 +639,9 @@ void EmUARTDragonball::TransmitTxFIFO (EmTransport* transport)
 			}
 
 			if (LogSerialData ())
-				LogAppendData (buffer, spaceInTxFIFO, "Serial Emulation: Transmitted data:");
+				LogAppendData (buffer, spaceInTxFIFO, "UART: Transmitted data:");
 			else
-				PRINTF ("Serial Emulation: Transmitted %ld serial bytes.", spaceInTxFIFO);
+				PRINTF ("UART: Transmitted %ld serial bytes.", spaceInTxFIFO);
 
 			err = transport->Write (spaceInTxFIFO, buffer);
 		}
@@ -723,7 +653,7 @@ void EmUARTDragonball::TransmitTxFIFO (EmTransport* transport)
  *
  * FUNCTION:	EmUARTDragonball::ReceiveRxFIFO
  *
- * DESCRIPTION:	Fills up the Rx FIFO with as many bytes as it can from
+ * DESCRIPTION:	Fills up the RX FIFO with as many bytes as it can from
  *				the host serial port.  Assumes that the serial port is
  *				open.
  *
@@ -742,12 +672,12 @@ void EmUARTDragonball::ReceiveRxFIFO (EmTransport* transport)
 		// Buffer up any incoming bytes.
 
 		ErrCode	err = errNone;
-		char	buffer[8];
+		char	buffer[kMaxFifoSize];
 		long	spaceInRxFIFO = fRxFIFO.GetFree ();
 
 		// See how many bytes are waiting.
 
-		long	bytesToBuffer = transport->BytesInBuffer ();
+		long	bytesToBuffer = transport->BytesInBuffer (fRxFIFO.GetMaxSize ());
 
 		// See if we have that much room in the FIFO. If not, limit our read
 		// to that many bytes.
@@ -770,7 +700,7 @@ void EmUARTDragonball::ReceiveRxFIFO (EmTransport* transport)
 		if (bytesToBuffer > 0 && (fState.RTS_CONT == 1 || fState.RTS == 1))
 		{
 			// If there are still bytes to be read, read them in and insert them
-			// into the Rx FIFO.  If the buffer was previously empty, Hardware::Cycle
+			// into the RX FIFO.  If the buffer was previously empty, Hardware::Cycle
 			// will notice that there are now bytes in there and update the
 			// UART registers.
 			//
@@ -788,10 +718,11 @@ void EmUARTDragonball::ReceiveRxFIFO (EmTransport* transport)
 
 			if (err == errNone)
 			{
+				// not quite the correct phrase for IR over serial (over TCP)
 				if (LogSerialData ())
-					LogAppendData (buffer, bytesToBuffer, "Serial Emulation: Received data:");
+					LogAppendData (buffer, bytesToBuffer, "UART: Received data:");
 				else
-					PRINTF ("Serial Emulation: Received %ld serial bytes.", bytesToBuffer);
+					PRINTF ("UART: Received %ld serial bytes.", bytesToBuffer);
 
 				for (long ii = 0; ii < bytesToBuffer; ++ii)
 				{
@@ -815,20 +746,118 @@ void EmUARTDragonball::ReceiveRxFIFO (EmTransport* transport)
  *
  ***********************************************************************/
 
-EmTransport* EmUARTDragonball::GetTransport (Bool forIR)
+EmTransport* EmUARTDragonball::GetTransport (void)
 {
-	EmTransport*	transport;
-
-	if (forIR)
-	{
-		transport = gEmuPrefs->GetTransportForIR ();
-	}
-	else
-	{
-		transport = gEmuPrefs->GetTransportForSerial ();
-	}
+	EmUARTDeviceType	type		= EmHAL::GetUARTDevice (fUARTNum);
+	EmTransport*		transport	= gEmuPrefs->GetTransportForDevice (type);
 
 	return transport;
+}
+
+
+/***********************************************************************
+ *
+ * FUNCTION:	EmUARTDragonball::PrvFIFOSize
+ *
+ * DESCRIPTION:	.
+ *
+ * PARAMETERS:	.
+ *
+ * RETURNED:	.
+ *
+ ***********************************************************************/
+
+int EmUARTDragonball::PrvFIFOSize (Bool forRX)
+{
+	int size;
+
+	switch (fState.UART_TYPE)
+	{
+		case kUART_Dragonball:
+			size = 8;
+			break;
+
+		case kUART_DragonballEZ:
+			if (forRX)
+			{
+				size = 12;
+			}
+			else
+			{
+				size = 8;
+			}
+			break;
+
+		case kUART_DragonballVZ:
+			if (this->fUARTNum == 0)
+			{
+				if (forRX)
+				{
+					size = 12;
+				}
+				else
+				{
+					size = 8;
+				}
+			}
+			else
+			{
+				size = 64;
+			}
+			break;
+
+		default:
+			EmAssert (false);
+			size = 8;
+			break;
+	}
+
+	return size;
+}
+
+
+/***********************************************************************
+ *
+ * FUNCTION:	EmUARTDragonball::PrvLevelMarker
+ *
+ * DESCRIPTION:	.
+ *
+ * PARAMETERS:	.
+ *
+ * RETURNED:	.
+ *
+ ***********************************************************************/
+
+int EmUARTDragonball::PrvLevelMarker (Bool forRX)
+{
+	int level = (forRX ? fRxFIFO.GetMaxSize () : fTxFIFO.GetMaxSize ()) / 2;
+
+	switch (fState.UART_TYPE)
+	{
+		case kUART_Dragonball:
+			break;
+
+		case kUART_DragonballEZ:
+			break;
+
+		case kUART_DragonballVZ:
+			if (this->fUARTNum == 1)
+			{
+				int	marker = forRX ? fState.TXFIFO_LEVEL_MARKER : fState.RXFIFO_LEVEL_MARKER;
+
+				if (marker != 0)
+				{
+					level = marker * 4;
+				}
+			}
+			break;
+
+		default:
+			EmAssert (false);
+			break;
+	}
+
+	return level;
 }
 
 

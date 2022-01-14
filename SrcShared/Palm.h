@@ -95,6 +95,7 @@
 		#include <NetMgr.h>
 //		#include <NotifyMgr.h>
 		#include <OverlayMgr.h>
+		#include <PalmLocale.h>
 //		#include <Password.h>
 		#include <PenMgr.h>
 		#include <Preferences.h>
@@ -118,8 +119,8 @@
 		#include <Window.h>
 
 #ifdef SONY_ROM
-		#include <SonyKeyMgr.h>
-#endif
+		#include <SonyShared/SonyKeyMgr.h>
+#endif //SONY_ROM
 
 	// From UIPublic.h
 
@@ -165,7 +166,7 @@ typedef enum clipboardFormats ClipboardFormatType;
 	#include "M68KHwr.h"		// M68KRegsType (used in EmulatorTypes.h)
 								// Include before DebugPrv.h, which needs M68KRegsType
 	#include "DebugPrv.h"		// BreakpointType (used in EmulatorTypes.h)
-	#include "SystemPrv.h"		// SysKernelInfoType (used in Byteswapping.h)
+	#include "SystemPrv.h"		// SysKernelInfoType (used in MetaMemory::GWH_ExamineChunk)
 
 	#include "DataPrv.h"		// DatabaseDirType, DatabaseHdrType, DmAccessType, DmOpenInfoType
 								// RecordListType, RecordEntryType, RsrcEntryType
@@ -186,7 +187,19 @@ typedef enum clipboardFormats ClipboardFormatType;
 	#include "M68VZ328Hwr.h"	// HwrM68VZ328Type
 	#undef HwrDBallType
 	#undef HwrDBallPtr
+
+	#include "M68SZ328Hwr.h"	// HwrM68SZ328Type
+	#undef HwrDBallType
+	#undef HwrDBallPtr
 #undef NON_PORTABLE
+
+
+struct HwrBatCmdReadType	// from HwrBattery.h
+{
+	UInt16	mVolts;	// level in millivolts (2500 = 2.5 volts)
+	UInt16	abs;	// absolute level (0 -> 255)
+};
+
 
 #include "PalmPackPop.h"
 

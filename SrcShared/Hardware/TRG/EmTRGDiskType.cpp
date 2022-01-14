@@ -59,6 +59,16 @@ static const EmSector _8MBTuple = {{
  B(0xff), B(0xff), B(0xff), B(0xff), B(0xff), B(0xff), B(0xff), B(0xff),
 }};
 
+static const uint8 _8MBSD_CID[] = {
+ 0x00, 0x00, 0x02, 0x53, 0x44, 0x4D, 0x42, 0x2D,
+ 0x38, 0x00, 0x20, 0x06, 0x3A, 0x12, 0x32, 0x35
+};
+
+static const uint8 _8MBSD_CSD[] = {
+ 0x44, 0x26, 0x00, 0x2A, 0x1F, 0xF9, 0x81, 0xE9,
+ 0xE4, 0xB4, 0x83, 0xFF, 0x92, 0x40, 0x40, 0x81
+};
+
 #define W(x, y)  x, y
 
 static const EmSector _8MBDriveID =
@@ -209,7 +219,7 @@ static const EmSector _8MBRootDir =
 {{
 0xE5, 0xF0, 0xE1, 0xD2, 0xC3, 0xB4, 0xA5, 0x96, 0x87,  'V',  '?', 0x28, 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x83, 0x86, 0x54, 0x29, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
- 'T',  'R',  'G',  'P',  'R',  'O',  '_',  '8',  'M',  'B', 0x20, 0x28, 0x00, 0x00, 0x00, 0x00,
+ '8',  'M',  'B',  '_',  'C',  'A',  'R',  'D',  ' ',  ' ', 0x20, 0x28, 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x83, 0x86, 0x54, 0x29, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
@@ -261,6 +271,16 @@ EmGeneric8MB::~EmGeneric8MB(void)
 EmSector * EmGeneric8MB::GetTuple(void)
 {
 	return((EmSector *)&_8MBTuple);
+}
+
+uint8 * EmGeneric8MB::GetSD_CSD(void)
+{
+    return ((uint8 *)&_8MBSD_CSD);
+}
+
+uint8 * EmGeneric8MB::GetSD_CID(void)
+{
+    return ((uint8 *)&_8MBSD_CID);
 }
 
 // ---------------------------------------------------------------------------
@@ -356,6 +376,16 @@ EmSector * EmDiskType::GetTuple(void)
 	return (EmSector *)&DummySector;
 }
 
+uint8 * EmDiskType::GetSD_CSD(void)
+{
+    return ((uint8 *)&DummySector);
+}
+
+uint8 * EmDiskType::GetSD_CID(void)
+{
+    return ((uint8 *)&DummySector);
+}
+
 // ---------------------------------------------------------------------------
 //		¥ EmDiskType::GetDriveID
 // ---------------------------------------------------------------------------
@@ -403,6 +433,33 @@ void EmCurrDiskType::GetTuple(EmDiskTypeID ID,
 			break;
 	}
 }
+
+uint8 *EmCurrDiskType::GetSD_CSD(EmDiskTypeID ID)
+{
+	switch(ID)
+	{
+		case EM_DISK_GENERIC_8MB :
+			return Generic8MB.GetSD_CSD();
+			break;
+		default :
+			return UnknownDisk.GetSD_CSD();
+			break;
+	}
+}
+
+uint8 *EmCurrDiskType::GetSD_CID(EmDiskTypeID ID)
+{
+	switch(ID)
+	{
+		case EM_DISK_GENERIC_8MB :
+			return Generic8MB.GetSD_CID();
+			break;
+		default :
+			return UnknownDisk.GetSD_CID();
+			break;
+	}
+}
+
 
 // ---------------------------------------------------------------------------
 //		¥ EmCurrDiskType::GetDriveID

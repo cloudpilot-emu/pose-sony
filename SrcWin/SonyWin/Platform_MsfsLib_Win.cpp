@@ -13,16 +13,15 @@
 
 #include "EmCommon.h"
 
-#include "Emulator.h"			// gInstance
+#include "EmApplicationWin.h"
 #include "Logging.h"			// LogAppendMsg
 #include "Marshal.h"
 #include "Platform.h"			// AllocateMemory
-#include "UAE_Utils.h"
 #include "Platform_MsfsLib.h"
 #include "EmLowMem.h"			// EmLowMem_GetGlobal
 #include "EmWindow.h"			// EmWindow
 #include "EmWindowWin.h"		// EmWindowHostData
-#include "SonyShared/TrapPatches_SlotDrvLib.h" 
+#include "SonyShared\EmPatchModule_SlotDrvLib.h"
 
 #include <direct.h>
 #include <sys/types.h>
@@ -1493,7 +1492,6 @@ Err Platform_MsfsLib::FSVolumeInfo (UInt16 nVolRefNum, VolumeInfoType* pVolInfo)
 	return retval;
 }
 
-
 /************************************************************
  *  FUNCTION    : FSVolumeSize()
  *
@@ -1510,6 +1508,7 @@ Err Platform_MsfsLib::FSVolumeSize(UInt16 nVolRefNum, UInt32* pVolUsed, UInt32* 
 
 	Preference<Configuration>	prefConfiguration (kPrefKeyLastConfiguration);
 	Configuration				cfg = *prefConfiguration;
+
 	*pVolTotal = (cfg.fMSSize * 1024 * 1024); 
 	Err retval = errNone;
 	if (!g_bUsedSizeUpdated)

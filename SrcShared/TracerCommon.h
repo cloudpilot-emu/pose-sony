@@ -41,9 +41,6 @@ public:
 	
 	// Tracing subsystem lifecycle
 	virtual void			Initialize	(void) = 0;
-	virtual void			Reset		(void);
-	virtual void			Save		(SessionFile&);
-	virtual void			Load		(SessionFile&);
 	virtual void 			Dispose		(void) = 0;
 	
 	// Tracer Type control

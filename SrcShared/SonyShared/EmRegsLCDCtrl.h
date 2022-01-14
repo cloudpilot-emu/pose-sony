@@ -209,7 +209,14 @@ typedef struct {
 
 	UInt8	ColorPalette800[0x0400];		// 0x0800 - 0x0BFF
 
-	UInt8	SourceFIFOSpaceC00[0x0400];		// 0x0800 - 0x0BFF
+	UInt8	SourceFIFOSpaceC00[0x0400];		// 0x0C00 - 0x0FFF
+
+	UInt8	USBDevice1000[0x80];			// 0x1000 - 0x107F
+
+//	UInt8	filler07[0xF80];				// 0x107F - 0x1FFF
+
+//	UInt8	filler08[0x3DFFF];				// 0x42000 - 0x7FFFF
+
 } HwrLCDCtrlType;
 
 
@@ -268,11 +275,10 @@ class EmRegsMQLCDControl : public EmRegs, public EmHALHandler
 #define MQ_LCDController_RegsAddr				0x1F040000
 #define MQ_LCDController_RegsOffset				0x00001FFF
 #define MQ_LCDController_VideoMemStart			(MQ_LCDController_BaseAddress)
-#define MQ_LCDController_VideoMemSize			0x00040000	// 256K of memory for VRAM
+#define MQ_LCDController_VideoMemSize			0x0040000	// 256K of memory for VRAM
 
 #define MQ_LCDforModena_BaseAddress				0x11000000
 #define MQ_LCDforModena_RegsAddr				0x11040000
 #define MQ_LCDforModena_VideoMemStart			(MQ_LCDforModena_BaseAddress)
-
 
 #endif // EmRegsLCDCtrl_H

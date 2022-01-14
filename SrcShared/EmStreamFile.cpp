@@ -14,6 +14,7 @@
 #include "EmCommon.h"
 #include "EmStreamFile.h"
 
+#include "EmErrCodes.h"			// ConvertFromStdCError
 #include "ErrorHandling.h"		// Errors::ThrowIfStdCError
 
 #include <errno.h>				// EBADF, errno
@@ -141,7 +142,8 @@ EmStreamFile::SetMarker (int32			inOffset,
 	OSErr	err = ::SetFPos (fRefNum, whence, inOffset);
 	if (err)
 	{
-		this->Throw (errno);
+		Need to deal with this being a Mac error, not a Std C error.
+		this->Throw (err);
 	}
 #else
 	if (fStream == NULL)
@@ -328,7 +330,7 @@ EmStreamFile::PutBytes (const void*	inBuffer,
 	fwrite (inBuffer, 1, inByteCount, fStream);
 	if (ferror (fStream))
 	{
-		return errno;
+		return ::ConvertFromStdCError (errno);
 	}
 
 	return 0;
@@ -403,7 +405,7 @@ EmStreamFile::GetBytes (void*	outBuffer,
 
 	if (ferror (fStream))
 	{
-		return errno;
+		return ::ConvertFromStdCError (errno);
 	}
 
 	return 0;
@@ -558,14 +560,14 @@ EmStreamFile::Close (void)
  *				sure that the file's name is installed as an error
  *				message parameter and then throws the exception.
  *
- * PARAMETERS:	err - ErrCode to throw.
+ * PARAMETERS:	err - Std C error code to throw.
  *
  * RETURNED:	never.
  *
  ***********************************************************************/
 
 void			
-EmStreamFile::Throw (ErrCode err) const
+EmStreamFile::Throw (int err) const
 {
 	this->SetFileNameParameter ();
 

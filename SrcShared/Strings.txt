@@ -14,7 +14,7 @@
 //	1000 - 1999:		Message Templates
 //		1000 - 1199:		Error messages
 //		1200 - 1399:		Other messages
-//		1400 - 1499:		Menu Strings
+//		1400 - 1499:		Menu strings
 //	2000 - 2999:		Template Parts
 //		2000 - 2199:		Misc parts
 //		2200 - 2399:		Operations descriptions
@@ -23,9 +23,9 @@
 //			2500 - 2599:		User/app errors (e.g., "I don't understand that file")
 //		2600 - 2799:		Recovery strings (e.g., "Reboot and try again")
 //		2900 - 2964:		Exception descriptions (e.g., "bus error")
-//	3000 - 4999:		Palm OS system function names
-//	5000 - 6999:		Palm OS Library function names
-//	7000 - xxxx:		Palm OS Error descriptions
+//		3000 - 4999:		Palm OS system function names
+//		5000 - 6999:		Palm OS Library function names
+//		7000 - xxxx:		Palm OS Error descriptions
 
 #include "Strings.r.h"	// kStr_ values
 
@@ -175,11 +175,23 @@ ENGLISH=%App just %op memory location %mem, which is in the “%field” field of th
 ID=kStr_ErrWindowAccess
 ENGLISH=%App just %op memory location %mem, which is in the “%field” field of the window starting at %window.\n\nThe data at this memory location is owned by the Window Manager. Applications should not access the data directly. Instead, they should make the appropriate Window Manager calls.
 
+ID=kStr_ErrBitmapAccess
+ENGLISH=%App just %op memory location %mem, which is in the “%field” field of the bitmap starting at %bitmap.\n\nThe data at this memory location is owned by the Palm OS. Applications should not access the data directly. Instead, they should make the appropriate Palm OS calls.
+
+ID=kStr_ErrProscribedFunction
+ENGLISH=%App just called Palm OS routine “%function_name”.\n\nApplications should not call this function because %reason.
+
 ID=kStr_ErrStepSpy
 ENGLISH=%App just %op memory location %mem, changing it from %old_value to %new_value.
 
 ID=kStr_ErrWatchpoint
 ENGLISH=%App just %op memory location %mem, which is in the range from %watch_start to %watch_end specified in the Breakpoint dialog box.
+
+ID=kStr_ErrMemoryLeak
+ENGLISH=Found %num_leaks memory leak for %app. Information concerning the leak can be found in the log file.
+
+ID=kStr_ErrMemoryLeaks
+ENGLISH=Found %num_leaks memory leaks for %app. Information concerning the leaks can be found in the log file.
 
 
 // Palm OS-detected errors
@@ -194,17 +206,25 @@ ENGLISH=%App called DbgMessage with the message: “%message”.
 // Other errors
 
 ID=kStr_BadChecksum
-ENGLISH=The ROM you’ve chosen has an invalid checksum.\n\n
+ENGLISH=The ROM you’ve chosen has an invalid checksum.\n
+	\n
 	The most common reason for an invalid checksum has been from the use of 
 	utility programs that modify the contents of the ROM without also updating 
-	its internal checksum.\n\n
-	Palm Computing does not support the use of this ROM. Use it with caution.
+	its internal checksum.\n
+	\n
+	Palm, Inc. does not support the use of this ROM. Use it with caution.
 
-ID=kStr_UnknownDevice
-ENGLISH=Unable to determine an appropriate device emulation for this ROM file.\n\n
-	Palm Computing does not support the use of this ROM. Use it with caution, 
+ID=kStr_UnknownDeviceWarning
+ENGLISH=Unable to determine an appropriate device to emulate for this ROM file.\n
+	\n
+	Palm, Inc. does not support the use of this ROM. Use it with caution, 
 	as the operation of a ROM with an incorrect device emulation will certainly 
 	cause the ROM to crash, and may crash the Palm OS Emulator.
+
+ID=kStr_UnknownDeviceError
+ENGLISH=This ROM is for a device not supported by this version of the emulator.\n
+	\n
+	Palm, Inc. does not support the use of this ROM.
 
 ID=kStr_MissingSkins
 ENGLISH=Palm OS Emulator needs “skin” files in order to correctly 
@@ -225,8 +245,8 @@ ENGLISH=Palm OS Emulator needs “skin” files in order to correctly
 	Follow the instructions included with that archive for installing 
 	the files.
 
-ID=kStr_InconsistantDatabaseDates
-ENGLISH=The creation date (%cr_date) in the database header inside the file is 
+ID=kStr_InconsistentDatabaseDates
+ENGLISH=The creation date (%cr_date) in the database header inside “%database_name” is 
 	more recent than the modification date (%mod_date).\n
 	\n
 	The Emulator does not consider this to be a problem, and neither does the Palm 
@@ -235,7 +255,7 @@ ENGLISH=The creation date (%cr_date) in the database header inside the file is
 	device.
 
 ID=kStr_NULLDatabaseDate
-ENGLISH=The creation date in the database header inside the file is zero.\n
+ENGLISH=The creation date in the database header inside “%database_name” is zero.\n
 	\n
 	The Emulator does not consider this to be a problem, and neither does the Palm 
 	OS. However, some versions of HotSync will test for this condition and report 
@@ -259,7 +279,7 @@ ID=kStr_CannotParseCondition
 ENGLISH=Can't parse the condition "%s".
 
 ID=kStr_UserNameTooLong
-ENGLISH=The name entered into the HotSync User Name field is too long.  It needs 
+ENGLISH=The name entered into the HotSync User Name field is too long. It needs 
 	to be 40 characters or less.
 
 
@@ -267,32 +287,71 @@ ENGLISH=The name entered into the HotSync User Name field is too long.  It needs
 //	Message Templates -- Other messages
 // --------------------------------------------------------------------------------
 
+ID=kStr_SaveSessionAs
+ENGLISH=Save session as:
+
+ID=kStr_LoadSession
+ENGLISH=Load session:
+
+ID=kStr_LoadSessionForReplay
+ENGLISH=Load session for replay:
+
+ID=kStr_LoadSessionForMinimize
+ENGLISH=Load session for minimize:
+
+ID=kStr_SaveScreenAs
+ENGLISH=Save screen as:
+
+ID=kStr_ImportFile
+ENGLISH=Import file:
+
+ID=kStr_SaveBeforeClosing
+ENGLISH=Save changes to the %AppName document “%DocName” before closing?
+
+ID=kStr_SaveBeforeQuitting
+ENGLISH=Save changes to the %AppName document “%DocName” before quitting?
+
+
+ID=kStr_GremlinNumber
+ENGLISH=Gremlin #%gremlin_number
+
+ID=kStr_GremlinXofYEvents
+ENGLISH=Event %current_event of %last_event
+
+ID=kStr_GremlinXEvents
+ENGLISH=Event %current_event
+
+ID=kStr_GremlinElapsedTime
+ENGLISH=Elapsed Time: %elapsed_time
+
+
+ID=kStr_MinimizePassNumber
+ENGLISH=Pass #%pass_number
+
+ID=kStr_MinimizeXofYEvents
+ENGLISH=Event %current_event of %last_event
+
+ID=kStr_MinimizeElapsedTime
+ENGLISH=Elapsed Time: %elapsed_time
+
+ID=kStr_MinimizeRange
+ENGLISH=Excluding range %first_event to %last_event
+
+ID=kStr_MinimizeDiscarded
+ENGLISH=Discarded %num_discarded_events of %num_total_events events
+
+
 ID=kStr_AppAndVers
 ENGLISH=%application %version
 
 ID=kStr_XofYFiles
 ENGLISH=%d of %d files
 
-ID=kStr_GremlinNumber
-ENGLISH=Gremlin #%ld
-
-ID=kStr_XofYEvents
-ENGLISH=Event %s of %s
-
-ID=kStr_XEvents
-ENGLISH=Event %s
-
-ID=kStr_ElapsedTime
-ENGLISH=Elapsed Time: %s
-
 ID=kStr_GremlinStarted
 ENGLISH=Gremlin #%d started, %ld steps.\n
 
 ID=kStr_GremlinEnded
 ENGLISH=Gremlin #%d stopped at event %ld of %ld after %ld milliseconds.\n
-
-ID=kStr_SaveScreenAs
-ENGLISH=Save screen as:
 
 ID=kStr_EntireDevice
 ENGLISH=Entire Palm OS device
@@ -306,12 +365,6 @@ ENGLISH=Unknown fatal error occurred!
 ID=kStr_EmulatorOff
 ENGLISH=The emulator is not ready to %s at this time.\n(Perhaps it is turned off?)
 
-ID=kStr_SaveBeforeClosing
-ENGLISH=Save changes to the %AppName document “%DocName” before closing?
-
-ID=kStr_SaveBeforeQuitting
-ENGLISH=Save changes to the %AppName document “%DocName” before quitting?
-
 ID=kStr_LogFileSize
 ENGLISH============================================================\n
 	This file contains only the last %ldK of generated text.\n
@@ -324,7 +377,19 @@ ID=kStr_InternalErrorMessage
 ENGLISH=%s\n\nThe error occurred while the emulator was calling the Palm OS function “%s”.
 
 ID=kStr_WillNowReset
-ENGLISH=  The emulator is now in an unstable state and will reset.
+ENGLISH= The emulator is now in an unstable state and will reset.
+
+ID=kStr_CommPortError
+ENGLISH=The emulator could not open port %transport. Please make sure that it is not in use by another application, and that the emulated IR and Serial ports are not mapped to the same physical port, then reconfirm your port selection in Preferences….
+
+ID=kStr_SocketsError
+ENGLISH=The emulator could not open a sockets connection to %transport. Please check your TCP settings, and then reconfirm your host selection in Preferences….
+
+ID=kStr_MustTurnOnLogging
+ENGLISH=In order to utilize error handling options that don't display messages in a dialog box, the corresponding logging options must be turned on. Should those options be turned on now?
+
+ID=kStr_MustTurnOnShowDialog
+ENGLISH=In order to safely turn off logging options for errors and warnings, the corresponding error handling options must be set to "Show in dialog". Should those options be set now?
 
 
 ID=kStr_ROMTransferInstructions+0
@@ -378,6 +443,11 @@ ENGLISH=9.  After the ROM has been transferred to your desktop computer,\n
 	     appropriate name (for example, “Palm III.rom”). Then\n
 	     create a a new emulator session using that ROM.
 
+
+// --------------------------------------------------------------------------------
+//	Message Templates -- Menu strings
+// --------------------------------------------------------------------------------
+
 ID=kStr_MenuSessionNew
 ENGLISH=&New…\tN
 
@@ -398,6 +468,9 @@ ENGLISH=Save &Bound Emulator…
 
 ID=kStr_MenuScreenSave
 ENGLISH=Sa&ve Screen…\tM
+
+ID=kStr_MenuSessionInfo
+ENGLISH=Session Info…
 
 ID=kStr_MenuImportOther
 ENGLISH=&Other…\tI
@@ -447,14 +520,17 @@ ENGLISH=&Logging…\tL
 ID=kStr_MenuDebugging
 ENGLISH=&Debugging…\t\\
 
+ID=kStr_MenuErrorHandling
+ENGLISH=&Error Handling…\tE
+
 ID=kStr_MenuTracing
 ENGLISH=&Tracing…\tT
 
 ID=kStr_MenuSkins
 ENGLISH=&Skins…\tK
 
-ID=kStr_MenuCards
-ENGLISH=&Cards…
+ID=kStr_MenuHostFS
+ENGLISH=&HostFS…
 
 ID=kStr_MenuBreakpoints
 ENGLISH=&Breakpoints…\tB
@@ -470,6 +546,12 @@ ENGLISH=&Resume
 
 ID=kStr_MenuGremlinsStop
 ENGLISH=Sto&p
+
+ID=kStr_MenuEventReplay
+ENGLISH=Repla&y…
+
+ID=kStr_MenuEventMinimize
+ENGLISH=&Minimize…
 
 #if HAS_PROFILING
 
@@ -697,6 +779,19 @@ ID=kStr_WhenSysCall
 ENGLISH=invoking a Palm OS System function, indicating that the system dispatch table has been overwritten.
 
 
+ID=kStr_ShowInDialog
+ENGLISH=Show in dialog
+
+ID=kStr_AutomaticallyContinue
+ENGLISH=Automatically continue
+
+ID=kStr_AutomaticallyQuit
+ENGLISH=Automatically quit Emulator
+
+ID=kStr_NextGremlin
+ENGLISH=Switch to next Gremlin
+
+
 // --------------------------------------------------------------------------------
 //	Template Parts -- Operations descriptions
 // --------------------------------------------------------------------------------
@@ -727,6 +822,9 @@ ENGLISH=save a bound emulator
 ID=kStr_CmdSaveScreen
 ENGLISH=save the screen
 
+ID=kStr_CmdSessionInfo
+ENGLISH=display session info
+
 ID=kStr_CmdInstall
 ENGLISH=install the Palm OS file “%filename”
 
@@ -745,9 +843,6 @@ ENGLISH=reset the device
 ID=kStr_CmdTransferROM
 ENGLISH=transfer the ROM
 
-ID=kStr_CmdMinimize
-ENGLISH=minimize the emulator window
-
 ID=kStr_CmdQuit
 ENGLISH=quit the application
 
@@ -760,6 +855,9 @@ ENGLISH=open the Logging Options dialog box
 
 ID=kStr_CmdDebugOptions
 ENGLISH=open the Debug Options dialog box
+
+ID=kStr_CmdErrorHandling
+ENGLISH=open the Error Handling dialog box
 
 ID=kStr_CmdTracingOptions
 ENGLISH=open the Trace Options dialog box
@@ -774,6 +872,9 @@ ENGLISH=open the Breakpoints dialog box
 ID=kStr_CmdGremlinNew
 ENGLISH=start the gremlin
 
+ID=kStr_CmdGremlinSuspend
+ENGLISH=suspend the gremlin
+
 ID=kStr_CmdGremlinStep
 ENGLISH=step the gremlin
 
@@ -783,11 +884,14 @@ ENGLISH=resume the gremlin
 ID=kStr_CmdGremlinStop
 ENGLISH=stop the gremlin
 
+ID=kStr_CmdEventReplay
+ENGLISH=replay event file
+
+ID=kStr_CmdEventMinimize
+ENGLISH=start event Minimization
+
 
 #if HAS_PROFILING
-ID=kStr_CmdProfileInit
-ENGLISH=initialize profiling
-
 ID=kStr_CmdProfileStart
 ENGLISH=start profiling
 
@@ -948,13 +1052,26 @@ ID=kStr_InvalidDevice
 ENGLISH=this version of the Palm OS Emulator does not support the device required 
 	by this session file
 
+ID=kStr_InvalidSession
+ENGLISH=the session file doesn't have the minimum information required to create a new session
+
+ID=kStr_InvalidConfiguration
+ENGLISH=the given configuration information is not supported by this version of the Palm OS Emulator
+
 
 // PRC, PDB, PQA file errors
 ID=kStr_NameNotNULLTerminated
 ENGLISH=the database name (“%database_name”) is too long
 
 ID=kStr_NameNotPrintable
-ENGLISH=the database name (“%database_name”) contains invalid characters
+ENGLISH=the database name (“%database_name”) contains invalid characters. Only 
+	standard printable ASCII characters (that is, characters with values in 
+	the range 0x20 - 0x7E) are allowed.\n
+	\n
+	If you need to display a name in the Launcher with additional characters, 
+	you can specify that name in the application’s 'tAIN' resource. You can set 
+	this in the “Application Icon Name” field in the “Project Settings” section 
+	of “Constructor for Palm OS”, or in the “APPLICATIONICONNAME” field of “pilrc”
 
 ID=kStr_FileTooSmall
 ENGLISH=the file is too small to contain all the information it claims to have
@@ -981,16 +1098,23 @@ ID=kStr_OverlappingRecord
 ENGLISH=record #%record_number overlaps another record
 
 ID=kStr_ResourceMemError
-ENGLISH=an out of memory error occurred while installing resource '%res_type'(%res_id). It’s possible that the size of this resource (%res_size) is larger than the currently allowed maximum of 65505
+ENGLISH=an out of memory error occurred while installing resource '%res_type'(%res_id). It’s possible that the reason for this error is because the size of this resource (%res_size) is larger than the currently allowed maximum of 65505
 
 ID=kStr_RecordMemError
-ENGLISH=an out of memory error occurred while installing record #%record_number. It’s possible that the size of this record (%res_size) is larger than the currently allowed maximum of 65505
+ENGLISH=an out of memory error occurred while installing record #%record_number. It’s possible that the reason for this error is because the size of this record (%res_size) is larger than the currently allowed maximum of 65505
 
 ID=kStr_AppInfoMemError
 ENGLISH=an out of memory error occurred while installing the app info block. It’s possible that the size of this record (%res_size) is larger than the currently allowed maximum of 65505
 
 ID=kStr_DuplicateResource
 ENGLISH=a duplicate '%res_type'(%res_id) resource was found
+
+
+ID=kStr_SystemUseOnly
+ENGLISH=it is reserved for system use only
+
+ID=kStr_Obsolete
+ENGLISH=it is obsolete and will be removed from a future version of the Palm OS
 
 
 // --------------------------------------------------------------------------------

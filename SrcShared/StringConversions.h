@@ -11,8 +11,8 @@
 	(at your option) any later version.
 \* ===================================================================== */
 
-#ifndef _STRING_CONVERSIONS_H_
-#define _STRING_CONVERSIONS_H_
+#ifndef StringConversions_h
+#define StringConversions_h
 
 #include "EmDevice.h"			// EmDevice
 
@@ -20,6 +20,8 @@
 
 class EmDirRef;
 class EmFileRef;
+class EmTransportDescriptor;
+
 
 // ----------------------------------------------------------------------
 //	Our preferences routines need to convert our preference data to and
@@ -43,7 +45,9 @@ bool FromString (const string& s, char* value);
 bool FromString (const string& s, CloseActionType& value);
 bool FromString (const string& s, EmDevice& value);
 bool FromString (const string& s, EmDirRef& value);
+bool FromString (const string& s, EmErrorHandlingOption& value);
 bool FromString (const string& s, EmFileRef& value);
+bool FromString (const string& s, EmTransportDescriptor& value);
 
 // ----------------------------------------------------------------------
 //	Our preferences routines need to convert our preference data to and
@@ -67,6 +71,8 @@ string ToString (const char* value);
 string ToString (CloseActionType value);
 string ToString (const EmDevice& value);
 string ToString (const EmDirRef& value);
+string ToString (EmErrorHandlingOption value);
 string ToString (const EmFileRef& value);
+string ToString (const EmTransportDescriptor& value);
 
-#endif	/* _STRING_CONVERSIONS_H_ */
+#endif	/* StringConversions_h */

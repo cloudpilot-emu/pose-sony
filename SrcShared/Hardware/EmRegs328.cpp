@@ -15,8 +15,9 @@
 #include "EmRegs328.h"
 #include "EmRegs328Prv.h"
 
+#include "Byteswapping.h"		// Canonical
 #include "EmHAL.h"				// EmHAL
-#include "EmMemory.h"			// gMemAccessFlags
+#include "EmMemory.h"			// gMemAccessFlags, EmMem_memcpy
 #include "EmPixMap.h"			// SetSize, SetRowBytes, etc.
 #include "EmScreen.h"			// EmScreenUpdateInfo
 #include "EmSession.h"			// GetDevice
@@ -26,7 +27,6 @@
 #include "PreferenceMgr.h"		// Preference
 #include "SessionFile.h"		// WriteHwrDBallType, etc.
 #include "UAE.h"				// regs, SPCFLAG_INT
-#include "UAE_Utils.h"			// uae_memcpy
 
 #include "PalmPack.h"
 #define NON_PORTABLE
@@ -335,6 +335,7 @@ EmRegs328::EmRegs328 (void) :
 	fLastTmr1Status (0),
 	fLastTmr2Status (0),
 	fPortDEdge (0),
+	fPortDDataCount (0),
 	fHour (0),
 	fMin (0),
 	fSec (0),
@@ -383,10 +384,11 @@ void EmRegs328::Reset (Bool hardwareReset)
 		Canonical (f68328Regs);
 		ByteswapWords (&f68328Regs, sizeof(f68328Regs));
 
-		fKeyBits = 0;
-		fLastTmr1Status = 0;
-		fLastTmr2Status = 0;
-		fPortDEdge = 0;
+		fKeyBits		= 0;
+		fLastTmr1Status	= 0;
+		fLastTmr2Status	= 0;
+		fPortDEdge		= 0;
+		fPortDDataCount	= 0;
 
 		// React to the new data in the UART registers.
 
@@ -408,7 +410,7 @@ void EmRegs328::Save (SessionFile& f)
 	f.WriteHwrDBallType (f68328Regs);
 	f.FixBug (SessionFile::kBugByteswappedStructs);
 
-	const long	kCurrentVersion = 3;
+	const long	kCurrentVersion = 4;
 
 	Chunk			chunk;
 	EmStreamChunk	s (chunk);
@@ -430,6 +432,10 @@ void EmRegs328::Save (SessionFile& f)
 	s << fSec;
 	s << fTick;
 	s << fCycle;
+
+	// Added in version 4.
+
+	s << fPortDDataCount;
 
 	f.WriteDBallState (chunk);
 }
@@ -506,6 +512,11 @@ void EmRegs328::Load (SessionFile& f)
 			s >> fSec;
 			s >> fTick;
 			s >> fCycle;
+		}
+
+		if (version >= 4)
+		{
+			s >> fPortDDataCount;
 		}
 	}
 	else
@@ -746,6 +757,7 @@ uint32 EmRegs328::GetAddressRange (void)
 // Emulator::Execute.  Interestingly, the loop runs 3% FASTER if this function
 // is in its own separate function instead of being inline.
 
+#if 0
 static int		calibrated;
 static int		increment;
 static int		timesCalled;
@@ -790,6 +802,7 @@ static void PrvCalibrate (uint16 tmrCompare)
 		}
 	}
 }
+#endif
 
 void EmRegs328::Cycle (Bool sleeping)
 {
@@ -1095,10 +1108,35 @@ void EmRegs328::GetLCDScanlines (EmScreenUpdateInfo& info)
 	long	firstLineOffset	= info.fFirstLine * rowBytes;
 	long	lastLineOffset	= info.fLastLine * rowBytes;
 
-	uae_memcpy (
+	EmMem_memcpy (
 		(void*) ((uint8*) info.fImage.GetBits () + firstLineOffset),
 		baseAddr + firstLineOffset,
 		lastLineOffset - firstLineOffset);
+}
+
+
+// ---------------------------------------------------------------------------
+//		¥ EmRegs328::GetUARTDevice
+// ---------------------------------------------------------------------------
+// Return what sort of device is hooked up to the given UART.
+
+EmUARTDeviceType EmRegs328::GetUARTDevice (int /*uartNum*/)
+{
+	Bool	serEnabled	= this->GetLineDriverState (kUARTSerial);
+	Bool	irEnabled	= this->GetLineDriverState (kUARTIR);
+
+	// It's probably an error to have them both enabled at the same
+	// time.  !!! TBD: make this an error message.
+
+	EmAssert (!(serEnabled && irEnabled));
+
+	if (serEnabled)
+		return kUARTSerial;
+
+	if (irEnabled)
+		return kUARTIR;
+
+	return kUARTNone;
 }
 
 
@@ -1351,19 +1389,6 @@ void EmRegs328::PortDataChanged (int port, uint8, uint8 newValue)
 
 
 // ---------------------------------------------------------------------------
-//		¥ EmRegs328::LineDriverChanged
-// ---------------------------------------------------------------------------
-// Tell the UART manager for the given UART that the host transport needs to
-// be opened or closed.
-
-void EmRegs328::LineDriverChanged (int /*uartNum*/)
-{
-	EmAssert (fUART);
-	fUART->LineDriverChanged ();
-}
-
-
-// ---------------------------------------------------------------------------
 //		¥ EmRegs328::pllFreqSelRead
 // ---------------------------------------------------------------------------
 
@@ -1415,6 +1440,18 @@ uint32 EmRegs328::portXDataRead (emuptr address, int)
 	if (port == 'D')
 	{
 		sel = 0xFF;		// No "select" bit in low nybble, so set for IO values.
+
+		// The system will poll portD twice in KeyBootKeys to see
+		// if any keys are down.  Wait at least that long before
+		// letting up any boot keys maintained by the session.  When we
+		// do call ReleaseBootKeys, set our counter to -1 as a flag not
+		// to call it any more.
+
+		if (fPortDDataCount != 0xFFFFFFFF && ++fPortDDataCount >= 2 * 2)
+		{
+			fPortDDataCount = 0xFFFFFFFF;
+			gSession->ReleaseBootKeys ();
+		}
 	}
 
 	// Use the internal chip function bits if the "sel" bits are zero.
@@ -1774,12 +1811,12 @@ void EmRegs328::portXDataWrite (emuptr address, int size, uint32 value)
 {
 	// Get the old value before updating it.
 
-	uint8	oldValue = StdRead (address, size);
+	uint8	oldValue	= StdRead (address, size);
 
-	Bool	backlightWasOn	= EmHAL::GetLCDBacklightOn ();
-	Bool	lcdWasOn		= EmHAL::GetLCDScreenOn ();
-	Bool	irWasOn			= EmHAL::GetIRPortOn (0);
-	Bool	serialWasOn		= EmHAL::GetSerialPortOn (0);
+	// Take a snapshot of the line driver states.
+
+	Bool	driverStates[kUARTEnd];
+	EmHAL::GetLineDriverStates (driverStates);
 
 	// Now update the value with a standard write.
 
@@ -1793,21 +1830,9 @@ void EmRegs328::portXDataWrite (emuptr address, int size, uint32 value)
 
 	EmHAL::PortDataChanged (port, oldValue, value);
 
-	Bool	backlightIsOn	= EmHAL::GetLCDBacklightOn ();
-	Bool	lcdIsOn			= EmHAL::GetLCDScreenOn ();
-	Bool	irIsOn			= EmHAL::GetIRPortOn (0);
-	Bool	serialIsOn		= EmHAL::GetSerialPortOn (0);
+	// Respond to any changes in the line driver states.
 
-	if (backlightWasOn != backlightIsOn ||
-		lcdWasOn != lcdIsOn)
-	{
-		EmScreen::InvalidateAll ();
-	}
-
-	if (serialWasOn != serialIsOn || irWasOn != irIsOn)
-	{
-		EmHAL::LineDriverChanged (0);
-	}
+	EmHAL::CompareLineDriverStates (driverStates);
 }
 
 
@@ -2215,7 +2240,7 @@ uint16 EmRegs328::ButtonToBits (SkinElementType button)
 
 #ifdef SONY_ROM
 		case kElement_JogESC:			bitNumber = keyBitJogBack;	break;
-#endif
+#endif //SONY_ROM
 
 /*
 		// Symbol-specific
@@ -2494,20 +2519,13 @@ void EmRegs328::UpdateUARTState (Bool refreshRxData)
 
 void EmRegs328::UpdateUARTInterrupts (const EmUARTDragonball::State& state)
 {
-	// Generate the appropriate interrupts.  Don't generate interrupts for
-	// TX_FIFO_EMPTY and TX_FIFO_HALF; from the manual's overview: "The transmitter
-	// will not generate another interrupt until the FIFO has completely emptied."
-	//
-	// Actually, this code is not quite right.  If TX_AVAIL_ENABLE is false but one
-	// of the other TX_xxx_ENABLEs is true, then we want to generate an interrupt
-	// for one of those.  With the test below, that will never happen.  For now,
-	// this is OK, as the Palm OS doesn't enable any of the TX interrupts.
+	// Generate the appropriate interrupts.
 
 	if (state.RX_FULL_ENABLE	&& state.RX_FIFO_FULL	||
 		state.RX_HALF_ENABLE	&& state.RX_FIFO_HALF	||
 		state.RX_RDY_ENABLE		&& state.DATA_READY		||
-	//	state.TX_EMPTY_ENABLE	&& state.TX_FIFO_EMPTY	||
-	//	state.TX_HALF_ENABLE	&& state.TX_FIFO_HALF	||
+		state.TX_EMPTY_ENABLE	&& state.TX_FIFO_EMPTY	||
+		state.TX_HALF_ENABLE	&& state.TX_FIFO_HALF	||
 		state.TX_AVAIL_ENABLE	&& state.TX_AVAIL)
 	{
 		// Set the UART interrupt.

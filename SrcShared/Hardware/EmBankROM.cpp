@@ -14,17 +14,19 @@
 #include "EmCommon.h"
 #include "EmBankROM.h"
 
-#include "EmCPU68K.h"			// ProcessException
+#include "Byteswapping.h"		// ByteswapWords
+#include "EmCPU68K.h"			// gCPU68K
 #include "EmErrCodes.h"			// kError_UnsupportedROM
 #include "EmHAL.h"				// EmHAL
-#include "EmMemory.h"			// Memory::InitializeBanks
+#include "EmMemory.h"			// Memory::InitializeBanks, EmMem_memset
 #include "EmPalmStructs.h"		// EmProxyCardHeaderType
 #include "EmSession.h"			// GetDevice, ScheduleDeferredError
 #include "ErrorHandling.h"		// Errors::Throw
 #include "Miscellaneous.h"		// StWordSwapper, NextPowerOf2
+#include "Profiling.h"			// WAITSTATES_ROM
 #include "SessionFile.h"		// WriteROMFileReference
 #include "Strings.r.h"			// kStr_BadChecksum
-#include "UAE_Utils.h"			// uae_memset
+
 
 // Private function declarations
 
@@ -37,6 +39,7 @@ class Card
 		static Bool 	Supports328 			(const EmAliasCardHeaderType<LAS>& cardHdr);
 		static Bool 	SupportsEZ				(const EmAliasCardHeaderType<LAS>& cardHdr);
 		static Bool 	SupportsVZ				(const EmAliasCardHeaderType<LAS>& cardHdr);
+		static Bool 	SupportsSZ				(const EmAliasCardHeaderType<LAS>& cardHdr);
 };
 
 
@@ -248,30 +251,30 @@ uint32 EmBankROM::GetLong (emuptr address)
 #if (CHECK_FOR_ADDRESS_ERROR)
 	if ((address & 1) != 0)
 	{
-		AddressError (address, sizeof (uae_u32), true);
+		AddressError (address, sizeof (uint32), true);
 	}
 #endif
 
 #if (VALIDATE_ROM_GET)
-	if (gMemAccessFlags.fValidate_ROMGet && !ValidAddress (address, sizeof (uae_u32)))
+	if (gMemAccessFlags.fValidate_ROMGet && !ValidAddress (address, sizeof (uint32)))
 	{
-		InvalidAccess (address, sizeof (uae_u32), true);
+		InvalidAccess (address, sizeof (uint32), true);
 	}
 #endif
 
 #if (PREVENT_USER_ROM_GET || PREVENT_SYSTEM_ROM_GET)
-	if (IsPCInRAM ())
+	if (EmMemory::IsPCInRAM ())
 	{
 		if (PREVENT_USER_ROM_GET && gMemAccessFlags.fProtect_ROMGet)
 		{
-			InvalidAccess (address, sizeof (uae_u32), true);
+			InvalidAccess (address, sizeof (uint32), true);
 		}
 	}
 	else
 	{
 		if (PREVENT_SYSTEM_ROM_GET && gMemAccessFlags.fProtect_SysROMGet)
 		{
-			InvalidAccess (address, sizeof (uae_u32), true);
+			InvalidAccess (address, sizeof (uint32), true);
 		}
 	}
 #endif
@@ -299,30 +302,30 @@ uint32 EmBankROM::GetWord (emuptr address)
 #if (CHECK_FOR_ADDRESS_ERROR)
 	if ((address & 1) != 0)
 	{
-		AddressError (address, sizeof (uae_u16), true);
+		AddressError (address, sizeof (uint16), true);
 	}
 #endif
 
 #if (VALIDATE_ROM_GET)
-	if (gMemAccessFlags.fValidate_ROMGet && !ValidAddress (address, sizeof (uae_u16)))
+	if (gMemAccessFlags.fValidate_ROMGet && !ValidAddress (address, sizeof (uint16)))
 	{
-		InvalidAccess (address, sizeof (uae_u16), true);
+		InvalidAccess (address, sizeof (uint16), true);
 	}
 #endif
 
 #if (PREVENT_USER_ROM_GET || PREVENT_SYSTEM_ROM_GET)
-	if (IsPCInRAM ())
+	if (EmMemory::IsPCInRAM ())
 	{
 		if (PREVENT_USER_ROM_GET && gMemAccessFlags.fProtect_ROMGet)
 		{
-			InvalidAccess (address, sizeof (uae_u16), true);
+			InvalidAccess (address, sizeof (uint16), true);
 		}
 	}
 	else
 	{
 		if (PREVENT_SYSTEM_ROM_GET && gMemAccessFlags.fProtect_SysROMGet)
 		{
-			InvalidAccess (address, sizeof (uae_u16), true);
+			InvalidAccess (address, sizeof (uint16), true);
 		}
 	}
 #endif
@@ -348,25 +351,25 @@ uint32 EmBankROM::GetByte (emuptr address)
 #endif
 
 #if (VALIDATE_ROM_GET)
-	if (gMemAccessFlags.fValidate_ROMGet && !ValidAddress (address, sizeof (uae_u8)))
+	if (gMemAccessFlags.fValidate_ROMGet && !ValidAddress (address, sizeof (uint8)))
 	{
-		InvalidAccess (address, sizeof (uae_u8), true);
+		InvalidAccess (address, sizeof (uint8), true);
 	}
 #endif
 
 #if (PREVENT_USER_ROM_GET || PREVENT_SYSTEM_ROM_GET)
-	if (IsPCInRAM ())
+	if (EmMemory::IsPCInRAM ())
 	{
 		if (PREVENT_USER_ROM_GET && gMemAccessFlags.fProtect_ROMGet)
 		{
-			InvalidAccess (address, sizeof (uae_u8), true);
+			InvalidAccess (address, sizeof (uint8), true);
 		}
 	}
 	else
 	{
 		if (PREVENT_SYSTEM_ROM_GET && gMemAccessFlags.fProtect_SysROMGet)
 		{
-			InvalidAccess (address, sizeof (uae_u8), true);
+			InvalidAccess (address, sizeof (uint8), true);
 		}
 	}
 #endif
@@ -396,18 +399,18 @@ void EmBankROM::SetLong (emuptr address, uint32 value)
 #if (CHECK_FOR_ADDRESS_ERROR)
 	if ((address & 1) != 0)
 	{
-		AddressError (address, sizeof (uae_u32), false);
+		AddressError (address, sizeof (uint32), false);
 	}
 #endif
 
-	EmAssert (ValidAddress (address, sizeof (uae_u32)));
+	EmAssert (ValidAddress (address, sizeof (uint32)));
 
 #if (PREVENT_USER_ROM_SET || PREVENT_SYSTEM_ROM_SET)
-	if (IsPCInRAM ())
+	if (EmMemory::IsPCInRAM ())
 	{
 		if (PREVENT_USER_ROM_SET && gMemAccessFlags.fProtect_ROMSet)
 		{
-			InvalidAccess (address, sizeof (uae_u32), false);
+			InvalidAccess (address, sizeof (uint32), false);
 			return;
 		}
 	}
@@ -415,7 +418,7 @@ void EmBankROM::SetLong (emuptr address, uint32 value)
 	{
 		if (PREVENT_SYSTEM_ROM_SET && gMemAccessFlags.fProtect_SysROMSet)
 		{
-			InvalidAccess (address, sizeof (uae_u32), false);
+			InvalidAccess (address, sizeof (uint32), false);
 			return;
 		}
 	}
@@ -445,18 +448,18 @@ void EmBankROM::SetWord (emuptr address, uint32 value)
 #if (CHECK_FOR_ADDRESS_ERROR)
 	if ((address & 1) != 0)
 	{
-		AddressError (address, sizeof (uae_u16), false);
+		AddressError (address, sizeof (uint16), false);
 	}
 #endif
 
-	EmAssert (ValidAddress (address, sizeof (uae_u16)));
+	EmAssert (ValidAddress (address, sizeof (uint16)));
 
 #if (PREVENT_USER_ROM_SET || PREVENT_SYSTEM_ROM_SET)
-	if (IsPCInRAM ())
+	if (EmMemory::IsPCInRAM ())
 	{
 		if (PREVENT_USER_ROM_SET && gMemAccessFlags.fProtect_ROMSet)
 		{
-			InvalidAccess (address, sizeof (uae_u16), false);
+			InvalidAccess (address, sizeof (uint16), false);
 			return;
 		}
 	}
@@ -464,7 +467,7 @@ void EmBankROM::SetWord (emuptr address, uint32 value)
 	{
 		if (PREVENT_SYSTEM_ROM_SET && gMemAccessFlags.fProtect_SysROMSet)
 		{
-			InvalidAccess (address, sizeof (uae_u16), false);
+			InvalidAccess (address, sizeof (uint16), false);
 			return;
 		}
 	}
@@ -491,14 +494,14 @@ void EmBankROM::SetByte (emuptr address, uint32 value)
 	gMemoryAccess[kROMByteWrite]++;
 #endif
 
-	EmAssert (ValidAddress (address, sizeof (uae_u8)));
+	EmAssert (ValidAddress (address, sizeof (uint8)));
 	
 #if (PREVENT_USER_ROM_SET || PREVENT_SYSTEM_ROM_SET)
-	if (IsPCInRAM ())
+	if (EmMemory::IsPCInRAM ())
 	{
 		if (PREVENT_USER_ROM_SET && gMemAccessFlags.fProtect_ROMSet)
 		{
-			InvalidAccess (address, sizeof (uae_u8), false);
+			InvalidAccess (address, sizeof (uint8), false);
 			return;
 		}
 	}
@@ -506,7 +509,7 @@ void EmBankROM::SetByte (emuptr address, uint32 value)
 	{
 		if (PREVENT_SYSTEM_ROM_SET && gMemAccessFlags.fProtect_SysROMSet)
 		{
-			InvalidAccess (address, sizeof (uae_u8), false);
+			InvalidAccess (address, sizeof (uint8), false);
 			return;
 		}
 	}
@@ -756,6 +759,13 @@ void EmBankROM::LoadROM (EmStream& hROM)
 			Errors::Throw (kError_WrongROMForType);
 		}
 	}
+	else if (Card::SupportsSZ (cardHdr))
+	{
+		if (!gSession->GetDevice ().Supports68SZ328 ())
+		{
+			Errors::Throw (kError_WrongROMForType);
+		}
+	}
 	else
 	{
 		if (!gSession->GetDevice ().Supports68328 ())
@@ -860,7 +870,7 @@ void EmBankROM::LoadROM (EmStream& hROM)
 		- Write 0x0020 to FLASHBASE
 		- Write 0x00D0 to location to be erased
 		- Check erase location for 0x0080
-			-- If 0x0020 is also set, an error occured
+			-- If 0x0020 is also set, an error occurred
 		- Read from FLASHBASE
 		- Write 0x00FF to FLASHBASE
 
@@ -1273,17 +1283,17 @@ void EmBankFlash::SetWord (emuptr address, uint32 value)
 				if (address >= 0x10000000 + readWriteParmsOffset &&
 					address < 0x10000000 + readWriteParmsOffset + readWriteParmsSize)
 				{
-					uae_memset (0x10000000 + readWriteParmsOffset, kEraseValue, readWriteParmsSize);
+					EmMem_memset (0x10000000 + readWriteParmsOffset, kEraseValue, readWriteParmsSize);
 				}
 				else if (address >= 0x10000000 + readOnlyParmsOffset &&
 					address < 0x10000000 + readOnlyParmsOffset + readOnlyParmsSize)
 				{
-					uae_memset (0x10000000 + readOnlyParmsOffset, kEraseValue, readOnlyParmsSize);
+					EmMem_memset (0x10000000 + readOnlyParmsOffset, kEraseValue, readOnlyParmsSize);
 				}
 				else if (address >= 0x10000000 + readWriteWorkingOffset &&
 					address < 0x10000000 + readWriteWorkingOffset + readWriteWorkingSize)
 				{
-					uae_memset (0x10000000 + readWriteWorkingOffset, kEraseValue, readWriteWorkingSize);
+					EmMem_memset (0x10000000 + readWriteWorkingOffset, kEraseValue, readWriteWorkingSize);
 				}
 #endif
 
@@ -1300,19 +1310,19 @@ void EmBankFlash::SetWord (emuptr address, uint32 value)
 
 				if (address == kSector1Start)
 				{
-					uae_memset (kSector1Start, kEraseValue, kSector1Size);
+					EmMem_memset (kSector1Start, kEraseValue, kSector1Size);
 				}
 				else if (address == kSector2Start)
 				{
-					uae_memset (kSector2Start, kEraseValue, kSector2Size);
+					EmMem_memset (kSector2Start, kEraseValue, kSector2Size);
 				}
 				else if (address == kSector3Start)
 				{
-					uae_memset (kSector3Start, kEraseValue, kSector3Size);
+					EmMem_memset (kSector3Start, kEraseValue, kSector3Size);
 				}
 				else if (address == kSector4Start)
 				{
-					uae_memset (kSector4Start, kEraseValue, kSector4Size);
+					EmMem_memset (kSector4Start, kEraseValue, kSector4Size);
 				}
 
 				gState = kAMDState_EraseDone;
@@ -1578,7 +1588,7 @@ Bool Card::SupportsEZ (const EmAliasCardHeaderType<LAS>& cardHdr)
 	{
 		ezMode = false;
 	}
-#endif
+#endif //SONY_ROM
 
 	return ezMode;
 }
@@ -1601,15 +1611,48 @@ Bool Card::SupportsVZ (const EmAliasCardHeaderType<LAS>& cardHdr)
 #if SONY_ROM	// for PEG-N700(VZ)
 	UInt16		hdrVersion = cardHdr.hdrVersion;
 	UInt16		version = cardHdr.version;
+
 	char		buffer[32];
 	LAS::BlockCopy(buffer, cardHdr.manuf.GetPtr(), 32);
 
-	if (!strncmp(buffer, SONY_PEGN700C_MANUF, strlen(SONY_PEGN700C_MANUF))
+//	if (!strncmp(buffer, SONY_Redwood_MANUF, strlen(SONY_Redwood_MANUF)) )
+	if( gSession->GetDevice().GetDeviceType() == kDeviceYSX1100
+	|| gSession->GetDevice().GetDeviceType() == kDeviceYSX1230)
+	{
+		vzMode = false;
+	}
+	else if (!strncmp(buffer, SONY_PEGN700C_MANUF, strlen(SONY_PEGN700C_MANUF))
 	 || !strcmp(buffer, "Sony"))
 	{
 		vzMode = true;
 	}
-#endif
+#endif //SONY_ROM
 
 	return vzMode;
+}
+
+
+// ---------------------------------------------------------------------------
+//		¥ Card::SupportsSZ
+// ---------------------------------------------------------------------------
+#define	memCardHeaderFlagSZ			0x0080	// ROM Supports 68SZ328 processor
+
+Bool Card::SupportsSZ (const EmAliasCardHeaderType<LAS>& cardHdr)
+{
+	Bool	szMode = false;
+
+	if (cardHdr.hdrVersion >= 3 && (cardHdr.flags & memCardHeaderFlagSZ))
+	{
+		szMode = true;
+	}
+
+#if SONY_ROM	// for YSX-1100orYSX-1230(SZ)
+	else if( gSession->GetDevice().GetDeviceType() == kDeviceYSX1100
+		|| gSession->GetDevice().GetDeviceType() == kDeviceYSX1230)
+	{
+		szMode = true;
+	}
+#endif //SONY_ROM
+
+	return szMode;
 }

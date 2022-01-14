@@ -14,7 +14,11 @@
 #ifndef _CGREMLINS_H_
 #define _CGREMLINS_H_
 
+#include	"EmStream.h"
+#include	"EmStructs.h"		// GremlinEventList
+
 class SessionFile;
+
 
 extern unsigned long int gGremlinNext;
 
@@ -27,7 +31,7 @@ public:
 	void		New(const GremlinInfo& info);
 
 	Boolean		IsInitialized() const;
-	void		Initialize(UInt16 newNumber = -1, UInt32 untilStep = -1);
+	void		Initialize(UInt16 newNumber = -1, UInt32 untilStep = -1, UInt32 finalVal = -1);
 	void		Reset (void);
 
 	void		Save(SessionFile &f);
@@ -37,11 +41,11 @@ public:
 					UInt32 *currentUntil);
 	Boolean		SetSeed(UInt32 newSeed);
 	void		SetUntil(UInt32 newUntil);
+	void		RestoreFinalUntil(void);
 
 	void 		Step();
 	void		Resume();
 	void		Stop();
-
 
 	Boolean		GetFakeEvent();
 	void		GetPenMovement();
@@ -52,6 +56,7 @@ public:
 	UInt32	GetStartTime()		{ return gremlinStartTime; }
 	UInt32	GetStopTime()		{ return gremlinStopTime;  }
 
+
 private:
 
 	UInt16		keyProbabilitiesSum;	// The sum of all the key possiblities.
@@ -61,6 +66,7 @@ private:
 	UInt16		number;					// the random seed (-1 means not started)
 	UInt32		counter;				// The number of "events" produced by Gremlins.
 	UInt32		until;					// The maximum number of "events" to produce.
+	UInt32		finalUntil;				// As above, but not manipulated, as until is by Hordes
 	UInt32		saveUntil;
 	Boolean		inited;					// TRUE - Gremlins has been initialized, FALSE - not inited.
 	Boolean		catchUp;				// TRUE - Event loop needs time to catch up, FALSE - event loop doesn't need time.
@@ -86,4 +92,3 @@ extern void GremlinsProcessPacket (void* pktBodyP);
 
 
 #endif /* _CGREMLINS_H_ */
-

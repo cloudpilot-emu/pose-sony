@@ -15,9 +15,10 @@
 #include "EmRegsVZ.h"
 #include "EmRegsVZPrv.h"
 
+#include "Byteswapping.h"		// Canonical
 #include "EmDevice.h"
 #include "EmHAL.h"				// EmHAL
-#include "EmMemory.h"			// gMemAccessFlags
+#include "EmMemory.h"			// gMemAccessFlags, EmMem_memcpy
 #include "EmPixMap.h"			// SetSize, SetRowBytes, etc.
 #include "EmScreen.h"			// EmScreenUpdateInfo
 #include "EmSession.h"			// gSession
@@ -28,7 +29,6 @@
 #include "PreferenceMgr.h"		// Preference
 #include "SessionFile.h"		// WriteHwrDBallVZType, etc.
 #include "UAE.h"				// regs, SPCFLAG_INT
-#include "UAE_Utils.h"			// uae_memcpy
 
 #include "PalmPack.h"
 #define NON_PORTABLE
@@ -350,6 +350,7 @@ EmRegsVZ::EmRegsVZ (void) :
 	fLastTmr1Status (0),
 	fLastTmr2Status (0),
 	fPortDEdge (0),
+	fPortDDataCount (0),
 	fHour (0),
 	fMin (0),
 	fSec (0),
@@ -400,10 +401,11 @@ void EmRegsVZ::Reset (Bool hardwareReset)
 		Canonical (f68VZ328Regs);
 		ByteswapWords (&f68VZ328Regs, sizeof(f68VZ328Regs));
 
-		fKeyBits = 0;
-		fLastTmr1Status = 0;
-		fLastTmr2Status = 0;
-		fPortDEdge = 0;
+		fKeyBits		= 0;
+		fLastTmr1Status	= 0;
+		fLastTmr2Status	= 0;
+		fPortDEdge		= 0;
+		fPortDDataCount	= 0;
 
 		// React to the new data in the UART registers.
 
@@ -426,7 +428,7 @@ void EmRegsVZ::Save (SessionFile& f)
 	f.WriteHwrDBallVZType (f68VZ328Regs);
 	f.FixBug (SessionFile::kBugByteswappedStructs);
 
-	const long	kCurrentVersion = 2;
+	const long	kCurrentVersion = 3;
 
 	Chunk			chunk;
 	EmStreamChunk	s (chunk);
@@ -447,6 +449,10 @@ void EmRegsVZ::Save (SessionFile& f)
 	s << fSec;
 	s << fTick;
 	s << fCycle;
+
+	// Added in version 3.
+
+	s << fPortDDataCount;
 
 	f.WriteDBallVZState (chunk);
 }
@@ -518,6 +524,11 @@ void EmRegsVZ::Load (SessionFile& f)
 			s >> fSec;
 			s >> fTick;
 			s >> fCycle;
+		}
+
+		if (version >= 3)
+		{
+			s >> fPortDDataCount;
 		}
 	}
 	else
@@ -837,7 +848,7 @@ void EmRegsVZ::Cycle (Bool sleeping)
 
 		static int prescaleCounter;
 
-		if (prescaleCounter-- <= 0)
+		if ((prescaleCounter -= (sleeping ? (increment * 1024) : increment)) <= 0)
 		{
 			prescaleCounter = READ_REGISTER (tmr2Prescaler) * 1024;
 
@@ -1201,7 +1212,7 @@ void EmRegsVZ::GetLCDScanlines (EmScreenUpdateInfo& info)
 	long	firstLineOffset	= info.fFirstLine * rowBytes;
 	long	lastLineOffset	= info.fLastLine * rowBytes;
 
-	uae_memcpy (
+	EmMem_memcpy (
 		(void*) ((uint8*) info.fImage.GetBits () + firstLineOffset),
 		baseAddr + firstLineOffset,
 		lastLineOffset - firstLineOffset);
@@ -1487,18 +1498,6 @@ void EmRegsVZ::PortDataChanged (int port, uint8, uint8 newValue)
 
 
 // ---------------------------------------------------------------------------
-//		¥ EmRegsVZ::LineDriverChanged
-// ---------------------------------------------------------------------------
-// Tell the UART manager for the given UART that the host transport needs to
-// be opened or closed.
-
-void EmRegsVZ::LineDriverChanged (int uartNum)
-{
-	fUART[uartNum]->LineDriverChanged ();
-}
-
-
-// ---------------------------------------------------------------------------
 //		¥ EmRegsVZ::pllFreqSelRead
 // ---------------------------------------------------------------------------
 
@@ -1546,12 +1545,26 @@ uint32 EmRegsVZ::portXDataRead (emuptr address, int)
 	{
 		sel |= 0x07;		// No "select" bit in low nybble, so set for IO values.
 	}
-#else
+#else //!SONY_ROM
 	if (port == 'D')
 	{
 		sel |= 0x0F;		// No "select" bit in low nybble, so set for IO values.
+
+		// The system will poll portD 18 times in KeyBootKeys to see
+		// if any keys are down.  Wait at least that long before
+		// letting up any boot keys maintained by the session.  When we
+		// do call ReleaseBootKeys, set our counter to -1 as a flag not
+		// to call it any more.
+
+		if (fPortDDataCount != 0xFFFFFFFF && ++fPortDDataCount >= 18 * 2)
+		{
+			fPortDDataCount = 0xFFFFFFFF;
+			gSession->ReleaseBootKeys ();
+		}
 	}
-#endif
+#endif //SONY_ROM
+
+
 
 	// Use the internal chip function bits if the "sel" bits are zero.
 
@@ -1949,12 +1962,14 @@ void EmRegsVZ::portXDataWrite (emuptr address, int size, uint32 value)
 
 	uint8	oldValue = StdRead (address, size);
 
-	Bool	backlightWasOn	= EmHAL::GetLCDBacklightOn ();
-	Bool	lcdWasOn		= EmHAL::GetLCDScreenOn ();
-	Bool	ir1WasOn		= EmHAL::GetIRPortOn (0);
-	Bool	ir2WasOn		= EmHAL::GetIRPortOn (1);
-	Bool	serial1WasOn	= EmHAL::GetSerialPortOn (0);
-	Bool	serial2WasOn	= EmHAL::GetSerialPortOn (1);
+	// Take a snapshot of the line driver states.
+
+	Bool	driverStates[kUARTEnd];
+	EmHAL::GetLineDriverStates (driverStates);
+
+	// Take a snapshot of the DTR pin.
+
+	Bool	dtrOn = EmHAL::GetDTR (1);
 
 	// Now update the value with a standard write.
 
@@ -1968,27 +1983,15 @@ void EmRegsVZ::portXDataWrite (emuptr address, int size, uint32 value)
 
 	EmHAL::PortDataChanged (port, oldValue, value);
 
-	Bool	backlightIsOn	= EmHAL::GetLCDBacklightOn ();
-	Bool	lcdIsOn			= EmHAL::GetLCDScreenOn ();
-	Bool	ir1IsOn			= EmHAL::GetIRPortOn (0);
-	Bool	ir2IsOn			= EmHAL::GetIRPortOn (1);
-	Bool	serial1IsOn		= EmHAL::GetSerialPortOn (0);
-	Bool	serial2IsOn		= EmHAL::GetSerialPortOn (1);
+	// Respond to any changes in the line driver states.
 
-	if (backlightWasOn != backlightIsOn ||
-		lcdWasOn != lcdIsOn)
-	{
-		EmScreen::InvalidateAll ();
-	}
+	EmHAL::CompareLineDriverStates (driverStates);
 
-	if (serial1WasOn != serial1IsOn || ir1WasOn != ir1IsOn)
-	{
-		EmHAL::LineDriverChanged (0);
-	}
+	// Respond to any change in the DTR pin.
 
-	if (serial2WasOn != serial2IsOn || ir2WasOn != ir2IsOn)
+	if (EmHAL::GetDTR (1) != dtrOn)
 	{
-		EmHAL::LineDriverChanged (1);
+		EmHAL::DTRChanged (1);
 	}
 }
 
@@ -2002,7 +2005,7 @@ void EmRegsVZ::portDIntReqEnWrite (emuptr address, int size, uint32 value)
 #ifdef SONY_ROM
 	if (value & 0x08)
 		value &= ~0x08;
-#endif
+#endif //SONY_ROM
 
 	// Do a standard update of the register.
 
@@ -2493,7 +2496,7 @@ uint16 EmRegsVZ::ButtonToBits (SkinElementType button)
 
 #ifdef SONY_ROM
 		case kElement_JogESC:			bitNumber = keyBitJogBack;	break;
-#endif
+#endif //SONY_ROM
 
 		default:						EmAssert (false);
 	}
@@ -2619,7 +2622,6 @@ void EmRegsVZ::UpdatePortDInterrupts (void)
 		(uint32) portDDir, (uint32) portDData, (uint32) portDPolarity, (uint32) portDIntReqEn, (uint32) portDIntEdge,
 		(uint32) fPortDEdge, (uint32) newBits);
 
-
 	// Determine if the KB interrupt needs to be asserted.  It is if:
 	//
 	//	A Port D Data bit is on.
@@ -2742,38 +2744,87 @@ void EmRegsVZ::UpdateUARTState (Bool refreshRxData, int uartNum)
 
 void EmRegsVZ::UpdateUARTInterrupts (const EmUARTDragonball::State& state, int uartNum)
 {
-	// Generate the appropriate interrupts.  Don't generate interrupts for
-	// TX_FIFO_EMPTY and TX_FIFO_HALF; from the manual's overview: "The transmitter
-	// will not generate another interrupt until the FIFO has completely emptied."
-	//
-	// Actually, this code is not quite right.  If TX_AVAIL_ENABLE is false but one
-	// of the other TX_xxx_ENABLEs is true, then we want to generate an interrupt
-	// for one of those.  With the test below, that will never happen.  For now,
-	// this is OK, as the Palm OS doesn't enable any of the TX interrupts.
+	// Generate the appropriate interrupts.
 
 	uint16	whichBit = uartNum == 0 ? hwrVZ328IntLoUART : hwrVZ328IntLoUART2;
+
+#if 0
+	LogAppendMsg ("UpdateUARTInterrupts for UART %d.", uartNum + 1);
+
+	if (uartNum == 1)
+	{
+		LogAppendMsg ("RX_FIFO_FULL:    %s   RX_FIFO_HALF:   %s   DATA_READY:      %s",
+			state.RX_FIFO_FULL ? "ON " : "off",
+			state.RX_FIFO_HALF ? "ON " : "off",
+			state.DATA_READY ? "ON " : "off");
+
+		LogAppendMsg ("RX_FULL_ENABLE:  %s   RX_HALF_ENABLE: %s   RX_RDY_ENABLE:   %s",
+			state.RX_FULL_ENABLE ? "ON " : "off",
+			state.RX_HALF_ENABLE ? "ON " : "off",
+			state.RX_RDY_ENABLE ? "ON " : "off");
+
+		LogAppendMsg ("TX_FIFO_EMPTY:   %s   TX_FIFO_HALF:   %s   TX_AVAIL:        %s",
+			state.TX_FIFO_EMPTY ? "ON " : "off",
+			state.TX_FIFO_HALF ? "ON " : "off",
+			state.TX_AVAIL ? "ON " : "off");
+
+		LogAppendMsg ("TX_EMPTY_ENABLE: %s   TX_HALF_ENABLE: %s   TX_AVAIL_ENABLE: %s",
+			state.TX_EMPTY_ENABLE ? "ON " : "off",
+			state.TX_HALF_ENABLE ? "ON " : "off",
+			state.TX_AVAIL_ENABLE ? "ON " : "off");
+	}
+#endif
 
 	if (state.RX_FULL_ENABLE	&& state.RX_FIFO_FULL	||
 		state.RX_HALF_ENABLE	&& state.RX_FIFO_HALF	||
 		state.RX_RDY_ENABLE		&& state.DATA_READY		||
-	//	state.TX_EMPTY_ENABLE	&& state.TX_FIFO_EMPTY	||
-	//	state.TX_HALF_ENABLE	&& state.TX_FIFO_HALF	||
+		state.TX_EMPTY_ENABLE	&& state.TX_FIFO_EMPTY	||
+		state.TX_HALF_ENABLE	&& state.TX_FIFO_HALF	||
 		state.TX_AVAIL_ENABLE	&& state.TX_AVAIL)
 	{
 		// Set the UART interrupt.
 
 		WRITE_REGISTER (intPendingLo, READ_REGISTER (intPendingLo) | whichBit);
+#if 0
+		if (uartNum == 1)
+		{
+			LogAppendMsg ("Setting UART %d interrupt.", uartNum + 1);
+		}
+#endif
 	}
 	else
 	{
 		// Clear the UART interrupt.
 
 		WRITE_REGISTER (intPendingLo, READ_REGISTER (intPendingLo) & ~whichBit);
+#if 0
+		if (uartNum == 1)
+		{
+			LogAppendMsg ("Clearing UART %d interrupt.", uartNum + 1);
+		}
+#endif
 	}
 
 	// Respond to the new interrupt state.
 
 	EmRegsVZ::UpdateInterrupts ();
+
+#if 0
+	if (uartNum == 1)
+	{
+		LogAppendMsg ("intPending  = 0x%04lX %04lX",
+				(uint32) f68VZ328Regs.intPendingHi,
+				(uint32) f68VZ328Regs.intPendingLo);
+
+		LogAppendMsg ("intMask     = 0x%04lX %04lX",
+				(uint32) f68VZ328Regs.intMaskHi,
+				(uint32) f68VZ328Regs.intMaskLo);
+
+		LogAppendMsg ("intStatus   = 0x%04lX %04lX",
+				(uint32) f68VZ328Regs.intStatusHi,
+				(uint32) f68VZ328Regs.intStatusLo);
+	}
+#endif
 }
 
 
@@ -2788,6 +2839,7 @@ void EmRegsVZ::MarshalUARTState (EmUARTDragonball::State& state, int uartNum)
 	uint16	uReceive;
 	uint16	uTransmit;
 	uint16	uMisc;
+	uint16	uLevel;
 
 	if (uartNum == 0)
 	{
@@ -2796,6 +2848,7 @@ void EmRegsVZ::MarshalUARTState (EmUARTDragonball::State& state, int uartNum)
 		uReceive		= READ_REGISTER (uReceive);
 		uTransmit		= READ_REGISTER (uTransmit);
 		uMisc			= READ_REGISTER (uMisc);
+		uLevel			= 0;
 	}
 	else
 	{
@@ -2804,6 +2857,7 @@ void EmRegsVZ::MarshalUARTState (EmUARTDragonball::State& state, int uartNum)
 		uReceive		= READ_REGISTER (u2Receive);
 		uTransmit		= READ_REGISTER (u2Transmit);
 		uMisc			= READ_REGISTER (u2Misc);
+		uLevel			= READ_REGISTER (u2FIFOHMark);
 	}
 
 	state.UART_ENABLE		= (uControl & hwrVZ328UControlUARTEnable) != 0;
@@ -2878,6 +2932,11 @@ void EmRegsVZ::MarshalUARTState (EmUARTDragonball::State& state, int uartNum)
 	state.IRDA_LOOP			= (uMisc & hwrVZ328UMiscLoopIRDA) != 0;
 	state.RX_POL			= (uMisc & hwrVZ328UMiscRXPolarityInv) != 0;	// 68VZ328 only
 	state.TX_POL			= (uMisc & hwrVZ328UMiscTXPolarityInv) != 0;	// 68VZ328 only
+
+	// Level Marker Interrupt
+
+	state.TXFIFO_LEVEL_MARKER	= ((uLevel >> 8) & 0x0F);	// 68VZ328 only
+	state.RXFIFO_LEVEL_MARKER	= ((uLevel >> 0) & 0x0F);	// 68VZ328 only
 }
 
 
@@ -2892,6 +2951,7 @@ void EmRegsVZ::UnmarshalUARTState (const EmUARTDragonball::State& state, int uar
 	uint16	uReceive	= 0;
 	uint16	uTransmit	= 0;
 	uint16	uMisc		= 0;
+	uint16	uLevel		= 0;
 
 	if (state.UART_ENABLE)		uControl |= hwrVZ328UControlUARTEnable;
 	if (state.RX_ENABLE)		uControl |= hwrVZ328UControlRxEnable;
@@ -2969,6 +3029,11 @@ void EmRegsVZ::UnmarshalUARTState (const EmUARTDragonball::State& state, int uar
 	if (state.RX_POL)			uMisc |= hwrVZ328UMiscRXPolarityInv;	// 68VZ328 only
 	if (state.TX_POL)			uMisc |= hwrVZ328UMiscTXPolarityInv;	// 68VZ328 only
 
+	// Level Marker Interrupt
+
+	uLevel |= (state.TXFIFO_LEVEL_MARKER) << 8;
+	uLevel |= (state.RXFIFO_LEVEL_MARKER) << 0;
+
 	if (uartNum == 0)
 	{
 		WRITE_REGISTER (uControl, uControl);
@@ -2984,6 +3049,7 @@ void EmRegsVZ::UnmarshalUARTState (const EmUARTDragonball::State& state, int uar
 		WRITE_REGISTER (u2Receive, uReceive);
 		WRITE_REGISTER (u2Transmit, uTransmit);
 		WRITE_REGISTER (u2Misc, uMisc);
+		WRITE_REGISTER (u2FIFOHMark, uLevel);
 	}
 }
 
@@ -3063,4 +3129,3 @@ void EmRegsVZ::PrvGetPalette (RGBList& thePalette)
 		thePalette[color].fBlue 	= (UInt8) (bb + db * color / (numColors - 1));
 	}
 }
-

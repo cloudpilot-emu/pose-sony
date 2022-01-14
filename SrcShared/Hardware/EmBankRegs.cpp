@@ -15,12 +15,14 @@
 #include "EmBankRegs.h"
 
 #include "DebugMgr.h"			// Debug::CheckStepSpy
-#include "EmBankROM.h"			// EmBankROM::IsPCInRAM
-#include "EmCPU68K.h"			// ProcessException
-#include "EmMemory.h"			// gMemAccessFlags
+#include "EmCPU.h"				// GetPC
+#include "EmCPU68K.h"			// gCPU68K
+#include "EmMemory.h"			// gMemAccessFlags, EmMemory::IsPCInRAM
 #include "EmSession.h"			// GetDevice, ScheduleDeferredError
 #include "ErrorHandling.h"		// Errors::ReportErrHardwareRegisters
 #include "MetaMemory.h"			// MetaMemory::InRAMOSComponent
+#include "Profiling.h"			// WAITSTATES_PLD
+
 
 /*
 	When emulating memory, UAE divides up the 4GB address space into
@@ -265,21 +267,21 @@ uint32 EmBankRegs::GetLong (emuptr address)
 #if (CHECK_FOR_ADDRESS_ERROR)
 	if ((address & 1) != 0)
 	{
-		AddressError (address, sizeof (uae_u32), true);
+		AddressError (address, sizeof (uint32), true);
 	}
 #endif
 
 #if (PREVENT_USER_REGISTER_GET)
-	if (gMemAccessFlags.fProtect_RegisterGet && EmBankROM::IsPCInRAM () && !MetaMemory::InRAMOSComponent (m68k_getpc ()))
+	if (gMemAccessFlags.fProtect_RegisterGet && EmMemory::IsPCInRAM () && !MetaMemory::InRAMOSComponent (gCPU->GetPC ()))
 	{
-		EmBankRegs::PreventedAccess (address, sizeof (uae_u32), true);
+		EmBankRegs::PreventedAccess (address, sizeof (uint32), true);
 	}
 #endif
 
 #if (VALIDATE_REGISTER_GET)
-	if (gMemAccessFlags.fValidate_RegisterGet && !ValidAddress (address, sizeof (uae_u32)))
+	if (gMemAccessFlags.fValidate_RegisterGet && !ValidAddress (address, sizeof (uint32)))
 	{
-		EmBankRegs::InvalidAccess (address, sizeof (uae_u32), true);
+		EmBankRegs::InvalidAccess (address, sizeof (uint32), true);
 	}
 #endif
 
@@ -287,14 +289,14 @@ uint32 EmBankRegs::GetLong (emuptr address)
 	CYCLE_GETLONG (WAITSTATES_PLD);
 #endif
 
-	EmRegs*	bank = EmBankRegs::GetSubBank (address, sizeof (uae_u32));
+	EmRegs*	bank = EmBankRegs::GetSubBank (address, sizeof (uint32));
 
 	if (bank)
 	{
 		return bank->GetLong (address);
 	}
 
-	EmBankRegs::InvalidAccess (address, sizeof (uae_u32), true);
+	EmBankRegs::InvalidAccess (address, sizeof (uint32), true);
 	return ~0;
 }
 
@@ -308,21 +310,21 @@ uint32 EmBankRegs::GetWord (emuptr address)
 #if (CHECK_FOR_ADDRESS_ERROR)
 	if ((address & 1) != 0)
 	{
-		AddressError (address, sizeof (uae_u16), true);
+		AddressError (address, sizeof (uint16), true);
 	}
 #endif
 
 #if (PREVENT_USER_REGISTER_GET)
-	if (gMemAccessFlags.fProtect_RegisterGet && EmBankROM::IsPCInRAM () && !MetaMemory::InRAMOSComponent (m68k_getpc ()))
+	if (gMemAccessFlags.fProtect_RegisterGet && EmMemory::IsPCInRAM () && !MetaMemory::InRAMOSComponent (gCPU->GetPC ()))
 	{
-		EmBankRegs::PreventedAccess (address, sizeof (uae_u16), true);
+		EmBankRegs::PreventedAccess (address, sizeof (uint16), true);
 	}
 #endif
 
 #if (VALIDATE_REGISTER_GET)
-	if (gMemAccessFlags.fValidate_RegisterGet && !ValidAddress (address, sizeof (uae_u16)))
+	if (gMemAccessFlags.fValidate_RegisterGet && !ValidAddress (address, sizeof (uint16)))
 	{
-		EmBankRegs::InvalidAccess (address, sizeof (uae_u16), true);
+		EmBankRegs::InvalidAccess (address, sizeof (uint16), true);
 	}
 #endif
 
@@ -330,14 +332,14 @@ uint32 EmBankRegs::GetWord (emuptr address)
 	CYCLE_GETWORD (WAITSTATES_PLD);
 #endif
 
-	EmRegs*	bank = EmBankRegs::GetSubBank (address, sizeof (uae_u16));
+	EmRegs*	bank = EmBankRegs::GetSubBank (address, sizeof (uint16));
 
 	if (bank)
 	{
 		return bank->GetWord (address);
 	}
 
-	EmBankRegs::InvalidAccess (address, sizeof (uae_u16), true);
+	EmBankRegs::InvalidAccess (address, sizeof (uint16), true);
 	return ~0;
 }
 
@@ -349,16 +351,16 @@ uint32 EmBankRegs::GetWord (emuptr address)
 uint32 EmBankRegs::GetByte (emuptr address)
 {
 #if (PREVENT_USER_REGISTER_GET)
-	if (gMemAccessFlags.fProtect_RegisterGet && EmBankROM::IsPCInRAM () && !MetaMemory::InRAMOSComponent (m68k_getpc ()))
+	if (gMemAccessFlags.fProtect_RegisterGet && EmMemory::IsPCInRAM () && !MetaMemory::InRAMOSComponent (gCPU->GetPC ()))
 	{
-		EmBankRegs::PreventedAccess (address, sizeof (uae_u8), true);
+		EmBankRegs::PreventedAccess (address, sizeof (uint8), true);
 	}
 #endif
 
 #if (VALIDATE_REGISTER_GET)
-	if (gMemAccessFlags.fValidate_RegisterGet && !ValidAddress (address, sizeof (uae_u8)))
+	if (gMemAccessFlags.fValidate_RegisterGet && !ValidAddress (address, sizeof (uint8)))
 	{
-		EmBankRegs::InvalidAccess (address, sizeof (uae_u8), true);
+		EmBankRegs::InvalidAccess (address, sizeof (uint8), true);
 	}
 #endif
 
@@ -366,14 +368,14 @@ uint32 EmBankRegs::GetByte (emuptr address)
 	CYCLE_GETBYTE (WAITSTATES_PLD);
 #endif
 
-	EmRegs*	bank = EmBankRegs::GetSubBank (address, sizeof (uae_u8));
+	EmRegs*	bank = EmBankRegs::GetSubBank (address, sizeof (uint8));
 
 	if (bank)
 	{
 		return bank->GetByte (address);
 	}
 
-	EmBankRegs::InvalidAccess (address, sizeof (uae_u8), true);
+	EmBankRegs::InvalidAccess (address, sizeof (uint8), true);
 	return ~0;
 }
 
@@ -393,21 +395,21 @@ void EmBankRegs::SetLong (emuptr address, uint32 value)
 #if (CHECK_FOR_ADDRESS_ERROR)
 	if ((address & 1) != 0)
 	{
-		AddressError (address, sizeof (uae_u32), false);
+		AddressError (address, sizeof (uint32), false);
 	}
 #endif
 
 #if (PREVENT_USER_REGISTER_SET)
-	if (gMemAccessFlags.fProtect_RegisterSet && EmBankROM::IsPCInRAM () && !MetaMemory::InRAMOSComponent (m68k_getpc ()))
+	if (gMemAccessFlags.fProtect_RegisterSet && EmMemory::IsPCInRAM () && !MetaMemory::InRAMOSComponent (gCPU->GetPC ()))
 	{
-		EmBankRegs::PreventedAccess (address, sizeof (uae_u32), false);
+		EmBankRegs::PreventedAccess (address, sizeof (uint32), false);
 	}
 #endif
 
 #if (VALIDATE_REGISTER_SET)
-	if (gMemAccessFlags.fValidate_RegisterSet && !ValidAddress (address, sizeof (uae_u32)))
+	if (gMemAccessFlags.fValidate_RegisterSet && !ValidAddress (address, sizeof (uint32)))
 	{
-		EmBankRegs::InvalidAccess (address, sizeof (uae_u32), false);
+		EmBankRegs::InvalidAccess (address, sizeof (uint32), false);
 	}
 #endif
 
@@ -415,7 +417,7 @@ void EmBankRegs::SetLong (emuptr address, uint32 value)
 	CYCLE_PUTLONG (WAITSTATES_PLD);
 #endif
 
-	EmRegs*	bank = EmBankRegs::GetSubBank (address, sizeof (uae_u32));
+	EmRegs*	bank = EmBankRegs::GetSubBank (address, sizeof (uint32));
 
 	if (bank)
 	{
@@ -424,12 +426,12 @@ void EmBankRegs::SetLong (emuptr address, uint32 value)
 		// See if any interesting memory locations have changed.  If so,
 		// CheckStepSpy will report it.
 
-		Debug::CheckStepSpy (address, sizeof (uae_u32));
+		Debug::CheckStepSpy (address, sizeof (uint32));
 
 		return;
 	}
 
-	EmBankRegs::InvalidAccess (address, sizeof (uae_u32), false);
+	EmBankRegs::InvalidAccess (address, sizeof (uint32), false);
 }
 
 
@@ -442,21 +444,21 @@ void EmBankRegs::SetWord (emuptr address, uint32 value)
 #if (CHECK_FOR_ADDRESS_ERROR)
 	if ((address & 1) != 0)
 	{
-		AddressError (address, sizeof (uae_u16), false);
+		AddressError (address, sizeof (uint16), false);
 	}
 #endif
 
 #if (PREVENT_USER_REGISTER_SET)
-	if (gMemAccessFlags.fProtect_RegisterSet && EmBankROM::IsPCInRAM () && !MetaMemory::InRAMOSComponent (m68k_getpc ()))
+	if (gMemAccessFlags.fProtect_RegisterSet && EmMemory::IsPCInRAM () && !MetaMemory::InRAMOSComponent (gCPU->GetPC ()))
 	{
-		EmBankRegs::PreventedAccess (address, sizeof (uae_u16), false);
+		EmBankRegs::PreventedAccess (address, sizeof (uint16), false);
 	}
 #endif
 
 #if (VALIDATE_REGISTER_SET)
-	if (gMemAccessFlags.fValidate_RegisterSet && !ValidAddress (address, sizeof (uae_u16)))
+	if (gMemAccessFlags.fValidate_RegisterSet && !ValidAddress (address, sizeof (uint16)))
 	{
-		EmBankRegs::InvalidAccess (address, sizeof (uae_u16), false);
+		EmBankRegs::InvalidAccess (address, sizeof (uint16), false);
 	}
 #endif
 
@@ -464,7 +466,7 @@ void EmBankRegs::SetWord (emuptr address, uint32 value)
 	CYCLE_PUTWORD (WAITSTATES_PLD);
 #endif
 
-	EmRegs*	bank = EmBankRegs::GetSubBank (address, sizeof (uae_u16));
+	EmRegs*	bank = EmBankRegs::GetSubBank (address, sizeof (uint16));
 
 	if (bank)
 	{
@@ -473,12 +475,12 @@ void EmBankRegs::SetWord (emuptr address, uint32 value)
 		// See if any interesting memory locations have changed.  If so,
 		// CheckStepSpy will report it.
 
-		Debug::CheckStepSpy (address, sizeof (uae_u16));
+		Debug::CheckStepSpy (address, sizeof (uint16));
 
 		return;
 	}
 
-	EmBankRegs::InvalidAccess (address, sizeof (uae_u16), false);
+	EmBankRegs::InvalidAccess (address, sizeof (uint16), false);
 }
 
 
@@ -489,16 +491,16 @@ void EmBankRegs::SetWord (emuptr address, uint32 value)
 void EmBankRegs::SetByte (emuptr address, uint32 value)
 {
 #if (PREVENT_USER_REGISTER_SET)
-	if (gMemAccessFlags.fProtect_RegisterSet && EmBankROM::IsPCInRAM () && !MetaMemory::InRAMOSComponent (m68k_getpc ()))
+	if (gMemAccessFlags.fProtect_RegisterSet && EmMemory::IsPCInRAM () && !MetaMemory::InRAMOSComponent (gCPU->GetPC ()))
 	{
-		EmBankRegs::PreventedAccess (address, sizeof (uae_u8), false);
+		EmBankRegs::PreventedAccess (address, sizeof (uint8), false);
 	}
 #endif
 
 #if (VALIDATE_REGISTER_SET)
-	if (gMemAccessFlags.fValidate_RegisterSet && !ValidAddress (address, sizeof (uae_u8)))
+	if (gMemAccessFlags.fValidate_RegisterSet && !ValidAddress (address, sizeof (uint8)))
 	{
-		EmBankRegs::InvalidAccess (address, sizeof (uae_u8), false);
+		EmBankRegs::InvalidAccess (address, sizeof (uint8), false);
 	}
 #endif
 
@@ -506,7 +508,7 @@ void EmBankRegs::SetByte (emuptr address, uint32 value)
 	CYCLE_PUTBYTE (WAITSTATES_PLD);
 #endif
 
-	EmRegs*	bank = EmBankRegs::GetSubBank (address, sizeof (uae_u8));
+	EmRegs*	bank = EmBankRegs::GetSubBank (address, sizeof (uint8));
 
 	if (bank)
 	{
@@ -515,12 +517,12 @@ void EmBankRegs::SetByte (emuptr address, uint32 value)
 		// See if any interesting memory locations have changed.  If so,
 		// CheckStepSpy will report it.
 
-		Debug::CheckStepSpy (address, sizeof (uae_u8));
+		Debug::CheckStepSpy (address, sizeof (uint8));
 
 		return;
 	}
 
-	EmBankRegs::InvalidAccess (address, sizeof (uae_u8), false);
+	EmBankRegs::InvalidAccess (address, sizeof (uint8), false);
 }
 
 

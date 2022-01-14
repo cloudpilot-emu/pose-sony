@@ -15,10 +15,14 @@
 #include "EmDlg.h"
 
 #include "DebugMgr.h"			// gDebuggerGlobals
+#include "EmApplication.h"		// gApplication, BindPoser
 #include "EmBankDRAM.h"			// EmBankDRAM::ValidAddress
 #include "EmBankROM.h"			// EmBankROM::ValidAddress
 #include "EmBankSRAM.h"			// EmBankSRAM::ValidAddress
+#include "EmEventPlayback.h"	// GetCurrentEvent, GetNumEvents
 #include "EmFileImport.h"		// EmFileImport
+#include "EmMinimize.h"			// EmMinimize::Stop
+#include "EmPatchState.h"		// EmPatchState::UIInitialized
 #include "EmROMTransfer.h"		// EmROMTransfer
 #include "EmROMReader.h"		// EmROMReader
 #include "EmSession.h"			// gSession
@@ -31,22 +35,35 @@
 #include "LoadApplication.h"	// SavePalmFile
 #include "Logging.h"			// FOR_EACH_LOG_PREF
 #include "Miscellaneous.h"		// MemoryTextList, GetMemoryTextList
-#include "Platform.h"			// Platform
+#include "Platform.h"			// GetString, GetMilliseconds, Beep, CopyToClipboard
 #include "PreferenceMgr.h"		// Preference, gEmuPrefs
-#include "ROMStubs.h"			// FSCustomControl, SysLibFind
+#include "ROMStubs.h"			// FSCustomControl, SysLibFind, IntlSetStrictChecks
 #include "Strings.r.h"			// kStr_AppName
 #include "Skins.h"				// SkinNameList
+
+#if HAS_TRACER
 #include "TracerPlatform.h"		// gTracer
+#endif
 
 #include "algorithm"			// find, remove_if, unary_function<>
 
 #ifdef SONY_ROM
 #include "SonyShared\MiscellaneousSony.h"		// MemoryTextList, GetMSSizeTextList
-#endif
+#endif //SONY_ROM
 
-static void PrvConvertBaudListToStrings (const EmTransportSerial::BaudList& baudList,
-									StringList& baudStrList);
-static void	PrvFilterMemorySizes (MemoryTextList& sizes, const Configuration& cfg);
+#if !PLATFORM_UNIX
+static void		PrvAppendDescriptors	(EmTransportDescriptorList& menuItems,
+										 const EmTransportDescriptorList& rawItems);
+static void		PrvAppendDescriptors	(EmTransportDescriptorList& menuItems,
+										 const string& rawItem);
+static string	PrvGetMenuItemText		(EmDlgID whichMenu,
+										 const EmTransportDescriptor& item);
+static void		PrvAppendMenuItems		(EmDlgRef dlg, EmDlgItemID dlgItem,
+										 const EmTransportDescriptorList& menuItems,
+										 const EmTransportDescriptor& pref,
+										 const string& socketAddr = string());
+#endif	// !PLATFORM_UNIX
+
 
 /***********************************************************************
  *
@@ -65,7 +82,9 @@ EmDlgItemID EmDlg::DoGetFile (	EmFileRef& result,
 								const EmDirRef& defaultPath,
 								const EmFileTypeList& filterList)
 {
-	return EmDlg::HostRunGetFile (result, prompt, defaultPath, filterList);
+	DoGetFileParameters	parameters (result, prompt, defaultPath, filterList);
+
+	return EmDlg::RunDialog (EmDlg::HostRunGetFile, &parameters);
 }
 
 
@@ -86,7 +105,9 @@ EmDlgItemID EmDlg::DoGetFileList (	EmFileRefList& results,
 									const EmDirRef& defaultPath,
 									const EmFileTypeList& filterList)
 {
-	return EmDlg::HostRunGetFileList (results, prompt, defaultPath, filterList);
+	DoGetFileListParameters	parameters (results, prompt, defaultPath, filterList);
+
+	return EmDlg::RunDialog (EmDlg::HostRunGetFileList, &parameters);
 }
 
 
@@ -108,7 +129,9 @@ EmDlgItemID EmDlg::DoPutFile (	EmFileRef& result,
 								const EmFileTypeList& filterList,
 								const string& defaultName)
 {
-	return EmDlg::HostRunPutFile (result, prompt, defaultPath, filterList, defaultName);
+	DoPutFileParameters	parameters (result, prompt, defaultPath, filterList, defaultName);
+
+	return EmDlg::RunDialog (EmDlg::HostRunPutFile, &parameters);
 }
 
 
@@ -128,7 +151,9 @@ EmDlgItemID EmDlg::DoGetDirectory (	EmDirRef& result,
 									const string& prompt,
 									const EmDirRef& defaultPath)
 {
-	return EmDlg::HostRunGetDirectory (result, prompt, defaultPath);
+	DoGetDirectoryParameters	parameters (result, prompt, defaultPath);
+
+	return EmDlg::RunDialog (EmDlg::HostRunGetDirectory, &parameters);
 }
 
 
@@ -146,81 +171,9 @@ EmDlgItemID EmDlg::DoGetDirectory (	EmDirRef& result,
  *
  ***********************************************************************/
 
-EmDlgFnResult EmDlg::PrvAboutBox (EmDlgContext& context)
-{
-	EmDlgRef	dlg = context.fDlg;
-
-	switch (context.fCommandID)
-	{
-		case kDlgCmdInit:
-		{
-			if (context.fPanelID == kDlgPanelAbtMain)
-			{
-				Errors::SetParameter ("%application", Platform::GetString (kStr_AppName));
-				Errors::SetParameter ("%version", Platform::GetShortVersionString ());
-
-				string	appAndVersion = Errors::ReplaceParameters (kStr_AppAndVers);
-
-				EmDlg::SetItemText (dlg, kDlgItemAbtAppName, appAndVersion);
-			}
-			
-			break;
-		}
-
-		case kDlgCmdIdle:
-		{
-			break;
-		}
-
-		case kDlgCmdItemSelected:
-		{
-			switch (context.fItemID)
-			{
-				case kDlgItemOK:
-				case kDlgItemCancel:
-				{
-					return kDlgResultClose;
-				}
-				
-				case kDlgItemAbtURLPalmWeb:
-				case kDlgItemAbtURLPalmMail:
-				case kDlgItemAbtURLWindowsWeb:
-				case kDlgItemAbtURLWindowsMail:
-				case kDlgItemAbtURLMacWeb:
-				case kDlgItemAbtURLMacMail:
-				case kDlgItemAbtURLUAEWeb:
-				case kDlgItemAbtURLUAEMail:
-				case kDlgItemAbtURLQNXWeb:
-				case kDlgItemAbtURLQNXMail:
-				{
-					string	URL = EmDlg::GetItemText (dlg, context.fItemID);
-#if 0
-					::LaunchURL (URL);
-#endif
-					break;
-				}
-				
-				default:
-					EmAssert (false);
-			}
-
-			break;
-		}
-
-		case kDlgCmdPanelEnter:
-		case kDlgCmdPanelExit:
-		case kDlgCmdNone:
-			EmAssert (false);
-			break;
-	}
-
-	return kDlgResultContinue;
-}
-
-
 EmDlgItemID EmDlg::DoAboutBox (void)
 {
-	return EmDlg::RunDialog (EmDlg::PrvAboutBox, NULL, kDlgAboutBox);
+	return EmDlg::RunDialog (EmDlg::HostRunAboutBox, NULL);
 }
 
 
@@ -246,35 +199,396 @@ struct SessionNewData
 };
 
 
+void EmDlg::PrvBuildROMMenu (const EmDlgContext& context)
+{
+	EmDlgRef		dlg		= context.fDlg;
+	SessionNewData&	data	= *(SessionNewData*) context.fUserData;
+	Configuration&	cfg		= data.fWorkingCfg;
+
+	EmDlg::ClearMenu (dlg, kDlgItemNewROM);
+
+	EmDlg::AppendToMenu (dlg, kDlgItemNewROM, Platform::GetString (kStr_OtherMRU));
+	EmDlg::AppendToMenu (dlg, kDlgItemNewROM, std::string());
+
+	EmFileRefList	romList;
+	gEmuPrefs->GetROMMRU (romList);
+
+	if (romList.size () == 0)
+	{
+		EmDlg::AppendToMenu (dlg, kDlgItemNewROM, Platform::GetString (kStr_EmptyMRU));
+		EmDlg::DisableMenuItem (dlg, kDlgItemNewROM, 2);
+		EmDlg::SetItemValue (dlg, kDlgItemNewROM, 2);
+		cfg.fROMFile = EmFileRef ();
+	}
+	else
+	{
+		int 	menuID		= 2;
+		Bool	selected	= false;
+
+		EmFileRefList::iterator	iter = romList.begin ();
+		while (iter != romList.end ())
+		{
+			EmDlg::AppendToMenu (dlg, kDlgItemNewROM, iter->GetName());
+
+			if (cfg.fROMFile == *iter)
+			{
+				EmDlg::SetItemValue (dlg, kDlgItemNewROM, menuID);
+				selected = true;
+			}
+
+			++iter;
+			++menuID;
+		}
+
+		//
+		// If we couldn't find the last-used ROM, try to find
+		// one that we can use.
+		//
+
+		if (!selected) 
+		{
+			EmFileRefList::iterator	iter = romList.begin ();
+			while (iter != romList.end ())
+			{
+				if (EmDlg::PrvCanUseROMFile (*iter) != kROMFileUnknown)
+				{
+					EmDlg::SetItemValue (dlg, kDlgItemNewROM, 2 + (iter - romList.begin ()));
+					cfg.fROMFile = *iter;
+					return;
+				}
+
+				++iter;
+			}
+
+			//
+			// If we *still* can't find a ROM image to use, just
+			// zap the whole list and try again with an empty one.
+			//
+
+			Preference<EmFileRefList> pref (kPrefKeyROM_MRU);
+			pref = EmFileRefList ();
+			EmDlg::PrvBuildROMMenu (context);
+		}
+	}
+}
+
+
+struct PrvSupportsROM : unary_function<EmDevice&, bool>
+{
+	PrvSupportsROM(EmROMReader& inROM) : ROM(inROM) {}	
+	bool operator()(EmDevice& item)
+	{
+		return !item.SupportsROM(ROM);
+	}
+
+private:
+	const EmROMReader& ROM;
+};
+
+
+void EmDlg::PrvBuildDeviceMenu (const EmDlgContext& context)
+{
+	EmDlgRef				dlg			= context.fDlg;
+	SessionNewData&			data		= *(SessionNewData*) context.fUserData;
+	Configuration&			cfg			= data.fWorkingCfg;
+
+	EmDeviceList			devices		= EmDevice::GetDeviceList ();
+
+	EmDeviceList::iterator	iter		= devices.begin();
+	EmDeviceList::iterator	devices_end	= devices.end();
+	int 					menuID		= 0;
+	Bool					selected	= false;
+	unsigned int			version		= 0;
+
+	PrvFilterDeviceList(cfg.fROMFile, devices, devices_end, version);
+	iter = devices.begin();
+
+	if (iter == devices_end)
+	{
+		/* We filtered out too many things, so reset to displaying all */
+		devices_end = devices.end();
+	}
+
+	data.fDevices = EmDeviceList(iter, devices_end);
+
+	EmDlg::ClearMenu (dlg, kDlgItemNewDevice);
+
+	while (iter != devices_end)
+	{
+		EmDlg::AppendToMenu (dlg, kDlgItemNewDevice, iter->GetMenuString ());
+
+		if (cfg.fDevice == *iter)
+		{
+			EmDlg::SetItemValue (dlg, kDlgItemNewDevice, menuID);
+			selected = true;
+		}
+
+		++iter;
+		++menuID;
+	}
+
+	if (!selected)
+	{
+		EmDlg::SetItemValue (dlg, kDlgItemNewDevice, menuID-1);
+		cfg.fDevice = data.fDevices [menuID-1];
+
+		/* Rely on caller to (always) invoke PrvBuildSkinMenu */
+	}
+}
+
+
+void EmDlg::PrvBuildSkinMenu (const EmDlgContext& context)
+{
+	EmDlgRef				dlg			= context.fDlg;
+	SessionNewData&			data		= *(SessionNewData*) context.fUserData;
+	Configuration&			cfg			= data.fWorkingCfg;
+
+	SkinNameList			skins;
+	::SkinGetSkinNames (cfg.fDevice, skins);
+	SkinName				chosenSkin	= ::SkinGetSkinName (cfg.fDevice);
+
+	SkinNameList::iterator	iter		= skins.begin ();
+	int 					menuID		= 0;
+
+	EmDlg::ClearMenu (dlg, kDlgItemNewSkin);
+
+	while (iter != skins.end())
+	{
+		EmDlg::AppendToMenu (dlg, kDlgItemNewSkin, *iter);
+
+		if (chosenSkin == *iter)
+		{
+			EmDlg::SetItemValue (dlg, kDlgItemNewSkin, menuID);
+		}
+
+		++iter;
+		++menuID;
+	}
+}
+
+
+void EmDlg::PrvBuildMemorySizeMenu (const EmDlgContext& context)
+{
+	EmDlgRef					dlg			= context.fDlg;
+	SessionNewData&				data		= *(SessionNewData*) context.fUserData;
+	Configuration&				cfg			= data.fWorkingCfg;
+
+	MemoryTextList				sizes;
+	::GetMemoryTextList (sizes);
+	EmDlg::PrvFilterMemorySizes (sizes, cfg);
+
+#ifdef SONY_ROM 
+	BOOL			enabled = (cfg.fDevice.GetDeviceType() != kDevicePEGN700C
+							&& cfg.fDevice.GetDeviceType() != kDevicePEGS320
+							&& cfg.fDevice.GetDeviceType() != kDevicePEGT400
+							&& cfg.fDevice.GetDeviceType() != kDevicePEGT600
+							&& cfg.fDevice.GetDeviceType() != kDevicePEGN600C
+							&& cfg.fDevice.GetDeviceType() != kDevicePEGS500C
+							&& cfg.fDevice.GetDeviceType() != kDevicePEGS300
+							&& cfg.fDevice.GetDeviceType() != kDeviceYSX1100
+							&& cfg.fDevice.GetDeviceType() != kDeviceYSX1230);
+
+	if (cfg.fDevice.GetDeviceType() == kDevicePEGN700C
+	 || cfg.fDevice.GetDeviceType() == kDevicePEGS320
+	 || cfg.fDevice.GetDeviceType() == kDevicePEGT400
+	 || cfg.fDevice.GetDeviceType() == kDevicePEGN600C
+	 || cfg.fDevice.GetDeviceType() == kDevicePEGS500C
+	 || cfg.fDevice.GetDeviceType() == kDevicePEGS300);
+		cfg.fRAMSize = 8192;
+	
+	if (cfg.fDevice.GetDeviceType() == kDevicePEGT600
+		|| cfg.fDevice.GetDeviceType() == kDeviceYSX1100
+		|| cfg.fDevice.GetDeviceType() == kDeviceYSX1230)
+		cfg.fRAMSize = 16384;
+#endif	// SONY_ROM
+
+	MemoryTextList::iterator	iter		= sizes.begin();
+	int							menuID		= 0;
+	Bool						selected	= false;
+
+	EmDlg::ClearMenu (dlg, kDlgItemNewMemorySize);
+
+	while (iter != sizes.end())
+	{
+		EmDlg::AppendToMenu (dlg, kDlgItemNewMemorySize, iter->second);
+
+		if (cfg.fRAMSize == iter->first)
+		{
+			EmDlg::SetItemValue (dlg, kDlgItemNewMemorySize, menuID);
+			selected = true;
+		}
+#ifdef SONY_ROM 
+		else if (!enabled)
+		{
+			EmDlg::DisableMenuItem (dlg, kDlgItemNewMemorySize, menuID);
+		}
+#endif //SONY_ROM
+
+		++iter;
+		++menuID;
+	}
+
+	if (!selected)
+	{
+		EmDlg::SetItemValue (dlg, kDlgItemNewMemorySize, 0);
+		cfg.fRAMSize = sizes[0].first;
+	}
+}
+
+
+void EmDlg::PrvNewSessionSetOKButton (const EmDlgContext& context)
+{
+	EmDlgRef		dlg		= context.fDlg;
+	SessionNewData&	data	= *(SessionNewData*) context.fUserData;
+	Configuration&	cfg		= data.fWorkingCfg;
+	EmFileRef&		rom		= cfg.fROMFile;
+
+	EmDlg::EnableDisableItem (dlg, kDlgItemOK, rom.IsSpecified ());
+}
+
+
+void EmDlg::PrvFilterDeviceList(const EmFileRef& romFile, EmDeviceList& devices,
+							EmDeviceList::iterator& devices_end, unsigned int& version)
+{
+	devices_end = devices.end ();
+	version = 0;
+
+	if (romFile.IsSpecified ())
+	{
+		try
+		{
+			EmStreamFile	hROM(romFile, kOpenExistingForRead);
+			StMemory    	romImage (hROM.GetLength ());
+
+			hROM.GetBytes (romImage.Get (), hROM.GetLength ());
+
+			EmROMReader ROM(romImage.Get (), hROM.GetLength ());
+
+			if (ROM.AcquireCardHeader ())
+			{
+				version = ROM.GetCardVersion ();
+
+				if (version < 5)
+				{
+					ROM.AcquireROMHeap ();
+					ROM.AcquireDatabases ();
+					ROM.AcquireFeatures ();
+					ROM.AcquireSplashDB ();
+				}
+			}
+
+			devices_end = remove_if (devices.begin (), devices.end (),
+				PrvSupportsROM (ROM));
+		}
+		catch (ErrCode)
+		{
+			/* On any of our errors, don't remove any devices */
+		}
+	}
+}
+
+
+void EmDlg::PrvFilterMemorySizes (MemoryTextList& sizes, const Configuration& cfg)
+{
+	RAMSizeType					minSize	= cfg.fDevice.MinRAMSize ();
+	MemoryTextList::iterator	iter	= sizes.begin();
+
+	while (iter != sizes.end())
+	{
+		if (iter->first < minSize)
+		{
+			sizes.erase (iter);
+			iter = sizes.begin ();
+			continue;
+		}
+
+		++iter;
+	}
+}
+
+
+//
+// Check out a ROM, and see if we can find any devices for it.  If
+// so, return TRUE.  If not and the card header is < 5, warn the
+// user but return TRUE anyway.  Otherwise, if we can't identify
+// the ROM and it has a v5 card header or greater, show an error
+// message and return FALSE.
+//
+
+EmROMFileStatus EmDlg::PrvCanUseROMFile (EmFileRef& testRef)
+{
+	if (!testRef.Exists ())
+		return kROMFileUnknown;
+
+	EmDeviceList			devices = EmDevice::GetDeviceList ();
+	EmDeviceList::iterator	devices_end;
+	unsigned int			version;
+
+	EmDlg::PrvFilterDeviceList (testRef, devices, devices_end, version);
+
+	if (devices_end == devices.begin ())
+	{
+		// No devices matched
+
+		if (version < 5)
+		{
+			return kROMFileDubious;
+		}
+
+		return kROMFileUnknown;
+	}
+
+	return kROMFileOK;
+}
+
+
 EmDlgFnResult EmDlg::PrvSessionNew (EmDlgContext& context)
 {
-	SessionNewData*	data = (SessionNewData*) context.fUserData;
 	EmDlgRef		dlg = context.fDlg;
-	Configuration&	cfg = data->fWorkingCfg;
+	SessionNewData&	data = *(SessionNewData*) context.fUserData;
+	Configuration&	cfg = data.fWorkingCfg;
 
 	switch (context.fCommandID)
 	{
 		case kDlgCmdInit:
 		{
+			//
 			// Make a copy of the configuration that we update as the
 			// user makes dialog selections.
+			//
 
-			cfg = *(data->cfg);
+			cfg = *(data.cfg);
 
-			// If a file is specified, make sure it is in the MRU list
-			if (cfg.fROMFile.IsSpecified())
+			//
+			// If a file is usable, make sure it is in the MRU list.
+			//
+
+			if (EmDlg::PrvCanUseROMFile (cfg.fROMFile) != kROMFileUnknown)
+			{
 				gEmuPrefs->UpdateROMMRU (cfg.fROMFile);
+			}
 
+			// If a file is not usable, then zap our reference to it.
+			// PrvBuildROMMenu will then try to find an alternate.
+			//
+
+			else
+			{
+				cfg.fROMFile = EmFileRef ();
+			}
+
+			//
 			// Build our menus.
+			//
 
 			EmDlg::PrvBuildROMMenu (context);
 			EmDlg::PrvBuildDeviceMenu (context);
 			EmDlg::PrvBuildSkinMenu (context);
 			EmDlg::PrvBuildMemorySizeMenu (context);
-			EmDlg::PrvSetROMName (context);
+			EmDlg::PrvNewSessionSetOKButton (context);
 #ifdef SONY_ROM
 			EmDlg::PrvBuildMSSizeMenu (context);
-#endif
+#endif //SONY_ROM
 			break;
 		}
 
@@ -289,7 +603,7 @@ EmDlgFnResult EmDlg::PrvSessionNew (EmDlgContext& context)
 			{
 				case kDlgItemOK:
 				{
-					*(data->cfg) = cfg;
+					*(data.cfg) = cfg;
 
 					SkinNameList	skins;
 					::SkinGetSkinNames (cfg.fDevice, skins);
@@ -309,7 +623,7 @@ EmDlgFnResult EmDlg::PrvSessionNew (EmDlgContext& context)
 				{
 					EmDeviceList::size_type	index	= EmDlg::GetItemValue (dlg, kDlgItemNewDevice);
 
-					cfg.fDevice = data->fDevices [index];
+					cfg.fDevice = data.fDevices [index];
 
 					EmDlg::PrvBuildSkinMenu (context);
 					EmDlg::PrvBuildMemorySizeMenu (context);
@@ -325,7 +639,7 @@ EmDlgFnResult EmDlg::PrvSessionNew (EmDlgContext& context)
 				{
 					MemoryTextList	sizes;
 					::GetMemoryTextList (sizes);
-					::PrvFilterMemorySizes (sizes, cfg);
+					EmDlg::PrvFilterMemorySizes (sizes, cfg);
 
 					MemoryTextList::size_type	index = EmDlg::GetItemValue (dlg, kDlgItemNewMemorySize);
 
@@ -354,49 +668,79 @@ EmDlgFnResult EmDlg::PrvSessionNew (EmDlgContext& context)
 					EmFileTypeList	typeList;
 					typeList.push_back (kFileTypeROM);
 
+					int			romStatus = kROMFileUnknown;
 					EmFileRef	romFileRef;
 					EmDirRef	romDirRef (cfg.fROMFile.GetParent ());
 
-					int		index = EmDlg::GetItemValue (dlg, kDlgItemNewROM);
+					//
+					// See what menu item was selected: "Other..." or a
+					// ROM from the MRU list.
+					//
+
+					int			index = EmDlg::GetItemValue (dlg, kDlgItemNewROM);
+
+					//
+					// User selected from MRU list.
+					//
 
 					if (index >= 2) 
 					{
-						EmFileRef	fileRef = gEmuPrefs->GetIndROMMRU (index - 2);
-
-						cfg.fROMFile = fileRef;
+						romFileRef = gEmuPrefs->GetIndROMMRU (index - 2);
 					}
-					else if (EmDlg::DoGetFile (romFileRef, "Choose ROM file:",
-										romDirRef, typeList) == kDlgItemOK)
+
+					//
+					// Ask user for new ROM.
+					//
+
+					else
 					{
-						EmDeviceList devices = EmDevice::GetDeviceList ();
-						EmDeviceList::iterator	devices_end;
-
-						devices_end = PrvFilterDeviceList(romFileRef, devices);
-
-						if (devices_end == devices.begin ())
+						if (EmDlg::DoGetFile (romFileRef, "Choose ROM file:",
+										romDirRef, typeList) == kDlgItemOK)
 						{
-							// No devices matched
-
-							Errors::DoDialog (kStr_UnknownDevice, kDlgFlags_OK);
 						}
 
-						cfg.fROMFile = romFileRef;
+						// If the user cancelled from the dialog, restore the
+						// previously selected ROM.
+
+						else
+						{
+							romFileRef = cfg.fROMFile;
+						}
 					}
 
-					if (cfg.fROMFile.IsSpecified ())
-						gEmuPrefs->UpdateROMMRU (cfg.fROMFile);
+					// Respond to the ROM selection.
 
-					EmDlg::PrvSetROMName (context);
+					romStatus = EmDlg::PrvCanUseROMFile (romFileRef);
+
+					if (romStatus == kROMFileDubious)
+					{
+						Errors::DoDialog (kStr_UnknownDeviceWarning, kDlgFlags_OK);
+					}
+					else if (romStatus == kROMFileUnknown)
+					{
+						Errors::DoDialog (kStr_UnknownDeviceError, kDlgFlags_OK);
+					}
+
+					//
+					// If we can identify the ROM or we want to go ahead and
+					// use it anyway, update our dialog items.
+					//
+
+					if (romStatus != kROMFileUnknown)
+					{
+						cfg.fROMFile = romFileRef;
+						gEmuPrefs->UpdateROMMRU (cfg.fROMFile);
+					}
+
+					EmDlg::PrvNewSessionSetOKButton (context);
 
 					EmDlg::PrvBuildROMMenu (context);
 					EmDlg::PrvBuildDeviceMenu (context);
 					EmDlg::PrvBuildSkinMenu (context);
 					EmDlg::PrvBuildMemorySizeMenu (context);
 #ifdef SONY_ROM
-//					EmDlg::PrvBuildMemorySizeMenu (context);
 					EmDlg::PrvBuildMSSizeMenu (context);
-#endif
-
+#endif //SONY_ROM
 					break;
 				}
 
@@ -406,6 +750,9 @@ EmDlgFnResult EmDlg::PrvSessionNew (EmDlgContext& context)
 
 			break;
 		}	// case kDlgCmdItemSelected
+
+		case kDlgCmdDestroy:
+			break;
 
 		case kDlgCmdPanelEnter:
 		case kDlgCmdPanelExit:
@@ -449,7 +796,13 @@ EmDlgItemID	EmDlg::DoSessionSave (const string& docName, Bool quitting)
 	if (docName2.empty ())
 		docName2 = Platform::GetString (kStr_Untitled);
 
-	return EmDlg::HostRunSessionSave (appName, docName2, quitting);
+	DoSessionSaveParameters	parameters (appName, docName2, quitting);
+
+	EmDlgItemID	result = EmDlg::RunDialog (EmDlg::HostRunSessionSave, &parameters);
+
+	EmAssert (result == kDlgItemYes || result == kDlgItemNo || result == kDlgItemCancel);
+
+	return result;
 }
 
 
@@ -474,11 +827,71 @@ struct HordeNewData
 };
 
 
+UInt32 EmDlg::PrvSelectedAppNameToIndex (EmDatabaseList list, const string& appName)
+{
+	if (appName.empty ())
+		return 0;
+
+	uint32 index = 0;
+
+	EmDatabaseList::iterator	iter = list.begin ();
+
+	while (iter != list.end ())
+	{
+		if (strcmp ((*iter).name, appName.c_str ()) == 0)
+			return index;
+
+		index += 1;
+		iter++;
+	}
+
+	return 0;
+}
+
+
+DatabaseInfo EmDlg::PrvSelectedIndexToApp (EmDatabaseList appList, uint32 index)
+{
+	return appList[index];
+}
+
+
+void EmDlg::PrvSelectedList (EmDatabaseList selectedApps, StringList &selectedAppStrings)
+{
+	selectedAppStrings.clear ();
+
+	EmDatabaseList::iterator iter = selectedApps.begin ();
+
+	while (iter != selectedApps.end ())
+	{
+		selectedAppStrings.push_back ((*iter).name);
+
+		++iter;
+	}
+}
+
+
 EmDlgFnResult EmDlg::PrvHordeNew (EmDlgContext& context)
 {
-	HordeNewData*	data = (HordeNewData*) context.fUserData;
 	EmDlgRef		dlg = context.fDlg;
-	HordeInfo&		info = data->info;
+	HordeNewData&	data = *(HordeNewData*) context.fUserData;
+	HordeInfo&		info = data.info;
+
+	// These variables and iterators are used in multiple case statements,
+	// so I'm putting them here both so that the compiler will not complain,
+	// and so that they can be declared once, so that their names won't be
+	// confusing.
+
+	Bool	selected;
+	EmDatabaseList	selectedApps;
+	StringList		selectedAppStrings;
+	EmDlgListIndexList	items;
+	EmDlgListIndexList::iterator	iter1;
+	EmDatabaseList::iterator	iter2;
+	UInt32 currentSelection;
+
+	// Initialize
+
+	selectedApps.clear ();
 
 	switch (context.fCommandID)
 	{
@@ -502,13 +915,13 @@ EmDlgFnResult EmDlg::PrvHordeNew (EmDlgContext& context)
 
 			// Get the list of applications.
 
-			::GetDatabases (data->appList, kApplicationsOnly);
+			::GetDatabases (data.appList, kApplicationsOnly);
 
 			// Insert the names of the applications into the list.
 
-			Bool	selected = false;
-			EmDatabaseList::iterator	iter = data->appList.begin();
-			while (iter != data->appList.end())
+			selected = false;
+			EmDatabaseList::iterator	iter = data.appList.begin();
+			while (iter != data.appList.end())
 			{
 				DatabaseInfo&	thisDB = *iter;
 
@@ -517,7 +930,9 @@ EmDlgFnResult EmDlg::PrvHordeNew (EmDlgContext& context)
 				EmDlg::AppendToList (dlg, kDlgItemHrdAppList, thisDB.name);
 
 				// If the item we just added is in our "selected" list,
-				// then select it.
+				// then select it, and add it to our list of selected
+				// apps (from which the first to be run will be selected
+				// by the user).
 
 				EmDatabaseList::iterator	begin = info.fAppList.begin ();
 				EmDatabaseList::iterator	end = info.fAppList.end ();
@@ -525,8 +940,9 @@ EmDlgFnResult EmDlg::PrvHordeNew (EmDlgContext& context)
 				if (find (begin, end, thisDB) != end)
 				{
 					selected = true;
-					int index = iter - data->appList.begin();
+					int index = iter - data.appList.begin();
 					EmDlg::SelectListItem (dlg, kDlgItemHrdAppList, index);
+					selectedApps.push_back (thisDB);
 				}
 
 				++iter;
@@ -538,6 +954,16 @@ EmDlgFnResult EmDlg::PrvHordeNew (EmDlgContext& context)
 			{
 				EmDlg::SelectListItem (dlg, kDlgItemHrdAppList, 0);
 			}
+
+			// Set up the selected apps menu from the string list we populated
+			// above. Default to the first app on the list (as was done previously,
+			// before this menu existed.
+
+			EmDlg::PrvSelectedList (selectedApps, selectedAppStrings);
+			currentSelection = EmDlg::PrvSelectedAppNameToIndex (selectedApps, info.fFirstLaunchedAppName);
+			EmDlg::ClearMenu (dlg, kDlgItemHrdFirstLaunchedApp);
+			EmDlg::AppendToMenu (dlg, kDlgItemHrdFirstLaunchedApp, selectedAppStrings);
+			EmDlg::SetItemValue (dlg, kDlgItemHrdFirstLaunchedApp, currentSelection);
 
 			break;
 		}
@@ -564,18 +990,48 @@ EmDlgFnResult EmDlg::PrvHordeNew (EmDlgContext& context)
 
 					// Get the indexes for the selected items.
 
-					EmDlgListIndexList	items;
 					EmDlg::GetSelectedItems (dlg, kDlgItemHrdAppList, items);
 
-					// Use the indexes to get the actual items, and add those
+					// first make a dummy app list, unordered, so that we can figure out
+					// which application was selected.
+
+					DatabaseInfoList	dummyAppList;
+					dummyAppList.clear ();
+					EmDlgListIndexList::iterator dummyIter = items.begin ();
+					
+					while (dummyIter != items.end ())
+					{
+						DatabaseInfo	dummyDbInfo = data.appList[*dummyIter];
+
+						dummyAppList.push_back (dummyDbInfo);
+
+						++dummyIter;
+					}
+
+					DatabaseInfo	dbInfoStartApp = EmDlg::PrvSelectedIndexToApp (dummyAppList,
+						EmDlg::GetItemValue (dlg, kDlgItemHrdFirstLaunchedApp));
+					info.fFirstLaunchedAppName	= dbInfoStartApp.name;
+
+					// push the app to be launched first onto the stack then
+					// use the indexes to get the actual items, and add those
 					// items to the "result" container.
 
 					info.fAppList.clear ();
-					EmDlgListIndexList::iterator	iter = items.begin();
-					while (iter != items.end())
+					info.fAppList.push_back (dbInfoStartApp);
+
+					EmDlgListIndexList::iterator iter = items.begin ();
+
+					while (iter != items.end ())
 					{
-						DatabaseInfo	dbInfo = data->appList[*iter];
-						info.fAppList.push_back (dbInfo);
+						DatabaseInfo	dbInfo = data.appList[*iter];
+
+						// don't add the starting app twice, however harmless that may be
+
+						if (strcmp (dbInfo.name, dbInfoStartApp.name) != 0)
+						{
+							info.fAppList.push_back (dbInfo);
+						}
+
 						++iter;
 					}
 
@@ -601,6 +1057,84 @@ EmDlgFnResult EmDlg::PrvHordeNew (EmDlgContext& context)
 				}
 
 				case kDlgItemHrdAppList:
+				case kDlgItemHrdFirstLaunchedApp:
+
+					// First, clean out the list of selected applications,
+					// or, alternately, the list of applications that will
+					// be run.
+
+					info.fAppList.clear ();
+			
+					// Get the indices of the selected items.
+
+					EmDlg::GetSelectedItems (dlg, kDlgItemHrdAppList, items);
+					
+					// Use the indices to get the actual items, and add those
+					// items to the "result" container.
+
+					iter1 = items.begin ();
+					while (iter1 != items.end())
+					{
+						DatabaseInfo	dbInfo = data.appList[*iter1];
+						info.fAppList.push_back (dbInfo);
+						++iter1;
+					}
+					
+					// Now that we have a current fAppList, let's update our popup
+					// menu for selecting the first launched app.
+
+					// Initialize the string list that the pop-up menu will use
+					// to populate itself, then iterate through the list of applications.
+
+					selectedApps.clear ();
+
+					selected = false;
+					iter2 = data.appList.begin();
+					while (iter2 != data.appList.end())
+					{
+						DatabaseInfo&	thisDB = *iter2;
+
+						// If the item we just looked at is in our "selected" list,
+						// then select it, and add it to our list of selected
+						// apps (from which the first to be run will be selected
+						// by the user).
+
+						EmDatabaseList::iterator	begin = info.fAppList.begin ();
+						EmDatabaseList::iterator	end = info.fAppList.end ();
+
+						int index = iter2 - data.appList.begin();
+
+						if (find (begin, end, thisDB) != end)
+						{
+							selected = true;
+							EmDlg::SelectListItem (dlg, kDlgItemHrdAppList, index);
+							selectedApps.push_back (thisDB);
+						}
+
+						++iter2;
+					}
+
+					// Set up the selected apps menu from the string list we populated
+					// above. Default to the first app on the list (as was done previously,
+					// before this menu existed.
+
+					EmDlg::PrvSelectedList (selectedApps, selectedAppStrings);
+
+					if (context.fItemID == kDlgItemHrdFirstLaunchedApp)
+					{
+						info.fFirstLaunchedAppName = selectedAppStrings
+							[EmDlg::GetItemValue (dlg, kDlgItemHrdFirstLaunchedApp)];
+					}
+					else	// kDlgItemHrdAppList
+					{
+						currentSelection = EmDlg::PrvSelectedAppNameToIndex (selectedApps, info.fFirstLaunchedAppName);
+						EmDlg::ClearMenu (dlg, kDlgItemHrdFirstLaunchedApp);
+						EmDlg::AppendToMenu (dlg, kDlgItemHrdFirstLaunchedApp, selectedAppStrings);
+						EmDlg::SetItemValue (dlg, kDlgItemHrdFirstLaunchedApp, currentSelection);
+					}
+
+					break;
+
 				case kDlgItemHrdStart:
 				case kDlgItemHrdStop:
 				case kDlgItemHrdCheckSwitch:
@@ -609,6 +1143,88 @@ EmDlgFnResult EmDlg::PrvHordeNew (EmDlgContext& context)
 				case kDlgItemHrdDepthSwitch:
 				case kDlgItemHrdDepthSave:
 				case kDlgItemHrdDepthStop:
+					break;
+
+				case kDlgItemHrdSelectAll:
+
+					// Initialize the app list that the pop-up menu will use
+					// to populate itself, then iterate through the list of applications.
+
+					selectedApps.clear ();
+
+					selected = false;
+					iter2 = data.appList.begin ();
+					while (iter2 != data.appList.end ())
+					{
+						DatabaseInfo&	thisDB = *iter2;
+
+						// Regardless of whether this item is really selected or
+						// not, select it, since we are Selecting All here.
+
+						int index = iter2 - data.appList.begin ();
+
+						selected = true;
+						EmDlg::SelectListItem (dlg, kDlgItemHrdAppList, index);
+						selectedApps.push_back (thisDB);
+
+						++iter2;
+					}
+
+					// Set up the selected apps menu from the string list we populated
+					// above. Default to the first app on the list (as was done previously,
+					// before this menu existed.
+
+					EmDlg::PrvSelectedList (selectedApps, selectedAppStrings);
+					currentSelection = EmDlg::PrvSelectedAppNameToIndex (selectedApps, info.fFirstLaunchedAppName);
+					EmDlg::ClearMenu (dlg, kDlgItemHrdFirstLaunchedApp);
+					EmDlg::AppendToMenu (dlg, kDlgItemHrdFirstLaunchedApp, selectedAppStrings);
+					EmDlg::SetItemValue (dlg, kDlgItemHrdFirstLaunchedApp, currentSelection);
+					break;
+
+				case kDlgItemHrdSelectNone:
+
+					// Initialize the app list that the pop-up menu will use
+					// to populate itself, then iterate through the list of applications.
+
+					selectedApps.clear ();
+
+					iter2 = data.appList.begin ();
+					while (iter2 != data.appList.end ())
+					{
+						// Regardless of whether this item is really selected or
+						// not, unselect it, since we are Selecting None here.
+
+						int index = iter2 - data.appList.begin ();
+						selected = false;
+						EmDlg::UnselectListItem (dlg, kDlgItemHrdAppList, index);
+
+						++iter2;
+					}
+
+					EmDlg::SelectListItem (dlg, kDlgItemHrdAppList, 0);
+
+					// This set of braces is here to keep the compiler from complaining
+					// about initializing within a case
+
+					{
+						DatabaseInfo&	thisDB = *(data.appList.begin ());
+						selectedApps.push_back (thisDB);
+					}
+
+					// Set up the selected apps menu from the string list we populated
+					// above. Default to the first app on the list (as was done previously,
+					// before this menu existed.
+
+					EmDlg::PrvSelectedList (selectedApps, selectedAppStrings);
+
+					// Update our first launched app pref
+
+					info.fFirstLaunchedAppName = selectedAppStrings[0];
+
+					EmDlg::ClearMenu (dlg, kDlgItemHrdFirstLaunchedApp);
+					EmDlg::AppendToMenu (dlg, kDlgItemHrdFirstLaunchedApp, selectedAppStrings);
+					EmDlg::SetItemValue (dlg, kDlgItemHrdFirstLaunchedApp, 0);
+
 					break;
 
 				case kDlgItemHrdLogging:
@@ -621,6 +1237,9 @@ EmDlgFnResult EmDlg::PrvHordeNew (EmDlgContext& context)
 
 			break;
 		}
+
+		case kDlgCmdDestroy:
+			break;
 
 		case kDlgCmdPanelEnter:
 		case kDlgCmdPanelExit:
@@ -671,39 +1290,39 @@ struct DatabaseImportData
 
 EmDlgFnResult EmDlg::PrvDatabaseImport (EmDlgContext& context)
 {
-	DatabaseImportData*	data = (DatabaseImportData*) context.fUserData;
 	EmDlgRef			dlg = context.fDlg;
+	DatabaseImportData&	data = *(DatabaseImportData*) context.fUserData;
 
 	switch (context.fCommandID)
 	{
 		case kDlgCmdInit:
 		{
-			data->fStream		= NULL;
-			data->fImporter		= NULL;
+			data.fStream		= NULL;
+			data.fImporter		= NULL;
 
 			try
 			{
-				data->fCurrentFile		= 0;
-				data->fStream			= new EmStreamFile (data->fFiles[data->fCurrentFile], kOpenExistingForRead);
-				data->fImporter			= new EmFileImport (*data->fStream, data->fMethod);
-				data->fProgressCurrent	= -1;
-				data->fProgressBase		= 0;
-				data->fProgressMax		= EmFileImport::CalculateProgressMax (data->fFiles, data->fMethod);
-				data->fDoneStart		= 0;
+				data.fCurrentFile		= 0;
+				data.fStream			= new EmStreamFile (data.fFiles[data.fCurrentFile], kOpenExistingForRead);
+				data.fImporter			= new EmFileImport (*data.fStream, data.fMethod);
+				data.fProgressCurrent	= -1;
+				data.fProgressBase		= 0;
+				data.fProgressMax		= EmFileImport::CalculateProgressMax (data.fFiles, data.fMethod);
+				data.fDoneStart		= 0;
 
-				long	remainingFiles	= data->fFiles.size () - data->fCurrentFile;
-				string	curAppName		= data->fFiles[data->fCurrentFile].GetName ();
+				long	remainingFiles	= data.fFiles.size () - data.fCurrentFile;
+				string	curAppName		= data.fFiles[data.fCurrentFile].GetName ();
 
 				EmDlg::SetItemValue	(dlg, kDlgItemImpNumFiles,		remainingFiles);
 //				EmDlg::SetItemText	(dlg, kDlgItemImpCurAppName,	curAppName);
 			}
 			catch (...)
 			{
-				delete data->fImporter;
-				delete data->fStream;
+				delete data.fImporter;
+				delete data.fStream;
 
-				data->fStream		= NULL;
-				data->fImporter		= NULL;
+				data.fStream		= NULL;
+				data.fImporter		= NULL;
 			}
 
 			context.fNeedsIdle = true;
@@ -712,7 +1331,7 @@ EmDlgFnResult EmDlg::PrvDatabaseImport (EmDlgContext& context)
 
 		case kDlgCmdIdle:
 		{
-			if (data->fImporter)
+			if (data.fImporter)
 			{
 				// Prevent against recursion (can occur if we need to display an error dialog).
 
@@ -724,13 +1343,13 @@ EmDlgFnResult EmDlg::PrvDatabaseImport (EmDlgContext& context)
 
 				// Install a little bit of the file.
 
-				ErrCode	err = data->fImporter->Continue ();
+				ErrCode	err = data.fImporter->Continue ();
 
-				// If an error occured, display a dialog.
+				// If an error occurred, display a dialog.
 
 				if (err)
 				{
-					string	curAppName		= data->fFiles[data->fCurrentFile].GetName ();
+					string	curAppName		= data.fFiles[data.fCurrentFile].GetName ();
 					Errors::SetParameter ("%filename", curAppName);
 					Errors::ReportIfError (kStr_CmdInstall, err, 0, false);
 				}
@@ -739,14 +1358,14 @@ EmDlgFnResult EmDlg::PrvDatabaseImport (EmDlgContext& context)
 				// If it changed, update the dialog.
 				else
 				{
-					long	progressCurrent	= data->fImporter->GetProgress ();
-					long	progressMax		= data->fProgressMax;
+					long	progressCurrent	= data.fImporter->GetProgress ();
+					long	progressMax		= data.fProgressMax;
 
-					if (data->fProgressCurrent != progressCurrent)
+					if (data.fProgressCurrent != progressCurrent)
 					{
-						data->fProgressCurrent = progressCurrent;
+						data.fProgressCurrent = progressCurrent;
 
-						progressCurrent += data->fProgressBase;
+						progressCurrent += data.fProgressBase;
 
 						// Scale progressMax to < 32K (progress control on Windows
 						// prefers it that way).
@@ -756,8 +1375,8 @@ EmDlgFnResult EmDlg::PrvDatabaseImport (EmDlgContext& context)
 						progressMax /= divider;
 						progressCurrent /= divider;
 
-						long	remainingFiles	= data->fFiles.size () - data->fCurrentFile;
-						string	curAppName		= data->fFiles[data->fCurrentFile].GetName ();
+						long	remainingFiles	= data.fFiles.size () - data.fCurrentFile;
+						string	curAppName		= data.fFiles[data.fCurrentFile].GetName ();
 
 						EmDlg::SetItemValue	(dlg, kDlgItemImpNumFiles,		remainingFiles);
 //						EmDlg::SetItemText	(dlg, kDlgItemImpCurAppName,	curAppName);
@@ -769,34 +1388,34 @@ EmDlgFnResult EmDlg::PrvDatabaseImport (EmDlgContext& context)
 				// If we're done with this file, clean up, and prepare for any
 				// subsequent files.
 
-				if (data->fImporter->Done ())
+				if (data.fImporter->Done ())
 				{
-					gEmuPrefs->UpdatePRCMRU (data->fFiles[data->fCurrentFile]);
+					gEmuPrefs->UpdatePRCMRU (data.fFiles[data.fCurrentFile]);
 
-					data->fProgressCurrent = -1;
-					data->fProgressBase += data->fImporter->GetProgress ();
+					data.fProgressCurrent = -1;
+					data.fProgressBase += data.fImporter->GetProgress ();
 
-					delete data->fImporter;
-					data->fImporter = NULL;
+					delete data.fImporter;
+					data.fImporter = NULL;
 
-					delete data->fStream;
-					data->fStream = NULL;
+					delete data.fStream;
+					data.fStream = NULL;
 
-					data->fCurrentFile++;
-					if (data->fCurrentFile < (long) data->fFiles.size ())
+					data.fCurrentFile++;
+					if (data.fCurrentFile < (long) data.fFiles.size ())
 					{
 						try
 						{
-							data->fStream	= new EmStreamFile (data->fFiles[data->fCurrentFile], kOpenExistingForRead);
-							data->fImporter	= new EmFileImport (*data->fStream, data->fMethod);
+							data.fStream	= new EmStreamFile (data.fFiles[data.fCurrentFile], kOpenExistingForRead);
+							data.fImporter	= new EmFileImport (*data.fStream, data.fMethod);
 						}
 						catch (...)
 						{
-							delete data->fImporter;
-							delete data->fStream;
+							delete data.fImporter;
+							delete data.fStream;
 
-							data->fStream		= NULL;
-							data->fImporter		= NULL;
+							data.fStream		= NULL;
+							data.fImporter		= NULL;
 						}
 					}
 					else
@@ -804,7 +1423,7 @@ EmDlgFnResult EmDlg::PrvDatabaseImport (EmDlgContext& context)
 						// There are no more files to install.  Initialize our
 						// counter used to delay the closing of the dialog.
 
-						data->fDoneStart = Platform::GetMilliseconds ();
+						data.fDoneStart = Platform::GetMilliseconds ();
 					}
 				}
 
@@ -814,7 +1433,7 @@ EmDlgFnResult EmDlg::PrvDatabaseImport (EmDlgContext& context)
 			// After we're done installing all files, wait a little bit in order to
 			// see the completed progress dialog.
 
-			else if (Platform::GetMilliseconds () - data->fDoneStart > 500)
+			else if (Platform::GetMilliseconds () - data.fDoneStart > 500)
 			{
 				return kDlgResultClose;
 			}
@@ -834,10 +1453,10 @@ EmDlgFnResult EmDlg::PrvDatabaseImport (EmDlgContext& context)
 				case kDlgItemCancel:
 				{
 					if (context.fItemID == kDlgItemCancel)
-						data->fImporter->Cancel ();
+						data.fImporter->Cancel ();
 
-					delete data->fImporter;
-					data->fImporter = NULL;
+					delete data.fImporter;
+					data.fImporter = NULL;
 
 					return kDlgResultClose;
 				}
@@ -853,6 +1472,9 @@ EmDlgFnResult EmDlg::PrvDatabaseImport (EmDlgContext& context)
 
 			break;
 		}
+
+		case kDlgCmdDestroy:
+			break;
 
 		case kDlgCmdPanelEnter:
 		case kDlgCmdPanelExit:
@@ -892,7 +1514,9 @@ EmDlgItemID EmDlg::DoDatabaseImport (const EmFileRefList& files, EmFileImportMet
 	}
 
 	// Stop the session so that the files can be safely loaded.
-	EmSessionStopper	stopper (gSession, kStopOnIdle);
+
+	EmAssert (gSession);
+	EmSessionStopper	stopper (gSession, kStopOnSysCall);
 	if (!stopper.Stopped ())
 		return kDlgItemCancel;
 
@@ -925,7 +1549,7 @@ struct ExportDatbaseData
 };
 
 
-static Bool PrvExportFile (const DatabaseInfo& db)
+Bool EmDlg::PrvExportFile (const DatabaseInfo& db)
 {
 	UInt16			dbAttributes;
 	UInt32			dbType;
@@ -990,8 +1614,8 @@ static Bool PrvExportFile (const DatabaseInfo& db)
 
 EmDlgFnResult EmDlg::PrvDatabaseExport (EmDlgContext& context)
 {
-	ExportDatbaseData*	data = (ExportDatbaseData*) context.fUserData;
 	EmDlgRef			dlg = context.fDlg;
+	ExportDatbaseData&	data = *(ExportDatbaseData*) context.fUserData;
 
 	switch (context.fCommandID)
 	{
@@ -999,12 +1623,12 @@ EmDlgFnResult EmDlg::PrvDatabaseExport (EmDlgContext& context)
 		{
 			// Get the list of installed databases.
 
-			::GetDatabases (data->fAllDatabases, kAllDatabases);
+			::GetDatabases (data.fAllDatabases, kAllDatabases);
 
 			// Add then names of the databases to the list.
 
-			EmDatabaseList::iterator	iter = data->fAllDatabases.begin();
-			while (iter != data->fAllDatabases.end())
+			EmDatabaseList::iterator	iter = data.fAllDatabases.begin();
+			while (iter != data.fAllDatabases.end())
 			{
 				string	itemText (iter->dbName);
 
@@ -1046,9 +1670,9 @@ EmDlgFnResult EmDlg::PrvDatabaseExport (EmDlgContext& context)
 					EmDlgListIndexList::iterator	iter = items.begin ();
 					while (!cancel && iter != items.end ())
 					{
-						DatabaseInfo&	db = data->fAllDatabases[*iter];
+						DatabaseInfo&	db = data.fAllDatabases[*iter];
 
-						cancel = !::PrvExportFile (db);
+						cancel = !EmDlg::PrvExportFile (db);
 
 						++iter;
 					}
@@ -1073,6 +1697,9 @@ EmDlgFnResult EmDlg::PrvDatabaseExport (EmDlgContext& context)
 
 			break;
 		}
+
+		case kDlgCmdDestroy:
+			break;
 
 		case kDlgCmdPanelEnter:
 		case kDlgCmdPanelExit:
@@ -1109,8 +1736,8 @@ EmDlgItemID EmDlg::DoDatabaseExport (void)
 
 EmDlgFnResult EmDlg::PrvReset (EmDlgContext& context)
 {
-	EmResetType*	choice = (EmResetType*) context.fUserData;
 	EmDlgRef		dlg = context.fDlg;
+	EmResetType&	choice = *(EmResetType*) context.fUserData;
 
 	switch (context.fCommandID)
 	{
@@ -1133,21 +1760,21 @@ EmDlgFnResult EmDlg::PrvReset (EmDlgContext& context)
 				{
 					if (EmDlg::GetItemValue (dlg, kDlgItemRstSoft))
 					{
-						*choice = kResetSoft;
+						choice = kResetSoft;
 					}
 					else if (EmDlg::GetItemValue (dlg, kDlgItemRstHard))
 					{
-						*choice = kResetHard;
+						choice = kResetHard;
 					}
 					else
 					{
 						EmAssert (EmDlg::GetItemValue (dlg, kDlgItemRstDebug));
-						*choice = kResetDebug;
+						choice = kResetDebug;
 					}
 
 					if (EmDlg::GetItemValue (dlg, kDlgItemRstNoExt) != 0)
 					{
-						*choice = (EmResetType) ((int) *choice | kResetNoExt);
+						choice = (EmResetType) ((int) choice | kResetNoExt);
 					}
 					// Fall thru...
 				}
@@ -1169,6 +1796,9 @@ EmDlgFnResult EmDlg::PrvReset (EmDlgContext& context)
 
 			break;
 		}
+
+		case kDlgCmdDestroy:
+			break;
 
 		case kDlgCmdPanelEnter:
 		case kDlgCmdPanelExit:
@@ -1203,51 +1833,41 @@ EmDlgItemID EmDlg::DoReset (EmResetType& type)
 
 struct ROMTransferQueryData
 {
-	StringList				fPortNameList;
-	EmTransport::Config**	fConfig;
+#if !PLATFORM_UNIX
+	EmTransportDescriptorList	fPortNameList;
+#endif
+	EmTransport::Config**		fConfig;
 };
 
 
-static void PrvGetDlqPortItemList (StringList& menuItems)
+#if !PLATFORM_UNIX
+void EmDlg::PrvGetDlqPortItemList (EmTransportDescriptorList& menuItems)
 {
-	menuItems.clear ();
+	EmTransportDescriptorList	descListSerial;
+	EmTransportDescriptorList	descListUSB;
 
-	// Add the serial ports.
+	EmTransportSerial::GetDescriptorList (descListSerial);
+	EmTransportUSB::GetDescriptorList (descListUSB);
 
-	{
-		EmTransportSerial::PortNameList	names;
-		EmTransportSerial::GetPortNameList (names);
-
-		EmTransportSerial::PortNameList::iterator	iter = names.begin ();
-		while (iter != names.end ())
-		{
-			menuItems.push_back (string (*iter));
-			++iter;
-		}
-	}
-
-#if 0 && !PLATFORM_UNIX
-	// Add the USB ports.
-
-	{
-		EmTransportUSB::PortNameList	names;
-		EmTransportUSB::GetPortNameList (names);
-
-		if (names.size () > 0)
-		{
-			menuItems.push_back ("");
-		}
-
-		EmTransportUSB::PortNameList::iterator	iter = names.begin ();
-		while (iter != names.end ())
-		{
-			menuItems.push_back (string (*iter));
-			++iter;
-		}
-	}
-#endif
+	::PrvAppendDescriptors (menuItems, descListSerial);
+	::PrvAppendDescriptors (menuItems, descListUSB);
 }
+#endif
 
+
+void EmDlg::PrvConvertBaudListToStrings (const EmTransportSerial::BaudList& baudList,
+									StringList& baudStrList)
+{
+	EmTransportSerial::BaudList::const_iterator	iter = baudList.begin();
+	while (iter != baudList.end())
+	{
+		char	buffer[20];
+		::FormatInteger (buffer, *iter);
+		strcat (buffer, " bps");
+		baudStrList.push_back (buffer);
+		++iter;
+	}
+}
 
 EmDlgFnResult EmDlg::PrvROMTransferQuery (EmDlgContext& context)
 {
@@ -1266,15 +1886,15 @@ EmDlgFnResult EmDlg::PrvROMTransferQuery (EmDlgContext& context)
 #if PLATFORM_UNIX
 			EmDlg::SetItemText (dlg, kDlgItemDlqPortList, "/dev/ttyS0");
 #else
-			EmDlg::AppendToMenu (dlg, kDlgItemDlqPortList, data.fPortNameList);
-			EmDlg::SetItemValue (dlg, kDlgItemDlqPortList, 0);
+			Preference<string>	pref (kPrefKeyPortDownload);
+			::PrvAppendMenuItems (dlg, kDlgItemDlqPortList, data.fPortNameList, *pref);
 #endif
 
 			EmTransportSerial::BaudList		baudList;
 			EmTransportSerial::GetSerialBaudList (baudList);
 
 			StringList		baudStrList;
-			::PrvConvertBaudListToStrings (baudList, baudStrList);
+			EmDlg::PrvConvertBaudListToStrings (baudList, baudStrList);
 
 			EmDlg::AppendToMenu (dlg, kDlgItemDlqBaudList, baudStrList);
 			EmDlg::SetItemValue (dlg, kDlgItemDlqBaudList, 0);		// 115K baud
@@ -1312,14 +1932,16 @@ EmDlgFnResult EmDlg::PrvROMTransferQuery (EmDlgContext& context)
 					// Get the selected settings.
 
 #if PLATFORM_UNIX
-					string	portName = EmDlg::GetItemText (dlg, kDlgItemDlqPortList);
+					string					portName	= EmDlg::GetItemText (dlg, kDlgItemDlqPortList);
+					EmTransportDescriptor	portDesc (portName);
 #else
-					long	portNum		= EmDlg::GetItemValue (dlg, kDlgItemDlqPortList);
-					string	portName	= data.fPortNameList [portNum];
+					long					portNum		= EmDlg::GetItemValue (dlg, kDlgItemDlqPortList);
+					EmTransportDescriptor	portDesc	= data.fPortNameList [portNum];
+					string					portName	= portDesc.GetSchemeSpecific ();
 #endif
 
 					EmTransportType transportType;	
-					transportType = EmTransport::GetTransportTypeFromPortName (portName.c_str ());
+					transportType = portDesc.GetType ();
 
 					switch (transportType)
 					{
@@ -1354,7 +1976,11 @@ EmDlgFnResult EmDlg::PrvROMTransferQuery (EmDlgContext& context)
 						}
 
 						case kTransportSocket:
-						case kTransportNone:
+						case kTransportNull:
+							break;
+
+						case kTransportUnknown:
+							EmAssert (false);
 							break;
 					}
 
@@ -1378,6 +2004,9 @@ EmDlgFnResult EmDlg::PrvROMTransferQuery (EmDlgContext& context)
 			break;
 		}
 
+		case kDlgCmdDestroy:
+			break;
+
 		case kDlgCmdPanelEnter:
 		case kDlgCmdPanelExit:
 		case kDlgCmdNone:
@@ -1396,13 +2025,15 @@ EmDlgItemID EmDlg::DoROMTransferQuery (EmTransport::Config*& config)
 	ROMTransferQueryData	data;
 	data.fConfig = &config;
 
+#if !PLATFORM_UNIX
 	// Generate the list here, and do it just once.  It's important to
 	// do it just once, as the list of ports could possibly change between
 	// the time they're added to the menu and the time one is chosen to
 	// be returned.  This could happen, for example, on the Mac where
 	// opening a USB connection creates a new "virtual" serial port.
 
-	::PrvGetDlqPortItemList (data.fPortNameList);
+	EmDlg::PrvGetDlqPortItemList (data.fPortNameList);
+#endif
 
 	return EmDlg::RunDialog (EmDlg::PrvROMTransferQuery, &data, kDlgROMTransferQuery);
 }
@@ -1425,7 +2056,7 @@ EmDlgItemID EmDlg::DoROMTransferQuery (EmTransport::Config*& config)
 EmDlgFnResult EmDlg::PrvROMTransferProgress (EmDlgContext& context)
 {
 	EmDlgRef		dlg = context.fDlg;
-	EmROMTransfer*	transferer = (EmROMTransfer*) context.fUserData;
+	EmROMTransfer&	transferer = *(EmROMTransfer*) context.fUserData;
 
 	switch (context.fCommandID)
 	{
@@ -1439,7 +2070,7 @@ EmDlgFnResult EmDlg::PrvROMTransferProgress (EmDlgContext& context)
 		{
 			try
 			{
-				if (!transferer->Continue (dlg))
+				if (!transferer.Continue (dlg))
 					return kDlgResultClose;
 			}
 			catch (ErrCode /*err*/)
@@ -1462,7 +2093,7 @@ EmDlgFnResult EmDlg::PrvROMTransferProgress (EmDlgContext& context)
 
 				case kDlgItemCancel:
 				{
-					transferer->Abort (dlg);
+					transferer.Abort (dlg);
 					return kDlgResultClose;
 				}
 
@@ -1472,6 +2103,9 @@ EmDlgFnResult EmDlg::PrvROMTransferProgress (EmDlgContext& context)
 
 			break;
 		}
+
+		case kDlgCmdDestroy:
+			break;
 
 		case kDlgCmdPanelEnter:
 		case kDlgCmdPanelExit:
@@ -1490,45 +2124,6 @@ EmDlgItemID EmDlg::DoROMTransferProgress (EmROMTransfer& transferer)
 }
 
 
-/***********************************************************************
- *
- * FUNCTION:	GremlinControlOpen
- *
- * DESCRIPTION:	
- *
- * PARAMETERS:	None
- *
- * RETURNED:	Nothing
- *
- ***********************************************************************/
-
-
-/***********************************************************************
- *
- * FUNCTION:	GremlinControlUpdate
- *
- * DESCRIPTION:	
- *
- * PARAMETERS:	None
- *
- * RETURNED:	Nothing
- *
- ***********************************************************************/
-
-
-/***********************************************************************
- *
- * FUNCTION:	GremlinControlClose
- *
- * DESCRIPTION:	
- *
- * PARAMETERS:	None
- *
- * RETURNED:	Nothing
- *
- ***********************************************************************/
-
-
 #pragma mark -
 
 /***********************************************************************
@@ -1543,187 +2138,81 @@ EmDlgItemID EmDlg::DoROMTransferProgress (EmROMTransfer& transferer)
  *
  ***********************************************************************/
 
-#if !PLATFORM_UNIX
-// Returns the list of menu items to be installed in the kDlgItemPrfPort
-// popup menu.  However, on Unix, this dialog item is an edit text item,
-// not a menu.  Therefore, this function is not called and not needed.
-
-static void PrvGetPrefPortItemList (StringList& menuItems)
+struct EditPreferencesData
 {
-	menuItems.clear ();
+	EmTransportDescriptor		prefPortSerial;			// Selected menu item for serial
+	EmTransportDescriptor		prefPortIR;				// Selected menu item for IR
+	EmTransportDescriptor		prefPortMystery;		// Selected menu item for Mystery
+	bool						prefRedirectNetLib;
+	bool						prefEnableSounds;
+	CloseActionType				prefCloseAction;
+	string						prefUserName;
 
-	// Start off with the "No Port" item.
+#if !PLATFORM_UNIX
+	string						prefPortSerialSocket;	// Socket address for serial
+	string						prefPortIRSocket;		// Socket address for serial
 
-	menuItems.push_back (Platform::GetString (kStr_NoPort));
-
-	// Add the serial ports.
-
-	{
-		EmTransportSerial::PortNameList	names;
-		EmTransportSerial::GetPortNameList (names);
-
-		if (names.size () > 0)
-		{
-			menuItems.push_back ("");
-		}
-
-		EmTransportSerial::PortNameList::iterator	iter = names.begin ();
-		while (iter != names.end ())
-		{
-			menuItems.push_back (string (*iter));
-			++iter;
-		}
-	}
-
-	// Add the TCP ports.
-
-	{
-		EmTransportSocket::PortNameList	names;
-		EmTransportSocket::GetPortNameList (names);
-
-		if (names.size () > 0)
-		{
-			menuItems.push_back ("");
-		}
-
-		EmTransportSocket::PortNameList::iterator	iter = names.begin ();
-		while (iter != names.end ())
-		{
-			menuItems.push_back (string (*iter));
-			++iter;
-		}
-	}
-}
+	EmTransportDescriptorList	menuItemsSerial;		// Built-up menu for serial
+	EmTransportDescriptorList	menuItemsIR;			// Built-up menu for IR
+	EmTransportDescriptorList	menuItemsMystery;		// Built-up menu for Mystery
 #endif
+};
 
+
+void EmDlg::PrvEditPrefToDialog (EmDlgContext& context)
+{
+	EmDlgRef				dlg		= context.fDlg;
+	EditPreferencesData&	data	= *(EditPreferencesData*) context.fUserData;
 
 #if !PLATFORM_UNIX
-// This function is responsible for updating kDlgItemPrfTarget (which
-// is an edit-text item) when the user selects TCP in the kDlgItemPrfPort
-// item (which is a menu).
-//
-// However, on Unix, kDlgPrfPort is an edit-text item, and there is no
-// kDlgItemPrfTarget.  Therefore, this routine should not be used on Unix.
-
-static void PrvUpdateSocketEdit (EmDlgContext& context)
-{
-	EmDlgRef		dlg = context.fDlg;
-
-	long			selectedItem = EmDlg::GetItemValue (dlg, kDlgItemPrfPort);
-
-	StringList		menuItems;
-	::PrvGetPrefPortItemList (menuItems);
-
-	EmAssert (selectedItem >= 0 && selectedItem < (long) menuItems.size ());
-
-	string			selectedItemText = menuItems[selectedItem];
-
-	EmAssert (!selectedItemText.empty ());
-
-	EmTransportType	type = EmTransport::GetTransportTypeFromPortName (selectedItemText.c_str ());
-	Bool			tcpSelected = type == kTransportSocket;
-
-	EmDlg::EnableDisableItem (dlg, kDlgItemPrfTarget, tcpSelected);
-}
-#endif
-
-
-static void PrvEditPreferencesInit (EmDlgContext& context)
-{
-	EmDlgRef	dlg = context.fDlg;
-
-#if !PLATFORM_UNIX
-	// ------------------------------------------------------------
-	// Set up the port menu.
-	// ------------------------------------------------------------
-
-	Preference<string>		prefCommPort (kPrefKeyCommPort);
-
-	// Populate the menu.
-
-	StringList	menuItems;
-	::PrvGetPrefPortItemList (menuItems);
-	EmDlg::AppendToMenu (dlg, kDlgItemPrfPort, menuItems);
-
-	// Select the correct menu item.
-
-	StringList::iterator	iter = menuItems.begin ();
-	while (iter != menuItems.end ())
-	{
-		if (!iter->empty () && *iter == *prefCommPort)
-		{
-			EmDlg::SetItemValue (dlg, kDlgItemPrfPort,
-									iter - menuItems.begin ());
-
-			break;
-		}
-
-		++iter;
-	}
-
-	// If we couldn't find a menu item to select,
-	// pick a default.
-
-	if (iter == menuItems.end ())
-	{
-		EmDlg::SetItemValue (dlg, kDlgItemPrfPort, 0);
-	}
-
 
 	// ------------------------------------------------------------
-	// Set up the TCP target edit text item.  Enable or disable
-	// it as appropriate.
+	// Set up the port menus.
 	// ------------------------------------------------------------
 
-	Preference<string>			prefSerialTargetHost (kPrefKeySerialTargetHost);
-	Preference<string>			prefSerialTargetPort (kPrefKeySerialTargetPort);
+	EmDlg::ClearMenu (dlg, kDlgItemPrfRedirectSerial);
+	EmDlg::ClearMenu (dlg, kDlgItemPrfRedirectIR);
+	EmDlg::ClearMenu (dlg, kDlgItemPrfRedirectMystery);
 
-	string	serialTarget (*prefSerialTargetHost + ":" + *prefSerialTargetPort);
-	EmDlg::SetItemText (dlg, kDlgItemPrfTarget, serialTarget);
-	::PrvUpdateSocketEdit (context);
+	::PrvAppendMenuItems (dlg, kDlgItemPrfRedirectSerial,	data.menuItemsSerial,	data.prefPortSerial,	data.prefPortSerialSocket);
+	::PrvAppendMenuItems (dlg, kDlgItemPrfRedirectIR,		data.menuItemsIR,		data.prefPortIR,		data.prefPortIRSocket);
+	::PrvAppendMenuItems (dlg, kDlgItemPrfRedirectMystery,	data.menuItemsMystery,	data.prefPortMystery);
+
+	// IR emulation appears to be consistantly flaky no matter what's
+	// used for the underlying transport (local TCP, serial, etc.).
+	// So always disable it for now, until we can figure out why it's
+	// flakey and can work around it.
+
+	EmDlg::DisableItem (dlg, kDlgItemPrfRedirectIR);
+
 #else
+
 	// ------------------------------------------------------------
-	// Set up the port text item.
+	// Set up the port text items.
 	// ------------------------------------------------------------
 
-	Preference<string>		prefCommPort (kPrefKeyCommPort);
+	EmDlg::SetItemText (dlg, kDlgItemPrfRedirectSerial,		data.prefPortSerial.GetMenuName ());
+	EmDlg::SetItemText (dlg, kDlgItemPrfRedirectIR,			data.prefPortIR.GetMenuName ());
+	EmDlg::SetItemText (dlg, kDlgItemPrfRedirectMystery,	data.prefPortMystery.GetMenuName ());
 
-	if (strcmp (prefCommPort->c_str (), "TCP") != 0)
-	{
-		EmDlg::SetItemText (dlg, kDlgItemPrfPort, *prefCommPort);
-	}
-	else
-	{
-		Preference<string>			prefSerialTargetHost (kPrefKeySerialTargetHost);
-		Preference<string>			prefSerialTargetPort (kPrefKeySerialTargetPort);
-
-		string	serialTarget (*prefSerialTargetHost + ":" + *prefSerialTargetPort);
-		EmDlg::SetItemText (dlg, kDlgItemPrfPort, serialTarget);
-	}
 #endif
 
 	// ------------------------------------------------------------
-	// Set up the NetLib Redirect and Enable Sounds checkboxes.
+	// Set up the Redirect NetLib and Enable Sounds checkboxes.
 	// ------------------------------------------------------------
 
-	Preference<bool>			prefRedirectNetLib (kPrefKeyRedirectNetLib);
-	Preference<bool>			prefEnableSounds (kPrefKeyEnableSounds);
-
-	EmDlg::SetItemValue (dlg, kDlgItemPrfRedirect, *prefRedirectNetLib);
-	EmDlg::SetItemValue (dlg, kDlgItemPrfEnableSound, *prefEnableSounds);
-
+	EmDlg::SetItemValue (dlg, kDlgItemPrfRedirectNetLib, data.prefRedirectNetLib);
+	EmDlg::SetItemValue (dlg, kDlgItemPrfEnableSound, data.prefEnableSounds);
 
 	// ------------------------------------------------------------
 	// Set up the Close Action radio buttons.
 	// ------------------------------------------------------------
 
-	Preference<CloseActionType>	prefCloseAction (kPrefKeyCloseAction);
-
-	if (*prefCloseAction == kSaveAlways)
+	if (data.prefCloseAction == kSaveAlways)
 	{
 		EmDlg::SetItemValue (dlg, kDlgItemPrfSaveAlways, 1);
 	}
-	else if (*prefCloseAction == kSaveAsk)
+	else if (data.prefCloseAction == kSaveAsk)
 	{
 		EmDlg::SetItemValue (dlg, kDlgItemPrfSaveAsk, 1);
 	}
@@ -1732,23 +2221,180 @@ static void PrvEditPreferencesInit (EmDlgContext& context)
 		EmDlg::SetItemValue (dlg, kDlgItemPrfSaveNever, 1);
 	}
 
-
 	// ------------------------------------------------------------
 	// Set up the HotSync User Name edit text item.
 	// ------------------------------------------------------------
 
-	Preference<string>			prefUserName (kPrefKeyUserName);
-
-	EmDlg::SetItemText (dlg, kDlgItemPrfUserName, *prefUserName);
+	EmDlg::SetItemText (dlg, kDlgItemPrfUserName, data.prefUserName);
 }
 
 
-static Bool PrvEditPreferencesValidate (EmDlgContext& context)
+void EmDlg::PrvEditPrefFromDialog (EmDlgContext& context)
 {
-	EmDlgRef	dlg = context.fDlg;
-	string		userName = EmDlg::GetItemText (dlg, kDlgItemPrfUserName);
+	EmDlgRef				dlg		= context.fDlg;
+	EditPreferencesData&	data	= *(EditPreferencesData*) context.fUserData;
 
-	if (userName.size () > dlkMaxUserNameLength)
+#if !PLATFORM_UNIX
+
+	// ------------------------------------------------------------
+	// Save the port settings.
+	// ------------------------------------------------------------
+
+	data.prefPortSerial		= data.menuItemsSerial	[EmDlg::GetItemValue (dlg, kDlgItemPrfRedirectSerial)];
+	data.prefPortIR			= data.menuItemsIR		[EmDlg::GetItemValue (dlg, kDlgItemPrfRedirectIR)];
+	data.prefPortMystery	= data.menuItemsMystery	[EmDlg::GetItemValue (dlg, kDlgItemPrfRedirectMystery)];
+
+#else
+
+	// ------------------------------------------------------------
+	// Save the port settings.
+	// ------------------------------------------------------------
+
+	data.prefPortSerial		= EmDlg::GetItemText (dlg, kDlgItemPrfRedirectSerial);
+	data.prefPortIR			= EmDlg::GetItemText (dlg, kDlgItemPrfRedirectIR);
+	data.prefPortMystery	= EmDlg::GetItemText (dlg, kDlgItemPrfRedirectMystery);
+
+#endif
+
+	// ------------------------------------------------------------
+	// Save the Redirect NetLib and  Enable Sounds settings.
+	// ------------------------------------------------------------
+
+	data.prefRedirectNetLib	= EmDlg::GetItemValue (dlg, kDlgItemPrfRedirectNetLib) != 0;
+	data.prefEnableSounds	= EmDlg::GetItemValue (dlg, kDlgItemPrfEnableSound) != 0;
+
+	// ------------------------------------------------------------
+	// Save the Close Action settings.
+	// ------------------------------------------------------------
+
+	if (EmDlg::GetItemValue (dlg, kDlgItemPrfSaveAlways) != 0)
+	{
+		data.prefCloseAction = kSaveAlways;
+	}
+	else if (EmDlg::GetItemValue (dlg, kDlgItemPrfSaveAsk) != 0)
+	{
+		data.prefCloseAction = kSaveAsk;
+	}
+	else
+	{
+		data.prefCloseAction = kSaveNever;
+	}
+
+	// ------------------------------------------------------------
+	// Save the HotSync User Name setting.
+	// ------------------------------------------------------------
+
+	data.prefUserName = EmDlg::GetItemText (dlg, kDlgItemPrfUserName);
+}
+
+
+#if !PLATFORM_UNIX
+
+// Build up descriptors lists for each menu.
+
+void EmDlg::PrvBuildDescriptorLists (EmDlgContext& context)
+{
+	EditPreferencesData&	data = *(EditPreferencesData*) context.fUserData;
+
+	EmTransportDescriptorList	descListNull;
+	EmTransportDescriptorList	descListSerial;
+	EmTransportDescriptorList	descListSocket;
+
+	EmTransportNull::GetDescriptorList (descListNull);
+	EmTransportSerial::GetDescriptorList (descListSerial);
+	EmTransportSocket::GetDescriptorList (descListSocket);
+
+	data.menuItemsSerial.clear ();
+	data.menuItemsIR.clear ();
+	data.menuItemsMystery.clear ();
+
+	::PrvAppendDescriptors (data.menuItemsSerial, descListNull);
+	::PrvAppendDescriptors (data.menuItemsSerial, descListSerial);
+	::PrvAppendDescriptors (data.menuItemsSerial, descListSocket);
+
+	::PrvAppendDescriptors (data.menuItemsIR, descListNull);
+	::PrvAppendDescriptors (data.menuItemsIR, descListSerial);
+	::PrvAppendDescriptors (data.menuItemsIR, descListSocket);
+
+	::PrvAppendDescriptors (data.menuItemsMystery, descListNull);
+	::PrvAppendDescriptors (data.menuItemsMystery, descListSerial);
+}
+
+#endif	// !UNIX
+
+
+// Transfer the preferences into local variables so that we can
+// change them with impunity.  Also build up some menu lists.
+
+void EmDlg::PrvGetEditPreferences (EmDlgContext& context)
+{
+	EditPreferencesData&	data = *(EditPreferencesData*) context.fUserData;
+
+	Preference<EmTransportDescriptor>	prefPortSerial		(kPrefKeyPortSerial);
+	Preference<EmTransportDescriptor>	prefPortIR			(kPrefKeyPortIR);
+	Preference<EmTransportDescriptor>	prefPortMystery		(kPrefKeyPortMystery);
+	Preference<bool>					prefRedirectNetLib	(kPrefKeyRedirectNetLib);
+	Preference<bool>					prefEnableSounds	(kPrefKeyEnableSounds);
+	Preference<CloseActionType>			prefCloseAction		(kPrefKeyCloseAction);
+	Preference<string>					prefUserName		(kPrefKeyUserName);
+
+	Preference<string>					prefPortSerialSocket(kPrefKeyPortSerialSocket);
+	Preference<string>					prefPortIRSocket	(kPrefKeyPortIRSocket);
+
+	data.prefPortSerial			= *prefPortSerial;
+	data.prefPortIR				= *prefPortIR;
+	data.prefPortMystery		= *prefPortMystery;
+	data.prefRedirectNetLib		= *prefRedirectNetLib;
+	data.prefEnableSounds		= *prefEnableSounds;
+	data.prefCloseAction		= *prefCloseAction;
+	data.prefUserName			= *prefUserName;
+
+#if !PLATFORM_UNIX
+	data.prefPortSerialSocket	= *prefPortSerialSocket;
+	data.prefPortIRSocket		= *prefPortIRSocket;
+
+	EmDlg::PrvBuildDescriptorLists (context);
+#endif
+}
+
+
+// Transfer our update preferences back to the Preferences system.
+
+void EmDlg::PrvPutEditPreferences (EmDlgContext& context)
+{
+	EditPreferencesData&	data = *(EditPreferencesData*) context.fUserData;
+
+	Preference<EmTransportDescriptor>	prefPortSerial		(kPrefKeyPortSerial);
+	Preference<EmTransportDescriptor>	prefPortIR			(kPrefKeyPortIR);
+	Preference<EmTransportDescriptor>	prefPortMystery		(kPrefKeyPortMystery);
+	Preference<bool>					prefRedirectNetLib	(kPrefKeyRedirectNetLib);
+	Preference<bool>					prefEnableSounds	(kPrefKeyEnableSounds);
+	Preference<CloseActionType>			prefCloseAction		(kPrefKeyCloseAction);
+	Preference<string>					prefUserName		(kPrefKeyUserName);
+
+	Preference<string>					prefPortSerialSocket(kPrefKeyPortSerialSocket);
+	Preference<string>					prefPortIRSocket	(kPrefKeyPortIRSocket);
+
+	prefPortSerial			= data.prefPortSerial;
+	prefPortIR				= data.prefPortIR;
+	prefPortMystery			= data.prefPortMystery;
+	prefRedirectNetLib		= data.prefRedirectNetLib;
+	prefEnableSounds		= data.prefEnableSounds;
+	prefCloseAction			= data.prefCloseAction;
+	prefUserName			= data.prefUserName;
+
+#if !PLATFORM_UNIX
+	prefPortSerialSocket	= data.prefPortSerialSocket;
+	prefPortIRSocket		= data.prefPortIRSocket;
+#endif
+}
+
+
+Bool EmDlg::PrvEditPreferencesValidate (EmDlgContext& context)
+{
+	EditPreferencesData&	data	= *(EditPreferencesData*) context.fUserData;
+
+	if (data.prefUserName.size () > dlkMaxUserNameLength)
 	{
 		EmDlg::DoCommonDialog (kStr_UserNameTooLong, kDlgFlags_OK);
 		return false;
@@ -1758,127 +2404,66 @@ static Bool PrvEditPreferencesValidate (EmDlgContext& context)
 }
 
 
-static Bool PrvEditPreferencesCommit (EmDlgContext& context)
-{
-	EmDlgRef	dlg = context.fDlg;
-
-	// Make sure all the preferences are something we can live with.
-
-	if (!::PrvEditPreferencesValidate (context))
-		return false;
-
 #if !PLATFORM_UNIX
-	// ------------------------------------------------------------
-	// Save the serial port settings.
-	// ------------------------------------------------------------
-	
-	long	selectedPort = EmDlg::GetItemValue (dlg, kDlgItemPrfPort);
+// Fetch an IP address from the user, store it in the appropriate
+// field, and rebuild the menus.
 
-	StringList	menuItems;
-	::PrvGetPrefPortItemList (menuItems);
+void EmDlg::PrvGetPrefSocketAddress (EmDlgContext& context)
+{
+	EmAssert ((context.fItemID == kDlgItemPrfRedirectSerial) ||
+		(context.fItemID == kDlgItemPrfRedirectIR));
 
-	Preference<string>			prefCommPort (kPrefKeyCommPort);
-	prefCommPort = menuItems[selectedPort];
+	EmDlgRef				dlg		= context.fDlg;
+	EditPreferencesData&	data	= *(EditPreferencesData*) context.fUserData;
 
-	// Get the (host, port) target for serial over tcp redirection
+	// Move current settings into our local data.
 
-	Preference<string>			prefSerialTargetHost (kPrefKeySerialTargetHost);
-	Preference<string>			prefSerialTargetPort (kPrefKeySerialTargetPort);
+	EmDlg::PrvEditPrefFromDialog (context);
 
-	string						target = EmDlg::GetItemText (dlg, kDlgItemPrfTarget);
-	string::size_type			pos = target.find (':');
+	// Figure out which descriptor was selected.
 
-	if (pos != string::npos)
+	string					address;
+	EmTransportDescriptor	selectedDesc;
+
+	if (context.fItemID == kDlgItemPrfRedirectSerial)
 	{
-		prefSerialTargetHost = target.substr (0, pos);
-		prefSerialTargetPort = target.substr (pos + 1);
+		address			= data.prefPortSerialSocket;
+		selectedDesc	= data.menuItemsSerial [EmDlg::GetItemValue (dlg, context.fItemID)];
 	}
-	else
+	else if (context.fItemID == kDlgItemPrfRedirectIR)
 	{
-		// !!! Target is invalid?
+		address			= data.prefPortIRSocket;
+		selectedDesc	= data.menuItemsIR [EmDlg::GetItemValue (dlg, context.fItemID)];
 	}
-#else
-	// ------------------------------------------------------------
-	// Save the serial port settings.
-	// ------------------------------------------------------------
 
-	Preference<string>			prefCommPort (kPrefKeyCommPort);
-	string						port = EmDlg::GetItemText (dlg, kDlgItemPrfPort);
+	// If it was for the socket menu item, get the address.
 
-	EmTransportType transportType;	
-	transportType = EmTransport::GetTransportTypeFromPortName (port.c_str ());
-
-	if (transportType == kTransportSerial)
+	if (selectedDesc.GetType () == kTransportSocket)
 	{
-		prefCommPort = port;
-	}
-	else
-	{
-		prefCommPort = string ("TCP");
+		EmDlgItemID	item = EmDlg::DoGetSocketAddress (address);
 
-		Preference<string>			prefSerialTargetHost (kPrefKeySerialTargetHost);
-		Preference<string>			prefSerialTargetPort (kPrefKeySerialTargetPort);
-
-		string						target = port;
-		string::size_type			pos = target.find (':');
-
-		if (pos != string::npos)
+		if (item == kDlgItemOK)
 		{
-			prefSerialTargetHost = target.substr (0, pos);
-			prefSerialTargetPort = target.substr (pos + 1);
-		}
-		else
-		{
-			// !!! Target is invalid?
+			EmTransportDescriptor	prefDesc = EmTransportDescriptor (
+				selectedDesc.GetScheme () + ":" + address);
+
+			if (context.fItemID == kDlgItemPrfRedirectSerial)
+			{
+				data.prefPortSerial			= prefDesc;
+				data.prefPortSerialSocket	= address;
+			}
+			else if (context.fItemID == kDlgItemPrfRedirectIR)
+			{
+				data.prefPortIR			= prefDesc;
+				data.prefPortIRSocket	= address;
+			}
+
+			EmDlg::PrvBuildDescriptorLists (context);
+			EmDlg::PrvEditPrefToDialog (context);
 		}
 	}
-#endif
-
-	// ------------------------------------------------------------
-	// Save the NetLib Redirect and Enable Sounds settings.
-	// ------------------------------------------------------------
-
-	Preference<bool>			prefRedirectNetLib (kPrefKeyRedirectNetLib);
-	Preference<bool>			prefEnableSounds (kPrefKeyEnableSounds);
-
-	prefRedirectNetLib	= EmDlg::GetItemValue (dlg, kDlgItemPrfRedirect) != 0;
-	prefEnableSounds	= EmDlg::GetItemValue (dlg, kDlgItemPrfEnableSound) != 0;
-
-
-	// ------------------------------------------------------------
-	// Save the Close Action settings.
-	// ------------------------------------------------------------
-
-	Preference<CloseActionType>	prefCloseAction (kPrefKeyCloseAction);
-
-	if (EmDlg::GetItemValue (dlg, kDlgItemPrfSaveAlways) != 0)
-	{
-		prefCloseAction = kSaveAlways;
-	}
-	else if (EmDlg::GetItemValue (dlg, kDlgItemPrfSaveAsk) != 0)
-	{
-		prefCloseAction = kSaveAsk;
-	}
-	else
-	{
-		prefCloseAction = kSaveNever;
-	}
-
-
-	// ------------------------------------------------------------
-	// Save the HotSync User Name setting.
-	// ------------------------------------------------------------
-
-	Preference<string>			prefUserName (kPrefKeyUserName);
-
-	prefUserName = EmDlg::GetItemText (dlg, kDlgItemPrfUserName);
-
-
-	// Say that everything was valid and the dialog box can be closed.
-
-	return true;
 }
-
+#endif
 
 EmDlgFnResult EmDlg::PrvEditPreferences (EmDlgContext& context)
 {
@@ -1886,7 +2471,8 @@ EmDlgFnResult EmDlg::PrvEditPreferences (EmDlgContext& context)
 	{
 		case kDlgCmdInit:
 		{
-			::PrvEditPreferencesInit (context);
+			EmDlg::PrvGetEditPreferences (context);
+			EmDlg::PrvEditPrefToDialog (context);
 			break;
 		}
 
@@ -1901,21 +2487,26 @@ EmDlgFnResult EmDlg::PrvEditPreferences (EmDlgContext& context)
 			{
 				case kDlgItemOK:
 				{
-					if (!::PrvEditPreferencesCommit (context))
-					{
+					// Make sure all the preferences are something we can live with.
+
+					EmDlg::PrvEditPrefFromDialog (context);
+					if (!EmDlg::PrvEditPreferencesValidate (context))
 						break;
-					}
+
+					// Save the preferences.
+
+					EmDlg::PrvPutEditPreferences (context);
 
 					// Update the emulated environment with the
 					// new preferences.
 
-					if (gSession && Patches::UIInitialized ())
+					if (gSession && EmPatchState::UIInitialized ())
 					{
-						EmSessionStopper stopper (gSession, kStopNow);
+						EmSessionStopper stopper (gSession, kStopOnSysCall);
 						if (stopper.Stopped ())
 						{
-							Preference<string>	prefUserName (kPrefKeyUserName);
-							::SetHotSyncUserName (prefUserName->c_str ());
+							EditPreferencesData&	data = *(EditPreferencesData*) context.fUserData;
+							::SetHotSyncUserName (data.prefUserName.c_str ());
 
 							// Update the transports used for UART emulation.
 
@@ -1931,14 +2522,15 @@ EmDlgFnResult EmDlg::PrvEditPreferences (EmDlgContext& context)
 					return kDlgResultClose;
 				}
 
-				case kDlgItemPrfPort:
+				case kDlgItemPrfRedirectSerial:
+				case kDlgItemPrfRedirectIR:
 #if !PLATFORM_UNIX
-					::PrvUpdateSocketEdit (context);
+					EmDlg::PrvGetPrefSocketAddress (context);
 #endif
 					break;
 
-				case kDlgItemPrfTarget:
-				case kDlgItemPrfRedirect:
+				case kDlgItemPrfRedirectMystery:
+				case kDlgItemPrfRedirectNetLib:
 				case kDlgItemPrfEnableSound:
 				case kDlgItemPrfSaveAlways:
 				case kDlgItemPrfSaveAsk:
@@ -1953,6 +2545,9 @@ EmDlgFnResult EmDlg::PrvEditPreferences (EmDlgContext& context)
 			break;
 		}
 
+		case kDlgCmdDestroy:
+			break;
+
 		case kDlgCmdPanelEnter:
 		case kDlgCmdPanelExit:
 		case kDlgCmdNone:
@@ -1966,9 +2561,13 @@ EmDlgFnResult EmDlg::PrvEditPreferences (EmDlgContext& context)
 
 EmDlgItemID EmDlg::DoEditPreferences (void)
 {
-	EmDlgID	dlgID = ::IsBoundFully () ? kDlgEditPreferencesFullyBound : kDlgEditPreferences;
+	EditPreferencesData	data;
 
-	return EmDlg::RunDialog (EmDlg::PrvEditPreferences, NULL, dlgID);
+	EmDlgID	dlgID = gApplication->IsBoundFully ()
+		? kDlgEditPreferencesFullyBound
+		: kDlgEditPreferences;
+
+	return EmDlg::RunDialog (EmDlg::PrvEditPreferences, &data, dlgID);
 }
 
 
@@ -2000,7 +2599,7 @@ struct EditLoggingOptionsData
 };
 
 
-static void PrvFetchLoggingPrefs (EmDlgContext& context)
+void EmDlg::PrvFetchLoggingPrefs (EmDlgContext& context)
 {
 	// Transfer all of the logging values from the preferences
 	// to our local storage.
@@ -2018,8 +2617,10 @@ static void PrvFetchLoggingPrefs (EmDlgContext& context)
 }
 
 
-static void PrvInstallLoggingPrefs (EmDlgContext& context)
+void EmDlg::PrvInstallLoggingPrefs (EmDlgContext& context)
 {
+	EmSessionStopper	stopper (gSession, kStopNow);
+
 	// Transfer all of the logging values from our local
 	// storages to the preferences system.
 
@@ -2036,7 +2637,7 @@ static void PrvInstallLoggingPrefs (EmDlgContext& context)
 }
 
 
-static void PrvLoggingPrefsToButtons (EmDlgContext& context)
+void EmDlg::PrvLoggingPrefsToButtons (EmDlgContext& context)
 {
 	// Set the buttons in the current panel.
 
@@ -2051,7 +2652,7 @@ static void PrvLoggingPrefsToButtons (EmDlgContext& context)
 }
 
 
-static void PrvLoggingPrefsFromButtons (EmDlgContext& context)
+void EmDlg::PrvLoggingPrefsFromButtons (EmDlgContext& context)
 {
 	// Update our local preference values from the buttons in the current panel.
 
@@ -2078,8 +2679,8 @@ EmDlgFnResult EmDlg::PrvEditLoggingOptions (EmDlgContext& context)
 	{
 		case kDlgCmdInit:
 		{
-			::PrvFetchLoggingPrefs (context);
-			::PrvLoggingPrefsToButtons (context);
+			EmDlg::PrvFetchLoggingPrefs (context);
+			EmDlg::PrvLoggingPrefsToButtons (context);
 
 			if (data.fActiveSet == kNormalLogging)
 				EmDlg::SetItemValue (dlg, kDlgItemLogNormal, 1);
@@ -2088,8 +2689,6 @@ EmDlgFnResult EmDlg::PrvEditLoggingOptions (EmDlgContext& context)
 
 			// Disable unsupported options.
 
-			EmDlg::DisableItem (dlg, kDlgItemLogLogErrorMessages);
-			EmDlg::DisableItem (dlg, kDlgItemLogLogWarningMessages);
 			EmDlg::DisableItem (dlg, kDlgItemLogLogCPUOpcodes);
 			EmDlg::DisableItem (dlg, kDlgItemLogLogApplicationCalls);
 
@@ -2107,8 +2706,8 @@ EmDlgFnResult EmDlg::PrvEditLoggingOptions (EmDlgContext& context)
 			{
 				case kDlgItemOK:
 				{
-					::PrvLoggingPrefsFromButtons (context);
-					::PrvInstallLoggingPrefs (context);
+					EmDlg::PrvLoggingPrefsFromButtons (context);
+					EmDlg::PrvInstallLoggingPrefs (context);
 
 					// Fall thru...
 				}
@@ -2120,12 +2719,12 @@ EmDlgFnResult EmDlg::PrvEditLoggingOptions (EmDlgContext& context)
 
 				case kDlgItemLogNormal:
 				case kDlgItemLogGremlins:
-					::PrvLoggingPrefsFromButtons (context);
+					EmDlg::PrvLoggingPrefsFromButtons (context);
 					if (context.fItemID == kDlgItemLogNormal)
 						data.fActiveSet = kNormalLogging;
 					else
 						data.fActiveSet = kGremlinLogging;
-					::PrvLoggingPrefsToButtons (context);
+					EmDlg::PrvLoggingPrefsToButtons (context);
 					break;
 
 				#undef DUMMY_CASE
@@ -2139,6 +2738,9 @@ EmDlgFnResult EmDlg::PrvEditLoggingOptions (EmDlgContext& context)
 
 			break;
 		}
+
+		case kDlgCmdDestroy:
+			break;
 
 		case kDlgCmdPanelEnter:
 		case kDlgCmdPanelExit:
@@ -2184,10 +2786,12 @@ struct EditDebuggingOptionsData
 #undef DEFINE_STORAGE
 #define DEFINE_STORAGE(name)	Bool	f##name;
 	FOR_EACH_REPORT_PREF (DEFINE_STORAGE)
+
+	DEFINE_STORAGE(DialogBeep)
 };
 
 
-static void PrvFetchDebuggingPrefs (EmDlgContext& context)
+void EmDlg::PrvFetchDebuggingPrefs (EmDlgContext& context)
 {
 	// Transfer all of the debugging values from the preferences
 	// to our local storage.
@@ -2202,11 +2806,15 @@ static void PrvFetchDebuggingPrefs (EmDlgContext& context)
 		}
 
 	FOR_EACH_REPORT_PREF (GET_PREF)
+
+	GET_PREF(DialogBeep)
 }
 
 
-static void PrvInstallDebuggingPrefs (EmDlgContext& context)
+void EmDlg::PrvInstallDebuggingPrefs (EmDlgContext& context)
 {
+	EmSessionStopper	stopper (gSession, kStopNow);
+
 	// Transfer all of the debugging values from our local
 	// storages to the preferences system.
 
@@ -2220,10 +2828,13 @@ static void PrvInstallDebuggingPrefs (EmDlgContext& context)
 		}
 
 	FOR_EACH_REPORT_PREF (SET_PREF)
+
+
+	SET_PREF(DialogBeep)
 }
 
 
-static void PrvDebuggingPrefsToButtons (EmDlgContext& context)
+void EmDlg::PrvDebuggingPrefsToButtons (EmDlgContext& context)
 {
 	// Set the buttons in the current panel.
 
@@ -2234,10 +2845,12 @@ static void PrvDebuggingPrefsToButtons (EmDlgContext& context)
 		EmDlg::SetItemValue (context.fDlg, kDlgItemDbg##name, data.f##name);
 
 	FOR_EACH_REPORT_PREF (TO_BUTTON)
+
+	TO_BUTTON(DialogBeep)
 }
 
 
-static void PrvDebuggingPrefsFromButtons (EmDlgContext& context)
+void EmDlg::PrvDebuggingPrefsFromButtons (EmDlgContext& context)
 {
 	// Update our local preference values from the buttons in the current panel.
 
@@ -2248,6 +2861,8 @@ static void PrvDebuggingPrefsFromButtons (EmDlgContext& context)
 		data.f##name = EmDlg::GetItemValue (context.fDlg, kDlgItemDbg##name) != 0;
 
 	FOR_EACH_REPORT_PREF (FROM_BUTTON)
+
+	FROM_BUTTON(DialogBeep)
 }
 
 
@@ -2260,8 +2875,8 @@ EmDlgFnResult EmDlg::PrvEditDebuggingOptions (EmDlgContext& context)
 	{
 		case kDlgCmdInit:
 		{
-			::PrvFetchDebuggingPrefs (context);
-			::PrvDebuggingPrefsToButtons (context);
+			EmDlg::PrvFetchDebuggingPrefs (context);
+			EmDlg::PrvDebuggingPrefsToButtons (context);
 			break;
 		}
 
@@ -2276,8 +2891,8 @@ EmDlgFnResult EmDlg::PrvEditDebuggingOptions (EmDlgContext& context)
 			{
 				case kDlgItemOK:
 				{
-					::PrvDebuggingPrefsFromButtons (context);
-					::PrvInstallDebuggingPrefs (context);
+					EmDlg::PrvDebuggingPrefsFromButtons (context);
+					EmDlg::PrvInstallDebuggingPrefs (context);
 
 					// Fall thru...
 				}
@@ -2290,6 +2905,8 @@ EmDlgFnResult EmDlg::PrvEditDebuggingOptions (EmDlgContext& context)
 				#undef DUMMY_CASE
 				#define DUMMY_CASE(name)	case kDlgItemDbg##name:
 				FOR_EACH_REPORT_PREF (DUMMY_CASE)
+
+				DUMMY_CASE(DialogBeep)
 					break;
 
 				default:
@@ -2298,6 +2915,9 @@ EmDlgFnResult EmDlg::PrvEditDebuggingOptions (EmDlgContext& context)
 
 			break;
 		}
+
+		case kDlgCmdDestroy:
+			break;
 
 		case kDlgCmdPanelEnter:
 		case kDlgCmdPanelExit:
@@ -2315,6 +2935,384 @@ EmDlgItemID EmDlg::DoEditDebuggingOptions (void)
 	EditDebuggingOptionsData	data;
 
 	return EmDlg::RunDialog (EmDlg::PrvEditDebuggingOptions, &data, kDlgEditDebugging);
+}
+
+
+#pragma mark -
+
+/***********************************************************************
+ *
+ * FUNCTION:	DoEditDebuggingOptions
+ *
+ * DESCRIPTION:	
+ *
+ * PARAMETERS:	None
+ *
+ * RETURNED:	Nothing
+ *
+ ***********************************************************************/
+
+// Map from an EmErrorHandlingOption to the menu string for it.
+
+struct
+{
+	EmErrorHandlingOption	fOption;
+	StrCode					fString;
+} kMenuItemText[] =
+{
+	{ kShow,		kStr_ShowInDialog			},
+	{ kContinue,	kStr_AutomaticallyContinue	},
+	{ kQuit,		kStr_AutomaticallyQuit		},
+	{ kSwitch,		kStr_NextGremlin			}
+};
+
+
+// Struct representing a single menu item.
+
+struct EmErrorHandlingMenuItemBundle
+{
+	EmErrorHandlingOption	fOption;
+};
+
+
+// Menu items for the four menus in the dialog box.
+
+EmErrorHandlingMenuItemBundle kMenuItems1[] =
+{
+	{ kShow },
+	{ kContinue }
+};
+
+
+EmErrorHandlingMenuItemBundle kMenuItems2[] =
+{
+	{ kShow },
+	{ kQuit }
+};
+
+
+EmErrorHandlingMenuItemBundle kMenuItems3[] =
+{
+	{ kShow },
+	{ kContinue },
+	{ kSwitch }
+};
+
+
+EmErrorHandlingMenuItemBundle kMenuItems4[] =
+{
+	{ kShow },
+	{ kQuit },
+	{ kSwitch }
+};
+
+
+// Struct containing all information for a single menu in the dialog box.
+
+struct EmErrorHandlingMenuBundle
+{
+	EmErrorHandlingMenuItemBundle*	fMenuItems;		// Menu items
+	size_t							fNumItems;		// Number of menu items
+	EmDlgItemID						fDlgItem;		// Dialog item to get these items
+	PrefKeyType						fPrefKey;		// Preference to get selected option
+	PrefKeyType						fLogPrefKey;	// Logging option to turn on
+	LoggingType						fLogType;		// Flag in the logging option to turn on
+	Bool							fEnableLogging;	// True if logging option should be turned on
+};
+
+// Information for the Gremlins Off / On Warning menu.
+
+EmErrorHandlingMenuBundle	gMenu1 =
+{
+	kMenuItems1,
+	countof (kMenuItems1),
+	kDlgItemErrWarningOff,
+	kPrefKeyWarningOff,
+	kPrefKeyLogWarningMessages,
+	kNormalLogging
+};
+
+// Information for the Gremlins Off / On Error menu.
+
+EmErrorHandlingMenuBundle	gMenu2 =
+{
+	kMenuItems2,
+	countof (kMenuItems2),
+	kDlgItemErrErrorOff,
+	kPrefKeyErrorOff,
+	kPrefKeyLogErrorMessages,
+	kNormalLogging
+};
+
+// Information for the Gremlins On / On Warning menu.
+
+EmErrorHandlingMenuBundle	gMenu3 =
+{
+	kMenuItems3,
+	countof (kMenuItems3),
+	kDlgItemErrWarningOn,
+	kPrefKeyWarningOn,
+	kPrefKeyLogWarningMessages,
+	kGremlinLogging
+};
+
+// Information for the Gremlins On / On Error menu.
+
+EmErrorHandlingMenuBundle	gMenu4 =
+{
+	kMenuItems4,
+	countof (kMenuItems4),
+	kDlgItemErrErrorOn,
+	kPrefKeyErrorOn,
+	kPrefKeyLogErrorMessages,
+	kGremlinLogging
+};
+
+
+// Return the text of the menu item for the given error handling option.
+// Makes use of the kMenuItemText map above.
+
+string EmDlg::PrvMenuItemText (EmErrorHandlingOption item)
+{
+	for (size_t ii = 0; ii < countof (kMenuItemText); ++ii)
+	{
+		if (kMenuItemText[ii].fOption == item)
+		{
+			return Platform::GetString (kMenuItemText[ii].fString);
+		}
+	}
+
+	EmAssert (false);
+
+	return string();
+}
+
+
+// Build up the menu items in the dialog, based on the information in
+// the given EmErrorHandlingMenuBundle.  Results are stored in "items".
+
+void EmDlg::PrvBuildMenu (	EmErrorHandlingMenuBundle&	menu,
+							StringList&					items)
+{
+	size_t	numItems = menu.fNumItems;
+
+	for (size_t ii = 0; ii < numItems; ++ii)
+	{
+		items.push_back (EmDlg::PrvMenuItemText (menu.fMenuItems[ii].fOption));
+	}
+};
+
+
+// Find the menu item index in the given menu corresponding to the
+// given EmErrorHandlingOption.  This function is used when selecting
+// the initial menu item based on the current preference settings.
+
+long EmDlg::PrvFindIndex (	EmErrorHandlingMenuBundle&	menu,
+							EmErrorHandlingOption		toFind)
+{
+	size_t	numItems = menu.fNumItems;
+
+	for (size_t ii = 0; ii < numItems; ++ii)
+	{
+		if (menu.fMenuItems[ii].fOption == toFind)
+			return (long) ii;
+	}
+
+	return -1;
+}
+
+
+// Build up the menu items in the dialog for the given menu, and select
+// the initial menu item based on the current preference setting.
+
+void EmDlg::PrvErrorHandlingToDialog (	EmDlgContext&				context,
+										EmErrorHandlingMenuBundle&	menu)
+{
+	EmDlgRef	dlg = context.fDlg;
+
+	StringList	menuItemsText;
+	EmDlg::PrvBuildMenu (menu, menuItemsText);
+
+	Preference<EmErrorHandlingOption>	pref (menu.fPrefKey);
+	long index = EmDlg::PrvFindIndex (menu, *pref);
+	if (index < 0)
+		index = 0;
+
+	EmDlg::AppendToMenu (dlg, menu.fDlgItem, menuItemsText);
+	EmDlg::SetItemValue (dlg, menu.fDlgItem, index);
+}
+
+
+// Take the currently selected item and use it to establish a new
+// preference setting.
+
+void EmDlg::PrvErrorHandlingFromDialog (EmDlgContext&				context,
+										EmErrorHandlingMenuBundle&	menu)
+{
+	EmDlgRef	dlg		= context.fDlg;
+	long		index	= EmDlg::GetItemValue (dlg, menu.fDlgItem);
+
+	EmAssert (index >= 0);
+	EmAssert (index < (long) menu.fNumItems);
+
+	Preference<EmErrorHandlingOption>	pref (menu.fPrefKey);
+	pref = menu.fMenuItems[index].fOption;
+}
+
+
+// Ask the user if they'd like us to change the Logging Option settings
+// for them as appropriate.
+
+EmDlgItemID EmDlg::PrvAskChangeLogging (void)
+{
+	string		msg		= Platform::GetString (kStr_MustTurnOnLogging);
+	EmDlgItemID	result	= EmDlg::DoCommonDialog (msg, kDlgFlags_YES_No);
+
+	return result;
+}
+
+
+// Check a single menu item selection, seeing if a corresponding change
+// in the logging options needs to be made.
+
+void EmDlg::PrvCheckSetting (	EmDlgContext&				context,
+								EmErrorHandlingMenuBundle&	menu)
+{
+	Preference<uint8>		pref (menu.fLogPrefKey);
+
+	EmDlgRef				dlg			= context.fDlg;
+	long					index		= EmDlg::GetItemValue (dlg, menu.fDlgItem);
+	EmErrorHandlingOption	option		= menu.fMenuItems[index].fOption;
+
+	Bool					needLogging	= option != kShow;
+	Bool					haveLogging	= (*pref & menu.fLogType) != 0;
+
+	menu.fEnableLogging = needLogging && !haveLogging;
+}
+
+
+// Check all menus to see if any of them require a change in the logging options.
+
+Bool EmDlg::PrvCheckSettings (EmDlgContext& context)
+{
+	EmDlg::PrvCheckSetting (context, gMenu1);
+	EmDlg::PrvCheckSetting (context, gMenu2);
+	EmDlg::PrvCheckSetting (context, gMenu3);
+	EmDlg::PrvCheckSetting (context, gMenu4);
+
+	return
+		gMenu1.fEnableLogging ||
+		gMenu2.fEnableLogging ||
+		gMenu3.fEnableLogging ||
+		gMenu4.fEnableLogging;
+}
+
+
+// Enable a single logging option corresponding to the given menu,
+// if appropriate.
+
+void EmDlg::PrvEnableLoggingOption (EmErrorHandlingMenuBundle& menu)
+{
+	if (menu.fEnableLogging)
+	{
+		Preference<uint8>	pref (menu.fLogPrefKey);
+		pref = *pref | menu.fLogType;
+	}
+}
+
+
+// Enable all necessary logging options.
+
+void EmDlg::PrvEnableLoggingOptions (void)
+{
+	EmSessionStopper	stopper (gSession, kStopNow);
+
+	EmDlg::PrvEnableLoggingOption (gMenu1);
+	EmDlg::PrvEnableLoggingOption (gMenu2);
+	EmDlg::PrvEnableLoggingOption (gMenu3);
+	EmDlg::PrvEnableLoggingOption (gMenu4);
+}
+
+
+EmDlgFnResult EmDlg::PrvErrorHandling (EmDlgContext& context)
+{
+	switch (context.fCommandID)
+	{
+		case kDlgCmdInit:
+		{
+			EmDlg::PrvErrorHandlingToDialog (context, gMenu1);
+			EmDlg::PrvErrorHandlingToDialog (context, gMenu2);
+			EmDlg::PrvErrorHandlingToDialog (context, gMenu3);
+			EmDlg::PrvErrorHandlingToDialog (context, gMenu4);
+
+			break;
+		}
+
+		case kDlgCmdIdle:
+		{
+			break;
+		}
+
+		case kDlgCmdItemSelected:
+		{
+			switch (context.fItemID)
+			{
+				case kDlgItemOK:
+				{
+					if (EmDlg::PrvCheckSettings (context))
+					{
+						if (EmDlg::PrvAskChangeLogging () == kDlgItemNo)
+						{
+							// Don't commit the changes; don't close the dialog.
+							return kDlgResultContinue;
+						}
+
+						EmDlg::PrvEnableLoggingOptions ();
+					}
+
+					EmSessionStopper	stopper (gSession, kStopNow);
+
+					EmDlg::PrvErrorHandlingFromDialog (context, gMenu1);
+					EmDlg::PrvErrorHandlingFromDialog (context, gMenu2);
+					EmDlg::PrvErrorHandlingFromDialog (context, gMenu3);
+					EmDlg::PrvErrorHandlingFromDialog (context, gMenu4);
+				}
+
+				case kDlgItemCancel:
+				{
+					return kDlgResultClose;
+				}
+
+				case kDlgItemErrWarningOff:
+				case kDlgItemErrErrorOff:
+				case kDlgItemErrWarningOn:
+				case kDlgItemErrErrorOn:
+					break;
+
+				default:
+					EmAssert (false);
+			}
+
+			break;
+		}
+
+		case kDlgCmdDestroy:
+			break;
+
+		case kDlgCmdPanelEnter:
+		case kDlgCmdPanelExit:
+		case kDlgCmdNone:
+			EmAssert (false);
+			break;
+	}
+
+	return kDlgResultContinue;
+}
+
+
+EmDlgItemID EmDlg::DoEditErrorHandling (void)
+{
+	return EmDlg::RunDialog (EmDlg::PrvErrorHandling, NULL, kDlgEditErrorHandling);
 }
 
 
@@ -2383,11 +3381,35 @@ EmDlgFnResult EmDlg::PrvEditSkins (EmDlgContext& context)
 
 			// Set up the checkboxes
 
-			Preference<ScaleType>	prefScale (kPrefKeyScale);
-			EmDlg::SetItemValue (dlg, kDlgItemSknDoubleScale, (*prefScale == 2) ? 1 : 0);
+			{
+				Preference<ScaleType>	pref (kPrefKeyScale);
+				EmDlg::SetItemValue (dlg, kDlgItemSknDoubleScale, (*pref == 2) ? 1 : 0);
+			}
 
-			Preference<RGBType>		prefBackgroundColor (kPrefKeyBackgroundColor);
-			EmDlg::SetItemValue (dlg, kDlgItemSknWhiteBackground, prefBackgroundColor.Loaded () ? 1 : 0);
+			{
+				Preference<RGBType>		pref (kPrefKeyBackgroundColor);
+				EmDlg::SetItemValue (dlg, kDlgItemSknWhiteBackground, pref.Loaded () ? 1 : 0);
+			}
+
+			{
+				Preference<bool>  pref (kPrefKeyDimWhenInactive);
+				EmDlg::SetItemValue (dlg, kDlgItemSknDim, *pref ? 1 : 0);
+			}
+
+			{
+				Preference<bool>  pref (kPrefKeyShowDebugMode);
+				EmDlg::SetItemValue (dlg, kDlgItemSknRed, *pref ? 1 : 0);
+			}
+
+			{
+				Preference<bool>  pref (kPrefKeyShowGremlinMode);
+				EmDlg::SetItemValue (dlg, kDlgItemSknGreen, *pref ? 1 : 0);
+			}
+
+			{
+				Preference<bool>  pref (kPrefKeyStayOnTop);
+				EmDlg::SetItemValue (dlg, kDlgItemSknStayOnTop, *pref ? 1 : 0);
+			}
 
 			break;
 		}
@@ -2431,6 +3453,35 @@ EmDlgFnResult EmDlg::PrvEditSkins (EmDlgContext& context)
 					{
 						gPrefs->DeletePref (kPrefKeyBackgroundColor);
 					}
+
+					// Update "Dim When Inactive" setting.
+
+					{
+						Preference<bool>	pref (kPrefKeyDimWhenInactive);
+						pref = (GetItemValue (dlg, kDlgItemSknDim) != 0) ? true : false;
+					}
+
+					// Update "Show Debug Mode" setting.
+
+					{
+						Preference<bool>	pref (kPrefKeyShowDebugMode);
+						pref = (GetItemValue (dlg, kDlgItemSknRed) != 0) ? true : false;
+					}
+
+					// Update "Show Gremlin Mode" setting.
+
+					{
+						Preference<bool>	pref (kPrefKeyShowGremlinMode);
+						pref = (GetItemValue (dlg, kDlgItemSknGreen) != 0) ? true : false;
+					}
+
+					// Update the stay on top setting.
+
+					{
+						Preference<bool>	pref (kPrefKeyStayOnTop);
+						pref = (GetItemValue (dlg, kDlgItemSknStayOnTop) != 0) ? true : false;
+					}
+
 					// Fall thru...
 				}
 
@@ -2442,6 +3493,10 @@ EmDlgFnResult EmDlg::PrvEditSkins (EmDlgContext& context)
 				case kDlgItemSknSkinList:
 				case kDlgItemSknDoubleScale:
 				case kDlgItemSknWhiteBackground:
+				case kDlgItemSknDim:
+				case kDlgItemSknRed:
+				case kDlgItemSknGreen:
+				case kDlgItemSknStayOnTop:
 					break;
 
 				default:
@@ -2450,6 +3505,9 @@ EmDlgFnResult EmDlg::PrvEditSkins (EmDlgContext& context)
 
 			break;
 		}
+
+		case kDlgCmdDestroy:
+			break;
 
 		case kDlgCmdPanelEnter:
 		case kDlgCmdPanelExit:
@@ -2480,7 +3538,7 @@ EmDlgItemID EmDlg::DoEditSkins (void)
 
 /***********************************************************************
  *
- * FUNCTION:	DoEditCardOptions
+ * FUNCTION:	DoEditHostFSOptions
  *
  * DESCRIPTION:	
  *
@@ -2490,16 +3548,18 @@ EmDlgItemID EmDlg::DoEditSkins (void)
  *
  ***********************************************************************/
 
-struct EditCardOptionsData
+struct EditHostFSOptionsData
 {
 	SlotInfoList	fWorkingInfo;
 };
 
 const int kMaxVolumes = 8;
 
-static void  PrvEditCardOptionsOK (EmDlgContext& context)
+void EmDlg::PrvEditHostFSOptionsOK (EmDlgContext& context)
 {
-	EditCardOptionsData&		data = *(EditCardOptionsData*) context.fUserData;
+	EditHostFSOptionsData&		data = *(EditHostFSOptionsData*) context.fUserData;
+
+	EmSessionStopper	stopper (gSession, kStopOnSysCall);
 
 	Preference<SlotInfoList>	pref (kPrefKeySlotList);
 	SlotInfoList				origList = *pref;
@@ -2525,7 +3585,7 @@ static void  PrvEditCardOptionsOK (EmDlgContext& context)
 	SlotInfoList::iterator	iter1 = origList.begin ();
 	while (iter1 != origList.end ())
 	{
-		// Iterator over all the items *after* the user changed
+		// Iterate over all the items *after* the user changed
 		// them in the dialog.
 
 		SlotInfoList::iterator	iter2 = data.fWorkingInfo.begin ();
@@ -2551,10 +3611,9 @@ static void  PrvEditCardOptionsOK (EmDlgContext& context)
 					void*	cardNum = (void*) iter1->fSlotNumber;
 
 					// Note, in order to make this call, the CPU should be stopped
-					// at an idle event (kStopOnIdle).  That's because mounting
-					// and unmounting can send out notification.  If the
-					// notification is sent out in the background (that is, while
-					// the current Palm OS task is not the UI task), then the
+					// in the UI task.  That's because mounting and unmounting can
+					// send out notification.  If the notification is sent out while
+					// the current Palm OS task is not the UI task, then the
 					// notification manager calls SysTaskWait.  This will switch
 					// to another task if it can, and prime a timer to re-awake
 					// the background task if not.  However, this timer is based
@@ -2577,10 +3636,10 @@ static void  PrvEditCardOptionsOK (EmDlgContext& context)
 }
 
 
-EmDlgFnResult EmDlg::PrvEditCardOptions (EmDlgContext& context)
+EmDlgFnResult EmDlg::PrvEditHostFSOptions (EmDlgContext& context)
 {
 	EmDlgRef				dlg = context.fDlg;
-	EditCardOptionsData&	data = *(EditCardOptionsData*) context.fUserData;
+	EditHostFSOptionsData&	data = *(EditHostFSOptionsData*) context.fUserData;
 
 	switch (context.fCommandID)
 	{
@@ -2607,16 +3666,16 @@ EmDlgFnResult EmDlg::PrvEditCardOptions (EmDlgContext& context)
 
 			// Install the volumes into the list.
 
-			EmDlg::ClearList (dlg, kDlgItemCrdList);
+			EmDlg::ClearList (dlg, kDlgItemHfsList);
 
 			for (int ii = 0; ii < kMaxVolumes; ++ii)
 			{
-				EmDlg::AppendToList (dlg, kDlgItemCrdList, string (1, (char) ('1' + ii)));
+				EmDlg::AppendToList (dlg, kDlgItemHfsList, string (1, (char) ('1' + ii)));
 			}
 
 			// Select one of the volumes.
 
-			EmDlg::SelectListItem (dlg, kDlgItemCrdList, 0);
+			EmDlg::SelectListItem (dlg, kDlgItemHfsList, 0);
 
 			// Call ourselves to make sure that the other dialog
 			// items are properly initialized in light of the
@@ -2624,8 +3683,8 @@ EmDlgFnResult EmDlg::PrvEditCardOptions (EmDlgContext& context)
 
 			EmDlgContext	subContext (context);
 			subContext.fCommandID = kDlgCmdItemSelected;
-			subContext.fItemID = kDlgItemCrdList;
-			EmDlg::PrvEditCardOptions (subContext);
+			subContext.fItemID = kDlgItemHfsList;
+			EmDlg::PrvEditHostFSOptions (subContext);
 
 			break;
 		}
@@ -2643,7 +3702,7 @@ EmDlgFnResult EmDlg::PrvEditCardOptions (EmDlgContext& context)
 				{
 					// User pressed OK, save the changes.
 
-					::PrvEditCardOptionsOK (context);
+					EmDlg::PrvEditHostFSOptionsOK (context);
 
 					// Fall thru...
 				}
@@ -2653,11 +3712,11 @@ EmDlgFnResult EmDlg::PrvEditCardOptions (EmDlgContext& context)
 					return kDlgResultClose;
 				}
 				
-				case kDlgItemCrdList:
+				case kDlgItemHfsList:
 				{
 					// User changed the currently selected card.
 
-					EmDlgListIndex	item = EmDlg::GetSelectedItem (dlg, kDlgItemCrdList);
+					EmDlgListIndex	item = EmDlg::GetSelectedItem (dlg, kDlgItemHfsList);
 					if (item >= 0)
 					{
 						SlotInfoType&	info = data.fWorkingInfo[item];
@@ -2673,36 +3732,36 @@ EmDlgFnResult EmDlg::PrvEditCardOptions (EmDlgContext& context)
 						// Set the root path text and the button that says if
 						// it's mounted or not.
 
-						EmDlg::SetItemText (dlg, kDlgItemCrdPath, fullPath);
-						EmDlg::SetItemValue (dlg, kDlgItemCrdMounted, info.fSlotOccupied);
+						EmDlg::SetItemText (dlg, kDlgItemHfsPath, fullPath);
+						EmDlg::SetItemValue (dlg, kDlgItemHfsMounted, info.fSlotOccupied);
 					}
 					break;
 				}
 
-				case kDlgItemCrdPath:
+				case kDlgItemHfsPath:
 					break;
 
-				case kDlgItemCrdMounted:
+				case kDlgItemHfsMounted:
 				{
 					// User toggled the checkbox that says whether or not the
 					// card is mounted.  Save the new setting.
 
-					EmDlgListIndex	item = EmDlg::GetSelectedItem (dlg, kDlgItemCrdList);
+					EmDlgListIndex	item = EmDlg::GetSelectedItem (dlg, kDlgItemHfsList);
 					if (item >= 0)
 					{
 						SlotInfoType&	info = data.fWorkingInfo[item];
 
-						info.fSlotOccupied = EmDlg::GetItemValue (dlg, kDlgItemCrdMounted);
+						info.fSlotOccupied = EmDlg::GetItemValue (dlg, kDlgItemHfsMounted);
 					}
 					break;
 				}
 
-				case kDlgItemCrdBrowse:
+				case kDlgItemHfsBrowse:
 				{
 					// User clicked on the Browse button.  Bring up a
 					// "Get Directory" dialog.
 
-					EmDlgListIndex	item = EmDlg::GetSelectedItem (dlg, kDlgItemCrdList);
+					EmDlgListIndex	item = EmDlg::GetSelectedItem (dlg, kDlgItemHfsList);
 					if (item >= 0)
 					{
 						SlotInfoType&	info = data.fWorkingInfo[item];
@@ -2714,7 +3773,7 @@ EmDlgFnResult EmDlg::PrvEditCardOptions (EmDlgContext& context)
 						if (EmDlg::DoGetDirectory (result, prompt, defaultPath) == kDlgItemOK)
 						{
 							info.fSlotRoot = result;
-							EmDlg::SetItemText (dlg, kDlgItemCrdPath, result.GetFullPath ());
+							EmDlg::SetItemText (dlg, kDlgItemHfsPath, result.GetFullPath ());
 						}
 					}
 					break;
@@ -2727,6 +3786,9 @@ EmDlgFnResult EmDlg::PrvEditCardOptions (EmDlgContext& context)
 			break;
 		}
 
+		case kDlgCmdDestroy:
+			break;
+
 		case kDlgCmdPanelEnter:
 		case kDlgCmdPanelExit:
 		case kDlgCmdNone:
@@ -2738,11 +3800,11 @@ EmDlgFnResult EmDlg::PrvEditCardOptions (EmDlgContext& context)
 }
 
 
-EmDlgItemID EmDlg::DoEditCardOptions (void)
+EmDlgItemID EmDlg::DoEditHostFSOptions (void)
 {
-	EditCardOptionsData	data;
+	EditHostFSOptionsData	data;
 
-	return EmDlg::RunDialog (EmDlg::PrvEditCardOptions, &data, kDlgEditCards);
+	return EmDlg::RunDialog (EmDlg::PrvEditHostFSOptions, &data, kDlgEditHostFS);
 }
 
 
@@ -2776,7 +3838,7 @@ struct EditBreakpointsData
 
 // Enable or disable the Edit and Clear buttons.
 
-static void PrvEnableCodeBreakpointControls (EmDlgContext& context, bool enable)
+void EmDlg::PrvEnableCodeBreakpointControls (EmDlgContext& context, bool enable)
 {
 	EmDlgRef	dlg = context.fDlg;
 
@@ -2787,7 +3849,7 @@ static void PrvEnableCodeBreakpointControls (EmDlgContext& context, bool enable)
 
 // Enable or disable the Start Address and Number Of Bytes edit items.
 
-static void PrvEnableDataBreakpointControls (EmDlgContext& context, bool enable)
+void EmDlg::PrvEnableDataBreakpointControls (EmDlgContext& context, bool enable)
 {
 	EmDlgRef	dlg = context.fDlg;
 
@@ -2798,7 +3860,7 @@ static void PrvEnableDataBreakpointControls (EmDlgContext& context, bool enable)
 
 // Install the current set of code breakpoints into the list item.
 
-static void PrvRefreshCodeBreakpointList (EmDlgContext& context)
+void EmDlg::PrvRefreshCodeBreakpointList (EmDlgContext& context)
 {
 	EmDlgRef				dlg = context.fDlg;
 	EditBreakpointsData&	data = *(EditBreakpointsData*) context.fUserData;
@@ -2838,7 +3900,7 @@ static void PrvRefreshCodeBreakpointList (EmDlgContext& context)
 
 // Copy the breakpoint information from the Debugger globals.
 
-static void PrvGetCodeBreakpoints (EmDlgContext& context)
+void EmDlg::PrvGetCodeBreakpoints (EmDlgContext& context)
 {
 	EditBreakpointsData&	data = *(EditBreakpointsData*) context.fUserData;
 
@@ -2859,7 +3921,7 @@ static void PrvGetCodeBreakpoints (EmDlgContext& context)
 
 // Install the breakpoint information into the Debugger globals.
 
-static void PrvSetCodeBreakpoints (EmDlgContext& context)
+void EmDlg::PrvSetCodeBreakpoints (EmDlgContext& context)
 {
 	EditBreakpointsData&	data = *(EditBreakpointsData*) context.fUserData;
 
@@ -2896,13 +3958,13 @@ EmDlgFnResult EmDlg::PrvEditBreakpoints (EmDlgContext& context)
 		{
 			// Set up the list of code breakpoints.
 
-			::PrvGetCodeBreakpoints (context);
-			::PrvRefreshCodeBreakpointList (context);
+			EmDlg::PrvGetCodeBreakpoints (context);
+			EmDlg::PrvRefreshCodeBreakpointList (context);
 
 			// Initially no breakpoint is selected in the list, so the "edit" and
 			// "clear" buttons should be disabled.
 
-			::PrvEnableCodeBreakpointControls (context, false);
+			EmDlg::PrvEnableCodeBreakpointControls (context, false);
 
 			// Set up the data breakpoint items
 
@@ -2917,7 +3979,7 @@ EmDlgFnResult EmDlg::PrvEditBreakpoints (EmDlgContext& context)
 			sprintf (text, "0x%08lX", gDebuggerGlobals.watchBytes);
 			EmDlg::SetItemText (dlg, kDlgItemBrkNumberOfBytes, text);
 
-			::PrvEnableDataBreakpointControls (context, gDebuggerGlobals.watchEnabled);
+			EmDlg::PrvEnableDataBreakpointControls (context, gDebuggerGlobals.watchEnabled);
 
 			break;
 		}
@@ -2935,9 +3997,11 @@ EmDlgFnResult EmDlg::PrvEditBreakpoints (EmDlgContext& context)
 				{
 					// User pressed OK, save the changes.
 
+					EmSessionStopper	stopper (gSession, kStopNow);
+
 					// Set the code breakpoints
 
-					::PrvSetCodeBreakpoints (context);
+					EmDlg::PrvSetCodeBreakpoints (context);
 
 
 					// Set data breakpoint
@@ -2961,7 +4025,7 @@ EmDlgFnResult EmDlg::PrvEditBreakpoints (EmDlgContext& context)
 				case kDlgItemBrkList:
 				{
 					EmDlgListIndex	selected = EmDlg::GetSelectedItem (dlg, kDlgItemBrkList);
-					::PrvEnableCodeBreakpointControls (context, selected != kDlgItemListNone);
+					EmDlg::PrvEnableCodeBreakpointControls (context, selected != kDlgItemListNone);
 					break;
 				}
 
@@ -2971,7 +4035,7 @@ EmDlgFnResult EmDlg::PrvEditBreakpoints (EmDlgContext& context)
 					if (selected != kDlgItemListNone)
 					{
 						EmDlg::DoEditCodeBreakpoint (data.fCodeBreakpoints[selected]);
-						::PrvRefreshCodeBreakpointList (context);
+						EmDlg::PrvRefreshCodeBreakpointList (context);
 					}
 					break;
 				}
@@ -2982,7 +4046,7 @@ EmDlgFnResult EmDlg::PrvEditBreakpoints (EmDlgContext& context)
 					if (selected != kDlgItemListNone)
 					{
 						data.fCodeBreakpoints[selected].fEnabled = false;
-						::PrvRefreshCodeBreakpointList (context);
+						EmDlg::PrvRefreshCodeBreakpointList (context);
 					}
 					break;
 				}
@@ -2990,7 +4054,7 @@ EmDlgFnResult EmDlg::PrvEditBreakpoints (EmDlgContext& context)
 				case kDlgItemBrkCheckEnabled:
 				{
 					long	enabled = EmDlg::GetItemValue (dlg, kDlgItemBrkCheckEnabled);
-					::PrvEnableDataBreakpointControls (context, enabled != 0);
+					EmDlg::PrvEnableDataBreakpointControls (context, enabled != 0);
 					break;
 				}
 
@@ -3010,6 +4074,9 @@ EmDlgFnResult EmDlg::PrvEditBreakpoints (EmDlgContext& context)
 
 			break;
 		}
+
+		case kDlgCmdDestroy:
+			break;
 
 		case kDlgCmdPanelEnter:
 		case kDlgCmdPanelExit:
@@ -3139,6 +4206,9 @@ EmDlgFnResult EmDlg::PrvEditCodeBreakpoint (EmDlgContext& context)
 			break;
 		}
 
+		case kDlgCmdDestroy:
+			break;
+
 		case kDlgCmdPanelEnter:
 		case kDlgCmdPanelExit:
 		case kDlgCmdNone:
@@ -3170,14 +4240,14 @@ EmDlgItemID EmDlg::DoEditCodeBreakpoint (EditCodeBreakpointData& data)
  *
  ***********************************************************************/
 
+#if HAS_TRACER
 struct EditTracingOptionsData
 {
 	unsigned short	fTracerType;
 };
 
 
-#if !PLATFORM_UNIX	// No gTracer on Unix, yet.
-void static PrvPopTracerSettings (EmDlgContext& context)
+void EmDlg::PrvPopTracerSettings (EmDlgContext& context)
 {
 	EmDlgRef				dlg = context.fDlg;
 	EditTracingOptionsData&	data = *(EditTracingOptionsData*) context.fUserData;
@@ -3196,11 +4266,9 @@ void static PrvPopTracerSettings (EmDlgContext& context)
 		info->autoConnectTmpState = EmDlg::GetItemValue (dlg, kDlgItemTrcAutoConnect) != 0;
 	}
 }
-#endif
 
 
-#if !PLATFORM_UNIX	// No gTracer on Unix, yet.
-void static PrvPushTracerSettings (EmDlgContext& context)
+void EmDlg::PrvPushTracerSettings (EmDlgContext& context)
 {
 	EmDlgRef				dlg = context.fDlg;
 	EditTracingOptionsData&	data = *(EditTracingOptionsData*) context.fUserData;
@@ -3239,12 +4307,10 @@ void static PrvPushTracerSettings (EmDlgContext& context)
 		}
 	}
 }
-#endif
 
 
 EmDlgFnResult EmDlg::PrvEditTracingOptions (EmDlgContext& context)
 {
-#if !PLATFORM_UNIX	// No gTracer on Unix, yet.
 	EmDlgRef				dlg = context.fDlg;
 	EditTracingOptionsData&	data = *(EditTracingOptionsData*) context.fUserData;
 
@@ -3285,7 +4351,7 @@ EmDlgFnResult EmDlg::PrvEditTracingOptions (EmDlgContext& context)
 
 			// Install settings for this tracer type.
 
-			::PrvPushTracerSettings (context);
+			EmDlg::PrvPushTracerSettings (context);
 
 			// Show the version information.
 
@@ -3315,7 +4381,7 @@ EmDlgFnResult EmDlg::PrvEditTracingOptions (EmDlgContext& context)
 					{
 						// Commit the current settings for the current tracer type.
 
-						::PrvPopTracerSettings (context);
+						EmDlg::PrvPopTracerSettings (context);
 
 						// Get the pointer to the current tracer info.
 
@@ -3348,13 +4414,13 @@ EmDlgFnResult EmDlg::PrvEditTracingOptions (EmDlgContext& context)
 				case kDlgItemTrcOutput:
 				{
 					// Save the current settings for the old tracer type.
-					::PrvPopTracerSettings (context);
+					EmDlg::PrvPopTracerSettings (context);
 
 					// Get the new tracer type.
 					data.fTracerType = EmDlg::GetItemValue (dlg, kDlgItemTrcOutput);
 
 					// Install the settings for the new tracer type.
-					::PrvPushTracerSettings (context);
+					EmDlg::PrvPushTracerSettings (context);
 
 					break;
 				}
@@ -3373,13 +4439,15 @@ EmDlgFnResult EmDlg::PrvEditTracingOptions (EmDlgContext& context)
 			break;
 		}
 
+		case kDlgCmdDestroy:
+			break;
+
 		case kDlgCmdPanelEnter:
 		case kDlgCmdPanelExit:
 		case kDlgCmdNone:
 			EmAssert (false);
 			break;
 	}
-#endif
 
 	return kDlgResultContinue;
 }
@@ -3391,6 +4459,7 @@ EmDlgItemID EmDlg::DoEditTracingOptions (void)
 
 	return EmDlg::RunDialog (EmDlg::PrvEditTracingOptions, &data, kDlgEditTracingOptions);
 }
+#endif
 
 
 #pragma mark -
@@ -3411,6 +4480,8 @@ struct EditCommonDialogData
 {
 	const char*			fMessage;
 	EmCommonDialogFlags	fFlags;
+	uint32				fFirstBeepTime;
+	uint32				fLastBeepTime;
 };
 
 
@@ -3558,11 +4629,33 @@ EmDlgFnResult EmDlg::PrvCommonDialog (EmDlgContext& context)
 
 			EmDlg::SetItemText (dlg, kDlgItemCmnText, data.fMessage);
 
+			// Set us up to idle so that we can beep.
+
+			Preference<Bool>	pref (kPrefKeyDialogBeep);
+
+			if (*pref)
+			{
+				context.fNeedsIdle = true;
+				data.fFirstBeepTime = data.fLastBeepTime = Platform::GetMilliseconds ();
+			}
+
 			break;
 		}
 
 		case kDlgCmdIdle:
 		{
+			const uint32	kBeepTimeout	= 60 * 1024L;	// 60 seconds
+			const uint32	kBeepInterval	= 2 * 1024L;	// 2 seconds
+			uint32			curTime = Platform::GetMilliseconds ();
+			uint32			delta1 = curTime - data.fFirstBeepTime;
+			uint32			delta2 = curTime - data.fLastBeepTime;
+
+			if (delta1 < kBeepTimeout && delta2 > kBeepInterval)
+			{
+				data.fLastBeepTime = curTime;
+				Platform::Beep ();
+			}
+
 			break;
 		}
 
@@ -3579,8 +4672,13 @@ EmDlgFnResult EmDlg::PrvCommonDialog (EmDlgContext& context)
 
 				case kDlgItemCmnButtonCopy:
 				{
-					string	text = EmDlg::GetItemText (context.fDlg, kDlgItemCmnText);
-					Platform::CopyToClipboard (text.c_str (), text.size ());
+					string		text = EmDlg::GetItemText (context.fDlg, kDlgItemCmnText);
+					ByteList	hostChars;
+					ByteList	palmChars;
+
+					copy (text.begin (), text.end (), back_inserter (hostChars));
+
+					Platform::CopyToClipboard (palmChars, hostChars);
 					break;
 				}
 
@@ -3603,6 +4701,9 @@ EmDlgFnResult EmDlg::PrvCommonDialog (EmDlgContext& context)
 
 			break;
 		}
+
+		case kDlgCmdDestroy:
+			break;
 
 		case kDlgCmdPanelEnter:
 		case kDlgCmdPanelExit:
@@ -3650,6 +4751,7 @@ EmDlgItemID EmDlg::DoCommonDialog (const char* msg,
 
 		default:
 			EmAssert (false);
+			result = (EmDlgItemID) 0; // prevent compiler warnings.
 	}
 
 	return result;
@@ -3717,7 +4819,8 @@ EmDlgFnResult EmDlg::PrvSaveBound (EmDlgContext& context)
 					if (EmDlg::DoPutFile (destFile, "Save new emulator",
 						EmDirRef::GetEmulatorDirectory (), filterList, newName) == kDlgItemOK)
 					{
-						Platform::BindPoser (fullSave, destFile);
+						EmAssert (gApplication);
+						gApplication->BindPoser (fullSave, destFile);
 					}
 					// Fall thru...
 				}
@@ -3739,6 +4842,9 @@ EmDlgFnResult EmDlg::PrvSaveBound (EmDlgContext& context)
 			break;
 		}
 
+		case kDlgCmdDestroy:
+			break;
+
 		case kDlgCmdPanelEnter:
 		case kDlgCmdPanelExit:
 		case kDlgCmdNone:
@@ -3753,6 +4859,709 @@ EmDlgFnResult EmDlg::PrvSaveBound (EmDlgContext& context)
 EmDlgItemID EmDlg::DoSaveBound (void)
 {
 	return EmDlg::RunDialog (EmDlg::PrvSaveBound, NULL, kDlgSaveBound);
+}
+
+
+#pragma mark -
+
+/***********************************************************************
+ *
+ * FUNCTION:	EmDlgContext::SessionInfo
+ *
+ * DESCRIPTION:	Called when the Session Info menu item is selected.
+ *
+ * PARAMETERS:	None
+ *
+ * RETURNED:	nothing
+ *
+ ***********************************************************************/
+
+EmDlgFnResult EmDlg::PrvSessionInfo (EmDlgContext& context)
+{
+	EmDlgRef	dlg = context.fDlg;
+	
+	switch (context.fCommandID)
+	{
+		case kDlgCmdInit:
+		{
+			Preference<Configuration>	pref1 (kPrefKeyLastConfiguration);
+			Preference<EmFileRef>		pref2 (kPrefKeyLastPSF);
+
+			Configuration	cfg			= *pref1;
+			EmDevice		device		= cfg.fDevice;
+			string			deviceStr	= device.GetMenuString ();
+			RAMSizeType		ramSize		= cfg.fRAMSize;
+			EmFileRef		romFile		= cfg.fROMFile;
+			string			romFileStr	= romFile.GetFullPath ();
+			EmFileRef		sessionRef	= *pref2;
+			string			sessionPath	= sessionRef.GetFullPath ();
+
+			if (sessionPath.empty ())
+				sessionPath = "<Not selected>";
+
+			EmDlg::SetItemText (dlg, kDlgItemInfDeviceFld, deviceStr);
+			EmDlg::SetItemValue (dlg, kDlgItemInfRAMFld, ramSize);
+			EmDlg::SetItemText (dlg, kDlgItemInfROMFld, romFileStr);
+			EmDlg::SetItemText (dlg, kDlgItemInfSessionFld, sessionPath);
+
+			break;
+		}
+
+		case kDlgCmdIdle:
+		{
+			break;
+		}
+
+		case kDlgCmdItemSelected:
+		{
+			switch (context.fItemID)
+			{
+				case kDlgItemOK:
+				case kDlgItemCancel:
+					return kDlgResultClose;
+
+				case kDlgItemInfDeviceFld:
+				case kDlgItemInfRAMFld:
+				case kDlgItemInfROMFld:
+				case kDlgItemInfSessionFld:
+					break;
+
+				default:
+					EmAssert (false);
+			}
+
+			break;
+		}
+
+		case kDlgCmdDestroy:
+			break;
+
+		case kDlgCmdPanelEnter:
+		case kDlgCmdPanelExit:
+		case kDlgCmdNone:
+			EmAssert (false);
+			break;
+	}
+
+	return kDlgResultContinue;
+}
+
+
+EmDlgItemID EmDlg::DoSessionInfo (void)
+{
+	return EmDlg::RunDialog (EmDlg::PrvSessionInfo, NULL, kDlgSessionInfo);
+}
+
+
+#pragma mark -
+
+/***********************************************************************
+ *
+ * FUNCTION:	DoGetSocketAddress
+ *
+ * DESCRIPTION:	
+ *
+ * PARAMETERS:	None
+ *
+ * RETURNED:	Nothing
+ *
+ ***********************************************************************/
+
+EmDlgFnResult EmDlg::PrvGetSocketAddress (EmDlgContext& context)
+{
+	EmDlgRef	dlg = context.fDlg;
+
+	switch (context.fCommandID)
+	{
+		case kDlgCmdInit:
+		{
+			EmDlg::SetItemText (dlg, kDlgItemSocketAddress, *(string*) context.fUserData);
+			break;
+		}
+
+		case kDlgCmdIdle:
+		{
+			break;
+		}
+
+		case kDlgCmdItemSelected:
+		{
+			switch (context.fItemID)
+			{
+				case kDlgItemOK:
+				{
+					*(string*) context.fUserData = EmDlg::GetItemText (dlg, kDlgItemSocketAddress);
+					// Fall thru...
+				}
+
+				case kDlgItemCancel:
+				{
+					return kDlgResultClose;
+				}
+
+				case kDlgItemSocketAddress:
+					break;
+
+				default:
+					EmAssert (false);
+			}
+
+			break;
+		}
+
+		case kDlgCmdDestroy:
+			break;
+
+		case kDlgCmdPanelEnter:
+		case kDlgCmdPanelExit:
+		case kDlgCmdNone:
+			EmAssert (false);
+			break;
+	}
+
+	return kDlgResultContinue;
+}
+
+
+EmDlgItemID EmDlg::DoGetSocketAddress (string& addr)
+{
+	return EmDlg::RunDialog (EmDlg::PrvGetSocketAddress, &addr, kDlgGetSocketAddress);
+}
+
+
+#pragma mark -
+
+/***********************************************************************
+ *
+ * FUNCTION:	GremlinControl
+ *
+ * DESCRIPTION:	
+ *
+ * PARAMETERS:	None
+ *
+ * RETURNED:	Nothing
+ *
+ ***********************************************************************/
+
+EmDlgRef	gGremlinControl;
+
+// Update the message "Gremlin #%gremlin_number".
+
+void EmDlg::PrvGrmUpdateGremlinNumber (EmDlgContext& context)
+{
+	EmDlgRef	dlg = context.fDlg;
+
+	int32		number		= Hordes::GremlinNumber ();
+	string		numberStr	= ::FormatInteger (number);
+
+	Errors::ClearAllParameters ();
+	Errors::SetParameter ("%gremlin_number", numberStr);
+
+	string	text = Errors::ReplaceParameters (kStr_GremlinNumber);
+	EmDlg::SetItemText (dlg, kDlgItemGrmNumber, text);
+}
+
+
+// Update the message "Event %current_event of %last_event" or
+// "Event %current_event".
+
+void EmDlg::PrvGrmUpdateEventNumber (EmDlgContext& context)
+{
+	EmDlgRef	dlg = context.fDlg;
+
+	// Update the "Event #: xxx of yyy" message.
+
+	int32		counter		= Hordes::EventCounter ();
+	int32		limit		= Hordes::EventLimit ();
+
+	string		counterStr	= ::FormatInteger (counter);
+	string		limitStr	= ::FormatInteger (limit);
+
+	Errors::ClearAllParameters ();
+	Errors::SetParameter ("%current_event", counterStr);
+	Errors::SetParameter ("%last_event", limitStr);
+
+	// If there is a max event number (indicated by a non -1 value
+	// for Hordes::EventLimit), display a string including that
+	// value.  Otherwise, the number of events to post is unlimited.
+	// In that case, we just show the current event number.
+
+	string	text = Errors::ReplaceParameters (
+										limit > 0
+										? kStr_GremlinXofYEvents
+										: kStr_GremlinXEvents);
+	EmDlg::SetItemText (dlg, kDlgItemGrmEventNumber, text);
+}
+
+
+// Update the message "Elapsed Time: %elapsed_time"
+
+void EmDlg::PrvGrmUpdateElapsedTime (EmDlgContext& context)
+{
+	EmDlgRef	dlg = context.fDlg;
+
+	uint32		elapsed		= Hordes::ElapsedMilliseconds ();
+	string		elapsedStr	= ::FormatElapsedTime (elapsed);
+
+	Errors::ClearAllParameters ();
+	Errors::SetParameter ("%elapsed_time", elapsedStr);
+
+	string	text = Errors::ReplaceParameters (kStr_GremlinElapsedTime);
+	EmDlg::SetItemText (dlg, kDlgItemGrmElapsedTime, text);
+}
+
+
+void EmDlg::PrvGrmUpdateAll (EmDlgContext& context)
+{
+	EmDlgRef	dlg = context.fDlg;
+
+	EmDlg::PrvGrmUpdateGremlinNumber (context);
+	EmDlg::PrvGrmUpdateEventNumber (context);
+	EmDlg::PrvGrmUpdateElapsedTime (context);
+
+	// Update the buttons.
+
+	EmDlg::EnableDisableItem (dlg, kDlgItemGrmStop, Hordes::CanStop ());
+	EmDlg::EnableDisableItem (dlg, kDlgItemGrmResume, Hordes::CanResume ());
+	EmDlg::EnableDisableItem (dlg, kDlgItemGrmStep, Hordes::CanStep ());
+}
+
+
+EmDlgFnResult EmDlg::PrvGremlinControl (EmDlgContext& context)
+{
+	EmDlgRef	dlg = context.fDlg;
+
+	switch (context.fCommandID)
+	{
+		case kDlgCmdInit:
+		{
+			Preference<PointType>	pref (kPrefKeyGCWLocation);
+
+			if (pref.Loaded ())
+			{
+				EmDlg::MoveDlgTo (dlg, pref->x, pref->y);
+				EmDlg::EnsureDlgOnscreen (dlg);
+			}
+			else
+			{
+				EmDlg::CenterDlg (dlg);
+			}
+
+			// Set a timer so that we can periodically update the displayed values.
+
+			context.fNeedsIdle = true;
+
+			// Set the initial contents of the dialog.
+
+			EmDlg::PrvGrmUpdateAll (context);
+
+			break;
+		}
+
+		case kDlgCmdIdle:
+		{
+			static UInt32	lastIdle = 0;
+
+			UInt32			curIdle = Platform::GetMilliseconds ();
+
+			if (curIdle - lastIdle > 500)
+			{
+				lastIdle = curIdle;
+
+				EmDlg::PrvGrmUpdateAll (context);
+			}
+
+			break;
+		}
+
+		case kDlgCmdItemSelected:
+		{
+			switch (context.fItemID)
+			{
+				case kDlgItemCancel:
+				{
+					return kDlgResultClose;
+				}
+
+				case kDlgItemGrmStop:
+				{
+					EmSessionStopper	stopper (gSession, kStopNow);
+					if (stopper.Stopped())
+					{
+						Hordes::Stop ();
+					}
+					break;
+				}
+
+				case kDlgItemGrmResume:
+				{
+					// Resuming attempts to make Palm OS calls (for instance,
+					// to reset the pen calibration), so make sure we're stopped
+					// at a good place.
+
+					EmSessionStopper	stopper (gSession, kStopOnSysCall);
+					if (stopper.Stopped())
+					{
+						Hordes::Resume ();
+					}
+					break;
+				}
+
+				case kDlgItemGrmStep:
+				{
+					EmSessionStopper	stopper (gSession, kStopOnSysCall);
+					if (stopper.Stopped())
+					{
+						Hordes::Step ();
+					}
+					break;
+				}
+
+				case kDlgItemGrmNumber:
+				case kDlgItemGrmEventNumber:
+				case kDlgItemGrmElapsedTime:
+
+				default:
+					EmAssert (false);
+			}
+
+			break;
+		}
+
+		case kDlgCmdDestroy:
+		{
+			EmRect	bounds = EmDlg::GetDlgBounds (dlg);
+
+			Preference<EmPoint>	pref (kPrefKeyGCWLocation);
+			pref = bounds.TopLeft ();
+
+			gGremlinControl = NULL;
+
+			break;	// Return value is ignored for destroy
+		}
+
+		case kDlgCmdPanelEnter:
+		case kDlgCmdPanelExit:
+		case kDlgCmdNone:
+			EmAssert (false);
+			break;
+	}
+
+	return kDlgResultContinue;
+}
+
+
+void EmDlg::GremlinControlOpen (void)
+{
+	if (!gGremlinControl)
+	{
+		gGremlinControl = EmDlg::DialogOpen (EmDlg::PrvGremlinControl, NULL, kDlgGremlinControl);
+	}
+	else
+	{
+		// !!! Bring to front
+	}
+}
+
+
+void EmDlg::GremlinControlClose (void)
+{
+	if (gGremlinControl)
+	{
+		EmDlg::DialogClose (gGremlinControl);
+	}
+}
+
+
+#pragma mark -
+
+/***********************************************************************
+ *
+ * FUNCTION:	MinimizeControl
+ *
+ * DESCRIPTION:	
+ *
+ * PARAMETERS:	None
+ *
+ * RETURNED:	Nothing
+ *
+ ***********************************************************************/
+
+EmDlgRef	gMinimizeProgress;
+
+
+// Update the message "Pass #%pass_number".
+
+void EmDlg::PrvMinUpdatePassNumber (EmDlgContext& context)
+{
+	EmDlgRef	dlg			= context.fDlg;
+
+	uint32		pass		= EmMinimize::GetPassNumber ();
+	string		passStr		= ::FormatInteger (pass);
+
+	if (pass == 0)
+	{
+		passStr = "LAST";
+	}
+
+	Errors::ClearAllParameters ();
+	Errors::SetParameter ("%pass_number", passStr);
+
+	string	text = Errors::ReplaceParameters (kStr_MinimizePassNumber);
+	EmDlg::SetItemText (dlg, kDlgItemMinPassNumber, text);
+}
+
+
+// Update the message "Event %current_event of %last_event".
+//
+// "last_event" is the last event number of the current pass.
+// "current_event" is between one and that number, inclusive.
+
+void EmDlg::PrvMinUpdateEventNumber (EmDlgContext& context)
+{
+	EmDlgRef	dlg			= context.fDlg;
+
+	uint32		current		= EmEventPlayback::GetCurrentEvent ();
+	string		currentStr	= ::FormatInteger (current);
+
+	uint32		total		= EmEventPlayback::GetNumEvents ();
+	string		totalStr	= ::FormatInteger (total);
+
+	Errors::ClearAllParameters ();
+	Errors::SetParameter ("%current_event", currentStr);
+	Errors::SetParameter ("%last_event", totalStr);
+
+	string	text = Errors::ReplaceParameters (kStr_MinimizeXofYEvents);
+	EmDlg::SetItemText (dlg, kDlgItemMinEventNumber, text);
+}
+
+
+// Update the message "Elapsed Time: %elapsed_time".
+
+void EmDlg::PrvMinUpdateElapsed (EmDlgContext& context)
+{
+	EmDlgRef	dlg			= context.fDlg;
+
+	uint32		elapsed		= EmMinimize::GetElapsedTime ();
+	string		elapsedStr	= ::FormatElapsedTime (elapsed);
+
+	Errors::ClearAllParameters ();
+	Errors::SetParameter ("%elapsed_time", elapsedStr);
+
+	string	text = Errors::ReplaceParameters (kStr_MinimizeElapsedTime);
+	EmDlg::SetItemText (dlg, kDlgItemMinElapsed, text);
+}
+
+
+// Update the message "Excluding range %first_event to %last_event".
+//
+// When formatting the last event number, subtract one to hide the
+// fact that we work on a half-open interval.  Then add one to both
+// the begin and end to convert a 0-based range to a 1-based range
+// (so that the first event is reported as 1 instead of zero).
+
+void EmDlg::PrvMinUpdateRange (EmDlgContext& context)
+{
+	EmDlgRef	dlg			= context.fDlg;
+
+	uint32		begin, end;
+	EmMinimize::GetCurrentRange (begin, end);
+
+	string		beginStr	= ::FormatInteger (begin + 1);
+	string		endStr		= ::FormatInteger (end);
+
+	Errors::ClearAllParameters ();
+	Errors::SetParameter ("%first_event", beginStr);
+	Errors::SetParameter ("%last_event", endStr);
+
+	string	text = Errors::ReplaceParameters (kStr_MinimizeRange);
+	EmDlg::SetItemText (dlg, kDlgItemMinRange, text);
+}
+
+
+// Update the message "Discarded %num_discarded_events of %num_total_events events".
+//
+// "num_total_events" is the initial number of events at pass 1.
+// "num_discarded_events" is between zero and that number.
+
+void EmDlg::PrvMinUpdateDiscarded (EmDlgContext& context)
+{
+	EmDlgRef	dlg = context.fDlg;
+
+	uint32		discarded		= EmMinimize::GetNumDiscardedEvents ();
+	string		discardedStr	= ::FormatInteger (discarded);
+
+	uint32		total			= EmMinimize::GetNumInitialEvents ();
+	string		totalStr		= ::FormatInteger (total);
+
+	Errors::ClearAllParameters ();
+	Errors::SetParameter ("%num_discarded_events", discardedStr);
+	Errors::SetParameter ("%num_total_events", totalStr);
+
+	string	text = Errors::ReplaceParameters (kStr_MinimizeDiscarded);
+	EmDlg::SetItemText (dlg, kDlgItemMinDiscarded, text);
+}
+
+
+// Update the progress bar.
+//
+// Max value of the progress bar is the current maximum event for this pass.
+// Current value of the bar is the lower end of the range we are currently
+// examining for exclusion.  Given the way we walk through the ranges of
+// events to exclude, this will give a jerky yet increasing progress bar.
+
+void EmDlg::PrvMinUpdateProgress (EmDlgContext& context)
+{
+	EmDlgRef	dlg = context.fDlg;
+
+	uint32		begin, end;
+	EmMinimize::GetCurrentRange (begin, end);
+
+	uint32		total = EmEventPlayback::GetNumEvents ();
+
+	// Make sure "total" is less than 32K (that's the most that the standard
+	// Win32 progress bar can handle).
+
+	int	divider = (total / 32768) + 1;
+
+	total /= divider;
+	begin /= divider;
+	end /= divider;
+
+	EmDlg::SetItemMax (dlg, kDlgItemMinProgress, total);
+	EmDlg::SetItemValue (dlg, kDlgItemMinProgress, begin);
+}
+
+
+// Update all elements of the dialog box.
+
+void EmDlg::PrvMinUpdateAll (EmDlgContext& context)
+{
+	EmDlg::PrvMinUpdatePassNumber (context);
+	EmDlg::PrvMinUpdateEventNumber (context);
+	EmDlg::PrvMinUpdateElapsed (context);
+	EmDlg::PrvMinUpdateRange (context);
+	EmDlg::PrvMinUpdateDiscarded (context);
+	EmDlg::PrvMinUpdateProgress (context);
+}
+
+
+EmDlgFnResult EmDlg::PrvMinimizeProgress (EmDlgContext& context)
+{
+	EmDlgRef	dlg = context.fDlg;
+
+	switch (context.fCommandID)
+	{
+		case kDlgCmdInit:
+		{
+			Preference<PointType>	pref (kPrefKeyMPWLocation);
+
+			if (pref.Loaded ())
+			{
+				EmDlg::MoveDlgTo (dlg, pref->x, pref->y);
+				EmDlg::EnsureDlgOnscreen (dlg);
+			}
+			else
+			{
+				EmDlg::CenterDlg (dlg);
+			}
+
+			// Set a timer so that we can periodically update the displayed values.
+
+			context.fNeedsIdle = true;
+
+			// Set the initial contents of the dialog.
+
+			EmDlg::PrvMinUpdateAll (context);
+
+			break;
+		}
+
+		case kDlgCmdIdle:
+		{
+			if (!EmMinimize::IsOn ())
+			{
+				return kDlgResultClose;
+			}
+
+			static UInt32	lastIdle = 0;
+
+			UInt32			curIdle = Platform::GetMilliseconds ();
+
+			if (curIdle - lastIdle > 500)
+			{
+				lastIdle = curIdle;
+
+				EmDlg::PrvMinUpdateAll (context);
+			}
+
+			break;
+		}
+
+		case kDlgCmdItemSelected:
+		{
+			switch (context.fItemID)
+			{
+				case kDlgItemCancel:
+				{
+					EmMinimize::Stop ();
+					return kDlgResultClose;
+				}
+
+				case kDlgItemMinRange:
+				case kDlgItemMinElapsed:
+				case kDlgItemMinDiscarded:
+				case kDlgItemMinProgress:
+
+				default:
+					EmAssert (false);
+			}
+
+			break;
+		}
+
+		case kDlgCmdDestroy:
+		{
+			EmRect	bounds = EmDlg::GetDlgBounds (dlg);
+
+			Preference<EmPoint>	pref (kPrefKeyMPWLocation);
+			pref = bounds.TopLeft ();
+
+			gMinimizeProgress = NULL;
+
+			break;	// Return value is ignored for destroy
+		}
+
+		case kDlgCmdPanelEnter:
+		case kDlgCmdPanelExit:
+		case kDlgCmdNone:
+			EmAssert (false);
+			break;
+	}
+
+	return kDlgResultContinue;
+}
+
+
+void EmDlg::MinimizeProgressOpen (void)
+{
+	if (!gMinimizeProgress)
+	{
+		gMinimizeProgress = EmDlg::DialogOpen (EmDlg::PrvMinimizeProgress, NULL, kDlgMinimizeProgress);
+	}
+	else
+	{
+		// !!! Bring to front
+	}
+}
+
+
+void EmDlg::MinimizeProgressClose (void)
+{
+	if (gMinimizeProgress)
+	{
+		EmDlg::DialogClose (gMinimizeProgress);
+	}
 }
 
 
@@ -3780,23 +5589,137 @@ EmDlgItemID EmDlg::DoSaveBound (void)
  
 EmDlgItemID EmDlg::RunDialog (EmDlgFn fn, void* userData, EmDlgID dlgID)
 {
+	RunDialogParameters	parameters (fn, userData, dlgID);
+	return EmDlg::RunDialog (EmDlg::HostRunDialog, &parameters);
+}
+
+
+/***********************************************************************
+ *
+ * FUNCTION:	RunDialog
+ *
+ * DESCRIPTION:	Common routine that all dialog clients go through.
+ *				This function checks to see if we are in the UI thread
+ *				or not.  If not, it forwards the call to the session
+ *				so that it can block and wait for the UI thread to
+ *				pick up and handle the call.  If we are already in the
+ *				UI thread, then call the Host routine that displays
+ *				and drives the dialog.
+ *
+ * PARAMETERS:	fn - the custom dialog handler
+ *				userData - custom data passed back to the dialog handler.
+ *				dlgID - ID of dialog to create.
+ *
+ * RETURNED:	ID of dialog item that dismissed the dialog.
+ *
+ ***********************************************************************/
+ 
+EmDlgItemID EmDlg::RunDialog (EmDlgThreadFn fn, const void* parameters)
+{
 #if HAS_OMNI_THREAD
 	if (gSession && gSession->InCPUThread ())
 	{
-		return gSession->BlockOnDialog (fn, userData, dlgID);
+		return gSession->BlockOnDialog (fn, parameters);
 	}
 #else
 	if (gSession && gSession->GetSessionState () == kRunning)
 	{
-		return gSession->BlockOnDialog (fn, userData, dlgID);
+		return gSession->BlockOnDialog (fn, parameters);
 	}
 #endif
 
-	return EmDlg::HostRunDialog (fn, userData, dlgID);
+	return fn (parameters);
+}
+
+
+/***********************************************************************
+ *
+ * FUNCTION:	DialogOpen
+ *
+ * DESCRIPTION:	.
+ *
+ * PARAMETERS:	fn - the custom dialog handler
+ *				userData - custom data passed back to the dialog handler.
+ *				dlgID - ID of dialog to create.
+ *
+ * RETURNED:	.
+ *
+ ***********************************************************************/
+ 
+EmDlgRef EmDlg::DialogOpen (EmDlgFn fn, void* data, EmDlgID dlgID)
+{
+	return EmDlg::HostDialogOpen (fn, data, dlgID);
+}
+
+
+/***********************************************************************
+ *
+ * FUNCTION:	DialogClose
+ *
+ * DESCRIPTION:	.
+ *
+ * PARAMETERS:	.
+ *
+ * RETURNED:	.
+ *
+ ***********************************************************************/
+ 
+void EmDlg::DialogClose (EmDlgRef dlg)
+{
+	EmDlg::HostDialogClose (dlg);
 }
 
 
 #pragma mark -
+
+/***********************************************************************
+ *
+ * FUNCTION:	EmDlg::MoveDlgTo
+ *
+ * DESCRIPTION:	
+ *
+ * PARAMETERS:	None
+ *
+ * RETURNED:	Nothing
+ *
+ ***********************************************************************/
+
+void EmDlg::MoveDlgTo (EmDlgRef dlg, EmCoord x, EmCoord y)
+{
+	EmDlg::MoveDlgTo (dlg, EmPoint (x, y));
+}
+
+
+void EmDlg::MoveDlgTo (EmDlgRef dlg, const EmPoint& pt)
+{
+	EmRect	bounds = EmDlg::GetDlgBounds (dlg);
+	bounds += (pt - bounds.TopLeft ());
+	EmDlg::SetDlgBounds (dlg, bounds);
+}
+
+
+/***********************************************************************
+ *
+ * FUNCTION:	EmDlg::EnsureDlgOnscreen
+ *
+ * DESCRIPTION:	
+ *
+ * PARAMETERS:	None
+ *
+ * RETURNED:	Nothing
+ *
+ ***********************************************************************/
+
+void EmDlg::EnsureDlgOnscreen (EmDlgRef dlg)
+{
+	EmRect	bounds = EmDlg::GetDlgBounds (dlg);
+
+	if (Platform::PinToScreen (bounds))
+	{
+		EmDlg::SetDlgBounds (dlg, bounds);
+	}
+}
+
 
 /***********************************************************************
  *
@@ -3942,6 +5865,27 @@ void EmDlg::SelectListItem (EmDlgRef dlg, EmDlgItemID item, EmDlgListIndex listI
 
 /***********************************************************************
  *
+ * FUNCTION:	EmDlg::UnselectListItem
+ *
+ * DESCRIPTION:	
+ *
+ * PARAMETERS:	None
+ *
+ * RETURNED:	Nothing
+ *
+ ***********************************************************************/
+
+void EmDlg::UnselectListItem (EmDlgRef dlg, EmDlgItemID item, EmDlgListIndex listItem)
+{
+	EmDlgListIndexList	itemList;
+	itemList.push_back (listItem);
+
+	EmDlg::UnselectListItems (dlg, item, itemList);
+}
+
+
+/***********************************************************************
+ *
  * FUNCTION:	EmDlg::GetSelectedItem
  *
  * DESCRIPTION:	
@@ -4061,13 +6005,46 @@ EmDlgContext::EmDlgContext (const EmDlgContext& other) :
 
 EmDlgFnResult EmDlgContext::Init (void)
 {
-	fItemID		= kDlgItemNone;
-	fCommandID	= kDlgCmdInit;
+	fFnResult	= kDlgResultNone;
 
-	fFnResult	= fFn (*this);
+	if (fFn)
+	{
+		fItemID		= kDlgItemNone;
+		fCommandID	= kDlgCmdInit;
 
-	if (fNeedsIdle)
-		EmDlg::HostStartIdling (*this);
+		fFnResult	= fFn (*this);
+
+		if (fNeedsIdle)
+			EmDlg::HostStartIdling (*this);
+	}
+
+	return fFnResult;
+}
+
+
+/***********************************************************************
+ *
+ * FUNCTION:	EmDlgContext::Idle
+ *
+ * DESCRIPTION:	Call the custom dialog handler to idle.
+ *
+ * PARAMETERS:	None
+ *
+ * RETURNED:	The result returned by the dialog handler.
+ *
+ ***********************************************************************/
+
+EmDlgFnResult EmDlgContext::Idle (void)
+{
+	fFnResult	= kDlgResultNone;
+
+	if (fFn)
+	{
+		fItemID		= kDlgItemNone;
+		fCommandID	= kDlgCmdIdle;
+
+		fFnResult	= fFn (*this);
+	}
 
 	return fFnResult;
 }
@@ -4086,34 +6063,43 @@ EmDlgFnResult EmDlgContext::Init (void)
  ***********************************************************************/
 
 EmDlgFnResult EmDlgContext::Event (EmDlgItemID itemID)
-{	
-	fItemID		= itemID;
-	fCommandID	= kDlgCmdItemSelected;
+{
+	fFnResult	= kDlgResultNone;
 
-	fFnResult	= fFn (*this);
+	if (fFn)
+	{
+		fItemID		= itemID;
+		fCommandID	= kDlgCmdItemSelected;
+
+		fFnResult	= fFn (*this);
+	}
+
 	return fFnResult;
 }
 
 
 /***********************************************************************
  *
- * FUNCTION:	EmDlgContext::Idle
+ * FUNCTION:	EmDlgContext::Destroy
  *
- * DESCRIPTION:	Call the custom dialog handler to idle.
+ * DESCRIPTION:	Call the custom dialog handler to tell it that the
+ *				dialog is being destroyed.
  *
- * PARAMETERS:	None
+ * PARAMETERS:	None.
  *
- * RETURNED:	The result returned by the dialog handler.
+ * RETURNED:	Nothing.
  *
  ***********************************************************************/
 
-EmDlgFnResult EmDlgContext::Idle (void)
-{	
-	fItemID		= kDlgItemNone;
-	fCommandID	= kDlgCmdIdle;
+void EmDlgContext::Destroy (void)
+{
+	if (fFn)
+	{
+		fItemID		= kDlgItemNone;
+		fCommandID	= kDlgCmdDestroy;
 
-	fFnResult	= fFn (*this);
-	return fFnResult;
+		fFnResult	= fFn (*this);
+	}
 }
 
 
@@ -4163,291 +6149,141 @@ EmDlgFnResult EmDlgContext::PanelExit (void)
 
 #pragma mark -
 
-void EmDlg::PrvBuildROMMenu (const EmDlgContext& context)
+#if !PLATFORM_UNIX
+// Append one set of descriptors to another set, separating them if
+// necessary with an empty descriptor.
+
+static void PrvAppendDescriptors (EmTransportDescriptorList& menuItems,
+								  const EmTransportDescriptorList& rawItems)
 {
-	const EmDlgRef&	dlg		= context.fDlg;
-	SessionNewData*	data	= (SessionNewData*) context.fUserData;
-	Configuration&	cfg		= data->fWorkingCfg;
+	// If there are items to be added and items already added,
+	// insert a divider first.
 
-	int 			menuID		= 0;
-	Bool			selected	= false;
-
-	EmDlg::ClearMenu (dlg, kDlgItemNewROM);
-
-	EmDlg::AppendToMenu (dlg, kDlgItemNewROM, Platform::GetString (kStr_OtherMRU));
-	EmDlg::AppendToMenu (dlg, kDlgItemNewROM, std::string());
-
-	menuID = 2;
-
-	for (int ii = 0; ; ++ii)
+	if (menuItems.size () > 0 && rawItems.size () > 0)
 	{
-		EmFileRef	fileRef = gEmuPrefs->GetIndROMMRU (ii);
-		if (!fileRef.IsSpecified())
-			break;
-		
-		EmDlg::AppendToMenu (dlg, kDlgItemNewROM, fileRef.GetName());
-
-		if (cfg.fROMFile.GetFullPath() == fileRef.GetFullPath())
-		{
-			EmDlg::SetItemValue (dlg, kDlgItemNewROM, menuID);
-			selected = true;
-		}
-
-		++menuID;
-
-	}
-	
-	if (menuID == 2)
-	{
-		EmDlg::AppendToMenu (dlg, kDlgItemNewROM, Platform::GetString (kStr_EmptyMRU));
-		EmDlg::DisableMenuItem (dlg, kDlgItemNewROM, 2);
+		menuItems.push_back (EmTransportDescriptor ());
 	}
 
-	if (!selected) 
-	{
-		EmDlg::SetItemValue (dlg, kDlgItemNewROM, 2);
-	}
+	// Add the menu items to the menu.
 
+	std::copy (rawItems.begin (), rawItems.end (), back_inserter (menuItems));
 }
 
 
-struct PrvSupportsROM : unary_function<EmDevice&, bool>
+// Append one descriptors to a set, separating it if
+// necessary with an empty descriptor.
+
+static void PrvAppendDescriptors (EmTransportDescriptorList& menuItems,
+								  const string& rawItem)
 {
-	PrvSupportsROM(EmROMReader<LAS>& inROM) : ROM(inROM) {}	
-	bool operator()(EmDevice& item)
-	{
-		return !item.SupportsROM(ROM);
-	}
+	EmTransportDescriptorList	rawItems;
+	rawItems.push_back (EmTransportDescriptor (rawItem));
 
-private:
-	const EmROMReader<LAS>& ROM;
-};
+	::PrvAppendDescriptors (rawItems, menuItems);
+}
 
 
-EmDeviceList::iterator EmDlg::PrvFilterDeviceList(const EmFileRef& romFile, EmDeviceList& devices)
+// Return the text that should be put into the menu item.
+
+static string PrvGetMenuItemText (EmDlgItemID whichMenu,
+								  const EmTransportDescriptor& item,
+								  const string& socketAddr)
 {
-	EmDeviceList::iterator devices_end = devices.end();
-	if (romFile.IsSpecified())
+	// Get the text to add to the menu.
+
+	string	itemText = item.GetMenuName ();
+
+	// If this menu item is for a socket, see if we'd like to
+	// augment the text for it with socket/port info.
+
+	if (item.GetType () == kTransportSocket)
 	{
-		try
+		if (whichMenu == kDlgItemPrfRedirectSerial || whichMenu == kDlgItemPrfRedirectSerial)
 		{
-			EmStreamFile	hROM(romFile, kOpenExistingForRead);
-			StMemory    	romImage (hROM.GetLength());
+			// If the user has selected a socket for their serial or IR
+			// port, then add the socket address/port, as well as a "..."
+			// so that they can bring up a dialog allowing them to specify
+			// that information.
 
-			hROM.GetBytes (romImage.Get (), hROM.GetLength());
-
-			EmROMReader<LAS> ROM(romImage.Get(), hROM.GetLength());
-
-			if (ROM.AcquireCardHeader()) {
-				ROM.AcquireROMHeap();
-				ROM.AcquireDatabases();
-				ROM.AcquireFeatures();
-				ROM.AcquireSplashDB();
+			if (socketAddr.size () > 0)
+			{
+				itemText += " (" + socketAddr + ")";
 			}
 
-			devices_end = remove_if(devices.begin(), devices.end(),
-				PrvSupportsROM(ROM));
-		}
-		catch (ErrCode)
-		{
-			/* On any of our errors, don't remove any devices */
+			itemText += "...";
 		}
 	}
 
-	return devices_end;
+	return itemText;
 }
 
 
-void EmDlg::PrvBuildDeviceMenu (const EmDlgContext& context)
+// Append the given descriptors to the indicated menu.  Empty descriptors
+// are turned into divider menu items.  If the descriptor in "pref" is
+// found, then select that descriptor in the menu.  Otherwise, select the
+// first item in the menu.
+
+static void PrvAppendMenuItems (EmDlgRef dlg, EmDlgItemID dlgItem,
+								const EmTransportDescriptorList& menuItems,
+								const EmTransportDescriptor& pref,
+								const string& socketAddr)
 {
-	const EmDlgRef&			dlg			= context.fDlg;
-	SessionNewData*			data		= (SessionNewData*) context.fUserData;
-	Configuration&			cfg			= data->fWorkingCfg;
+	Bool	selected = false;
 
-	EmDeviceList			devices		= EmDevice::GetDeviceList ();
+	// Iterate over all the items in "menuItems".
 
-	EmDeviceList::iterator	iter		= devices.begin();
-	EmDeviceList::iterator	devices_end	= devices.end();
-	int 					menuID		= 0;
-	Bool					selected	= false;
-
-	devices_end = PrvFilterDeviceList(cfg.fROMFile, devices);
-	iter = devices.begin();
-
-	if (iter == devices_end)
+	EmTransportDescriptorList::const_iterator	iter = menuItems.begin ();
+	while (iter != menuItems.end ())
 	{
-		/* We filtered out too many things, so reset to displaying all */
-		devices_end = devices.end();
-	}
+		// If this is descriptor is of a known type, add it to the menu as an item.
 
-	data->fDevices = EmDeviceList(iter, devices_end);
-
-	EmDlg::ClearMenu (dlg, kDlgItemNewDevice);
-
-	while (iter != devices_end)
-	{
-		EmDlg::AppendToMenu (dlg, kDlgItemNewDevice, iter->GetMenuString ());
-
-		if (cfg.fDevice == *iter)
+		if (iter->GetType () != kTransportUnknown)
 		{
-			EmDlg::SetItemValue (dlg, kDlgItemNewDevice, menuID);
-			selected = true;
+			// Add the menu item to the menu.
+
+			string	itemText = ::PrvGetMenuItemText (dlgItem, *iter, socketAddr);
+			EmDlg::AppendToMenu (dlg, dlgItem, itemText);
+
+			// If this is the item the user has selected, then select it
+			// in the menu.
+
+			if (iter->GetType () == kTransportSocket)
+			{
+				if (pref.GetType () == kTransportSocket)
+				{
+					EmDlg::SetItemValue (dlg, dlgItem, iter - menuItems.begin ());
+					selected = true;
+				}
+			}
+			else if (*iter == pref)
+			{
+				EmDlg::SetItemValue (dlg, dlgItem, iter - menuItems.begin ());
+				selected = true;
+			}
+		}
+
+		// If this descriptor is not of a known type, add it as a menu divider.
+
+		else
+		{
+			EmDlg::AppendToMenu (dlg, dlgItem, "");
 		}
 
 		++iter;
-		++menuID;
 	}
+
+	// If we couldn't find a menu item to select,
+	// pick a default.
 
 	if (!selected)
 	{
-		EmDlg::SetItemValue (dlg, kDlgItemNewDevice, menuID-1);
-		cfg.fDevice = data->fDevices [menuID-1];
-
-		/* Rely on caller to (always) invoke PrvBuildSkinMenu */
+		EmDlg::SetItemValue (dlg, dlgItem, 0);
 	}
 }
+#endif	// !PLATFORM_UNIX
 
 
-void EmDlg::PrvBuildSkinMenu (const EmDlgContext& context)
-{
-	const EmDlgRef&			dlg			= context.fDlg;
-	SessionNewData*			data		= (SessionNewData*) context.fUserData;
-	Configuration&			cfg			= data->fWorkingCfg;
-
-	SkinNameList			skins;
-	::SkinGetSkinNames (cfg.fDevice, skins);
-	SkinName				chosenSkin	= ::SkinGetSkinName (cfg.fDevice);
-
-	SkinNameList::iterator	iter		= skins.begin ();
-	int 					menuID		= 0;
-
-	EmDlg::ClearMenu (dlg, kDlgItemNewSkin);
-
-	while (iter != skins.end())
-	{
-		EmDlg::AppendToMenu (dlg, kDlgItemNewSkin, *iter);
-
-		if (chosenSkin == *iter)
-		{
-			EmDlg::SetItemValue (dlg, kDlgItemNewSkin, menuID);
-		}
-
-		++iter;
-		++menuID;
-	}
-}
-
-
-void EmDlg::PrvBuildMemorySizeMenu (const EmDlgContext& context)
-{
-	const EmDlgRef&				dlg			= context.fDlg;
-	SessionNewData*				data		= (SessionNewData*) context.fUserData;
-	Configuration&				cfg			= data->fWorkingCfg;
-
-	MemoryTextList				sizes;
-	::GetMemoryTextList (sizes);
-	::PrvFilterMemorySizes (sizes, cfg);
-
-#ifdef SONY_ROM 
-	BOOL			enabled = (cfg.fDevice.GetDeviceType() != kDevicePEGN700C
-							&& cfg.fDevice.GetDeviceType() != kDevicePEGS320
-							&& cfg.fDevice.GetDeviceType() != kDevicePEGS360
-							&& cfg.fDevice.GetDeviceType() != kDevicePEGT400
-							&& cfg.fDevice.GetDeviceType() != kDevicePEGT600
-							&& cfg.fDevice.GetDeviceType() != kDevicePEGN600C
-							&& cfg.fDevice.GetDeviceType() != kDevicePEGS500C
-							&& cfg.fDevice.GetDeviceType() != kDevicePEGS300);
-
-	if (cfg.fDevice.GetDeviceType() == kDevicePEGN700C
-	 || cfg.fDevice.GetDeviceType() == kDevicePEGS320
-	 || cfg.fDevice.GetDeviceType() == kDevicePEGT400
-	 || cfg.fDevice.GetDeviceType() == kDevicePEGN600C
-	 || cfg.fDevice.GetDeviceType() == kDevicePEGS500C
-	 || cfg.fDevice.GetDeviceType() == kDevicePEGS300)
-		cfg.fRAMSize = 8192;
-	
-	if (cfg.fDevice.GetDeviceType() == kDevicePEGT600
-	 || cfg.fDevice.GetDeviceType() == kDevicePEGS360)
-		cfg.fRAMSize = 16384;
-#endif	// SONY_ROM
-
-	MemoryTextList::iterator	iter		= sizes.begin();
-	int							menuID		= 0;
-	Bool						selected	= false;
-
-	EmDlg::ClearMenu (dlg, kDlgItemNewMemorySize);
-
-	while (iter != sizes.end())
-	{
-		EmDlg::AppendToMenu (dlg, kDlgItemNewMemorySize, iter->second);
-
-		if (cfg.fRAMSize == iter->first)
-		{
-			EmDlg::SetItemValue (dlg, kDlgItemNewMemorySize, menuID);
-			selected = true;
-		}
-#ifdef SONY_ROM 
-		else if (!enabled)
-		{
-			EmDlg::DisableMenuItem (dlg, kDlgItemNewMemorySize, menuID);
-		}
-#endif
-
-		++iter;
-		++menuID;
-	}
-
-	if (!selected)
-	{
-		EmDlg::SetItemValue (dlg, kDlgItemNewMemorySize, 0);
-		cfg.fRAMSize = sizes[0].first;
-	}
-}
-
-
-void EmDlg::PrvSetROMName (const EmDlgContext& context)
-{
-	const EmDlgRef&	dlg		= context.fDlg;
-	SessionNewData*	data	= (SessionNewData*) context.fUserData;
-	Configuration&	cfg		= data->fWorkingCfg;
-	EmFileRef&		rom		= cfg.fROMFile;
-
-	EmDlg::EnableDisableItem (dlg, kDlgItemOK, rom.IsSpecified ());
-}
-
-
-void PrvConvertBaudListToStrings (const EmTransportSerial::BaudList& baudList,
-									StringList& baudStrList)
-{
-	EmTransportSerial::BaudList::const_iterator	iter = baudList.begin();
-	while (iter != baudList.end())
-	{
-		char	buffer[20];
-		::FormatInteger (buffer, *iter);
-		strcat (buffer, " bps");
-		baudStrList.push_back (buffer);
-		++iter;
-	}
-}
-
-void PrvFilterMemorySizes (MemoryTextList& sizes, const Configuration& cfg)
-{
-	RAMSizeType					minSize	= cfg.fDevice.MinRAMSize ();
-	MemoryTextList::iterator	iter	= sizes.begin();
-
-	while (iter != sizes.end())
-	{
-		if (iter->first < minSize)
-		{
-			sizes.erase (iter);
-			iter = sizes.begin ();
-			continue;
-		}
-
-		++iter;
-	}
-}
-
+#pragma mark -
 
 #if 0
 	// Template for callback function
@@ -4455,7 +6291,7 @@ void PrvFilterMemorySizes (MemoryTextList& sizes, const Configuration& cfg)
 EmDlgFnResult EmDlg::PrvCallback (EmDlgContext& context)
 {
 	EmDlgRef				dlg = context.fDlg;
-	<type>*	data = (<type>*) context.fUserData;
+	<type>&	data = *(<type>*) context.fUserData;
 
 	switch (context.fCommandID)
 	{
@@ -4490,6 +6326,9 @@ EmDlgFnResult EmDlg::PrvCallback (EmDlgContext& context)
 			break;
 		}
 
+		case kDlgCmdDestroy:
+			break;
+
 		case kDlgCmdPanelEnter:
 		case kDlgCmdPanelExit:
 		case kDlgCmdNone:
@@ -4511,12 +6350,13 @@ void EmDlg::PrvBuildMSSizeMenu (const EmDlgContext& context)
 
 	BOOL			enabled = (cfg.fDevice.GetDeviceType() == kDevicePEGN700C
 							|| cfg.fDevice.GetDeviceType() == kDevicePEGS320
-							|| cfg.fDevice.GetDeviceType() == kDevicePEGS360
 							|| cfg.fDevice.GetDeviceType() == kDevicePEGT400
 							|| cfg.fDevice.GetDeviceType() == kDevicePEGT600
 							|| cfg.fDevice.GetDeviceType() == kDevicePEGN600C
 							|| cfg.fDevice.GetDeviceType() == kDevicePEGS500C
-							|| cfg.fDevice.GetDeviceType() == kDevicePEGS300);
+							|| cfg.fDevice.GetDeviceType() == kDevicePEGS300
+							|| cfg.fDevice.GetDeviceType() == kDeviceYSX1100
+							|| cfg.fDevice.GetDeviceType() == kDeviceYSX1230);
 
 	if (dlg)
 	{

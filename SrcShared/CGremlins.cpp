@@ -36,6 +36,7 @@
 #include <Field.h>
 #include <Form.h>
 #include <TextMgr.h>
+#include <PalmLocale.h>
 
 #include "CGremlinsStubs.h"
 #include "CGremlins.h"
@@ -44,7 +45,7 @@
 
 #define	NON_PORTABLE
 #include "SystemPrv.h"
-#include	"DataPrv.h"
+#include "DataPrv.h"
 #include "SysEvtPrv.h"
 #include <SystemPkt.h>
 
@@ -53,7 +54,10 @@
 #else	// !forSimulator
 
 #include "EmBankRegs.h"			// RegsBank
+#include "EmEventPlayback.h"	// RecordPenEvent, etc.
 #include "EmMemory.h"			// EmMemPut16, EmMemPut32
+#include "EmPalmStructs.h"		// EmAliasPenBtnInfoType
+#include "EmPatchState.h"		// GetCurrentAppInfo
 #include "EmSession.h"			// gSession, ScheduleAutoSaveState
 #include "ErrorHandling.h"		// Errors::ThrowIfPalmError
 #include "Hordes.h"				// Hordes::IsOn, TurnOn
@@ -62,7 +66,7 @@
 #include "ROMStubs.h"			// FtrGet, TxtGetNextChar, TxtCharBounds, TxtByteAddr, FrmGetActiveForm...
 #include "SessionFile.h"		// SessionFile
 #include "Strings.r.h"			// kStr_ values
-#include "UAE_Utils.h"			// uae_memcpy
+#include "EmLowMem.h"			// EmLowMem_SetGlobal for setting battery level
 
 
 
@@ -75,9 +79,6 @@ static EmStream&	operator << (EmStream&, const DatabaseInfo&);
 
 static EmStream&	operator >> (EmStream&, GremlinInfo&);
 static EmStream&	operator << (EmStream&, const GremlinInfo&);
-
-
-
 
 
 ///////////////////////////////////////////////////////////////////////////////////
@@ -118,7 +119,7 @@ static UInt16 _TxtGetNextChar (const Char *inText, UInt32 inOffset, WChar *outCh
 	}
 
 	if (outChar)
-		*outChar = inText[inOffset];
+		*outChar = (UInt8) inText[inOffset];
 
 	return sizeof (Char);
 }
@@ -214,7 +215,7 @@ inline int randN (long N)
 #define KEYBOARD_EVENT_CHANCE					(FIND_EVENT_CHANCE + 1)
 #define LOW_BATTERY_EVENT_CHANCE				(KEYBOARD_EVENT_CHANCE + 2)
 #define APP_SWITCH_EVENT_CHANCE					(LOW_BATTERY_EVENT_CHANCE + 4)
-#define POWER_OFF_CHANCE						(APP_SWITCH_EVENT_CHANCE + 1)
+// #define POWER_OFF_CHANCE						(APP_SWITCH_EVENT_CHANCE + 1)
 
 #define LAUNCHER_EVENT_CHANCE					0	// percent of APP_SWITCH_EVENT_CHANCE
 
@@ -335,7 +336,7 @@ static const int chanceForKey[NUM_OF_KEYS] = {
 #define NUM_OF_QUOTES	18
 
 // Shakespearean quotes used by Gremlins for English text
-static const char * kEnglishQuotes[NUM_OF_QUOTES] = {
+static const char * kAsciiQuotes[NUM_OF_QUOTES] = {
 	"Out out damn spot!",
 	
 	"Et tu, Brute?",
@@ -390,14 +391,14 @@ static const char * kEnglishQuotes[NUM_OF_QUOTES] = {
 		
 	"Tennis balls, my liege.",
 	
-	"De sin. Le col, de nick; le menton, de sin.",
+	"De Sin: le col de Nick, le menton de Sin.",
 	
 	"But swords I smile at, weapons laugh to scorn, "
 		"brandished by man that's of a woman born."
 	
 };
 
-static const char * kJapaneseQuotes[NUM_OF_QUOTES] = {
+static const char * kShiftJISQuotes[NUM_OF_QUOTES] = {
 	"恖偼丄偐偮偰怷偺恄傪嶦偟偨",
 	
 	"傕偺偺偗昉",
@@ -454,6 +455,159 @@ static const char * kJapaneseQuotes[NUM_OF_QUOTES] = {
 		"丗摽娫峃夣僾儘僨儏乕僒乕丗楅栘晀晇"
 };
 
+static const char * kBig5Quotes[NUM_OF_QUOTES] = {
+#if 1		// SONT_ROM
+	"","","","","","","","","","",
+	"","","","","","","",""
+#else
+	"秨材",
+	
+	"冻纯",
+	
+	"句筁礷冠ほぇ珿盢痷ㄆ留τ\"硄艶\""
+	"ぇ弧级珿り\"郝留\"おお"
+	"い┮癘ㄆ冻さ剐窵窵ㄆ礚Θ",
+		
+	"┛├の讽ら┮Τぇ灿σ耕"
+	"谋ㄤ︽ゎǎ醚иぇи绑绑沤"
+	"港ぃ璝┘溉肠玽龟穃\玥Τ緇礚痲ぇ礚ぇ"
+	"ら讽玥饼盢┕┮苦ぱ紈繟︾蠯ぇ"
+	"墚ヌ配ぇら璉毙▅ぇ璽畍 "
+	"\n"
+	"ね砏酵ぇ紈さらм礚Θネ笺ぇ竜絪 "
+	"瓃栋ぱиぇ竜㏕ぃ礛挥徽い"
+	"セ菌菌Τ窾ぃиぇぃ╲臔祏 "
+	"ㄖㄏㄤ獅防瘤さらぇ璗蒈酱鉴ニ_梅ㄤ "
+	"贬臩顶琱畑ョゼΤЙиぇ锰胔掸茎瘤и "
+	"ゼ厩掸礚ゅЙノ安粂ē寂簍琿珿ㄆ"
+	"ㄓョㄏ挥徽琇肚狡ぇヘ瘆稵磂ぃョ "
+	"﹜珿り\"鸽獴\"おおいノ\"冠\"ノ\"ほ\"",
+		
+	"单琌矗眶綷\泊ヘョ琌ミ種セΞ﹛"
+	"笵眖τㄓ弧癬パ瘤 "
+	"灿玥瞏Τ届盢ㄓ菌猔"
+	"ㄓ碋ん芬ホ干ぱぇ",
+		
+	"礚絔盫絤Θ蔼竒よ竒箈ホ窾せきκ箂遏碋"
+	"んノ窾せきκ遏虫虫逞遏ゼノ獽"
+	"斌獵瓽畃",
+		
+	"街ホ竒芬ぇ艶┦硄ǎ_ホ",
+	
+	"眔干ぱ縒礚ぃ臭匡笶价",
+	
+	"ら磀腹篎穃\らタ讽敦",
+	
+	"饱ぇ悔玐ǎ宫笵环环τㄓ",
+	
+	"ネ眔癌ぃ伦瓇钵弧弧ㄓ畃Гホ",
+	
+	"娩蔼酵е阶琌",
+	
+	"弧ㄇ冻铭トほぇㄆ獽弧",
+	
+	"剐い篴地碔禥ホ",
+	
+	"钮ぃ谋ゴ笆み稱璶丁ㄉㄉ硂篴地碔禥"
+	"彩镍ぃ眔獽ēê宫笵弧笵畍"
+	"镍ぃǎ搂続籇酵ê丁篴模羉地",
+		
+	"みち紏ぇ借瘤彩镍",
+	
+	"┦玱祔硄猵ǎ畍笵砰﹚獶珇ゲ",
+	
+	"Τ干ぱ蕾ぇ蕾ぇ紈籜祇翴稯み"
+	"拟盿眔剐ê碔禥初い放琗秏ń"
+#endif
+};
+
+static const char * kGB2312Quotes[NUM_OF_QUOTES] = {
+#if 1		// SONT_ROM
+	"","","","","","","","","","",
+	"","","","","","","",""
+#else
+	"此开卷第一回也。作",
+	
+	"者自云：因曾",
+	
+	"历过一番梦幻之后，故将真事隐去，而借“通灵”"
+	"之说，撰此一书也。故曰“甄士隐”云云。"
+	"但书中所记何事何人？自又云：今风尘碌碌，一事无成，",
+
+	"忽念及当日所有之女子，一一细考较去，"
+	"觉其行止见识，皆出于我之上。何我堂堂须眉，"
+	"诚不若彼裙钗哉？实愧则有余，悔又无益之大无可如何之"
+	"日也！当此，则自欲将已往所赖天恩祖德，锦衣纨之"
+	"时，饫甘餍肥之日，背父兄教育之恩，负师"
+	"\n"
+	"友规谈之德，以至今日一技无成，半生潦倒之罪，编"
+	"述一集，以告天下人：我之罪固不免，然闺阁中"
+	"本自历历有人，万不可因我之不肖，自护己短"
+	"，一并使其泯灭也。虽今日之茅椽蓬牖，瓦灶绳床，其"
+	"晨夕风露，阶柳庭花，亦未有妨我之襟怀笔墨者。虽我"
+	"未学，下笔无文，又何妨用假语村言，敷演出一段故事"
+	"来，亦可使闺阁昭传，复可悦世之目，破人愁闷，不亦"
+	"宜乎？故曰“贾雨村”云云。此回中凡用“梦”用“幻”",
+		
+	"等字，是提醒阅者眼目，亦是此书立意本旨。列位看官：你"
+	"道此书从何而来？说起根由虽近荒"
+	"唐，细按则深有趣味。待在下将此来历注明"
+	"原来女娲氏炼石补天之时，于大荒山",
+		
+	"无稽崖练成高经十二丈，方经二十四丈顽石三万六千五百零一块。娲皇"
+	"氏只用了三万六千五百块，只单单剩了一块未用，便"
+	"弃在此山青埂峰下。",
+		
+	"谁知此石自经炼之后，灵性已通，因见众石",
+	
+	"俱得补天，独自己无材不堪入选，遂自怨自叹",
+	
+	"，日夜悲号惭愧。一日，正当嗟",
+	
+	"悼之际，俄见一僧一道远远而来，",
+	
+	"生得骨格不凡，丰神迥异，说说笑笑来至峰下，坐于石",
+	
+	"边高谈快论。先是",
+	
+	"说些云山雾海神仙玄幻之事，后便说到",
+	
+	"红尘中荣华富贵。此石",
+	
+	"听了，不觉打动凡心，也想要到人间去享一享这荣华富贵，但"
+	"自恨粗蠢，不得已，便口吐人言，向那僧道说道：大师，"
+	"弟子蠢物，不能见礼了。适闻二位谈那人世间荣耀繁华，",
+
+	"心切慕之。弟子质虽粗蠢",
+	
+	"，性却稍通，况见二师仙形道体，定非凡品，必",
+	
+	"有补天济世之材，利物济人之德。如蒙发一点慈心，"
+	"携带弟子得入红尘，在那富贵场中，温柔乡里"
+#endif
+};
+
+typedef struct
+{
+	UInt16 charEncoding;
+	const char** strings;
+} QuotesInfoType;
+
+static const QuotesInfoType kQuotesInfo[] =
+{
+	{ charEncodingPalmSJIS, kShiftJISQuotes },
+	
+	// All of the possible Traditional Chinese encodings.
+	{ charEncodingBig5, kBig5Quotes },
+	{ charEncodingBig5_HKSCS, kBig5Quotes },
+	{ charEncodingBig5Plus, kBig5Quotes },
+	{ charEncodingPalmBig5, kBig5Quotes },
+	
+	// All of the possible Simplified Chinese encodings.
+	{ charEncodingGB2312, kGB2312Quotes },
+	{ charEncodingGBK, kGB2312Quotes },
+	{ charEncodingPalmGB, kGB2312Quotes }
+};
 
 /***********************************************************************
  *
@@ -647,13 +801,18 @@ static void FakeLocalMovement(Int16* currentX, Int16* currentY, Int16 lastX, Int
 	WinGetDisplayExtent(&winWidth, &winHeight);
 	
 	// Clip to screen bounds
-	if (*currentX < 0) *currentX = -1;
-	if (*currentX > winWidth) 
-		*currentX = winWidth;
+	//
+	// KAAR: In original Gremlins, the point was pinned to [-1...winWidth/Height].
+	// That doesn't seem right, especially since -1 is used as a pen up indicator.
+	// So now I clip to [0...winWidth/Height).
 
-	if (*currentY < 0) *currentY = -1;
-	if (*currentY > winHeight) 
-		*currentY = winHeight;
+	if (*currentX < 0) *currentX = 0;
+	if (*currentX >= winWidth) 
+		*currentX = winWidth - 1;
+
+	if (*currentY < 0) *currentY = 0;
+	if (*currentY >= winHeight) 
+		*currentY = winHeight = 1;
 }
 
 
@@ -804,10 +963,19 @@ static void FakeEventXY(Int16* x, Int16* y)
 	if (randN(20) == 1) {
 		UInt16 numButtons;
 		const PenBtnInfoType* buttonListP = EvtGetPenBtnList(&numButtons);
-		const RectangleType* randButtonRect = &buttonListP[randN(numButtons)].boundsR;
+
+		const size_t	size = EmAliasPenBtnInfoType<PAS>::GetSize ();
+		emuptr			addr = ((emuptr) buttonListP) + randN(numButtons) * size;
+
+		EmAliasPenBtnInfoType<PAS>	button (addr);
+		RectangleType randButtonRect;
+		randButtonRect.topLeft.x = button.boundsR.topLeft.x;
+		randButtonRect.topLeft.y = button.boundsR.topLeft.y;
+		randButtonRect.extent.x = button.boundsR.extent.x;
+		randButtonRect.extent.y = button.boundsR.extent.y;
 		
-		*x = randButtonRect->topLeft.x + (randButtonRect->extent.x / 2);
-		*y = randButtonRect->topLeft.y + (randButtonRect->extent.y / 2);
+		*x = randButtonRect.topLeft.x + (randButtonRect.extent.x / 2);
+		*y = randButtonRect.topLeft.y + (randButtonRect.extent.y / 2);
 	} else if ((frm == NULL) || 
 		(FrmGetWindowHandle (frm) != WinGetActiveWindow ()))
 	{
@@ -853,7 +1021,7 @@ static void FakeEventXY(Int16* x, Int16* y)
 		// Get the list of objects we can click on.
 
 		vector<UInt16>	okObjects;
-		::CollectOKObjects (frm, okObjects, false);
+		::CollectOKObjects (frm, okObjects);
 
 		// If there are no such objects, just generate a random point.
 
@@ -1064,21 +1232,17 @@ void GremlinsProcessPacket (void* bodyParamP)
 
 EmStream& operator >> (EmStream& inStream, DatabaseInfo& outInfo)
 {
-	LocalID		dbID;
-	UInt16 		cardNo;
-	UInt32		modDate;
-	UInt16		category;
-	char		name[dmDBNameLength];
-
 	inStream >> outInfo.creator;
 	inStream >> outInfo.type;
 	inStream >> outInfo.version;
 
-	inStream >> dbID;
-	inStream >> cardNo;
-	inStream >> modDate;
-	inStream >> category;
-	inStream >> name;
+	inStream >> outInfo.dbID;
+	inStream >> outInfo.cardNo;
+	inStream >> outInfo.modDate;
+	inStream >> outInfo.dbAttrs;
+	inStream >> outInfo.name;
+
+	outInfo.dbName[0] = 0;
 
 	return inStream;
 }
@@ -1093,17 +1257,22 @@ EmStream& operator << (EmStream& inStream, const DatabaseInfo& inInfo)
 	LocalID		dbID = 0;
 	UInt16 		cardNo = 0;
 	UInt32		modDate = 0;
-	UInt16		category = 0;
+	UInt16		dbAttrs = 0;
 	char		name[dmDBNameLength] = {0};
 
 	inStream << inInfo.creator;
 	inStream << inInfo.type;
 	inStream << inInfo.version;
 
+	// I have no idea why dummy values are written out for these fields.
+	// But it sure causes us problems later when we need to access them!
+	// See the code in Hordes::GetAppList that needs to patch up the missing
+	// information.
+
 	inStream << dbID;
 	inStream << cardNo;
 	inStream << modDate;
-	inStream << category;
+	inStream << dbAttrs;
 	inStream << name;
 
 	return inStream;
@@ -1152,7 +1321,6 @@ EmStream& operator << (EmStream& inStream, const GremlinInfo& inInfo)
 
 	return inStream;
 }
-
 
 
 /************************************************************
@@ -1250,16 +1418,19 @@ Boolean Gremlins::IsInitialized() const
  *			David	8/1/95	Created.
  *
  *************************************************************/
-void Gremlins::Initialize(UInt16 newNumber, UInt32 untilStep)
+void Gremlins::Initialize(UInt16 newNumber, UInt32 untilStep, UInt32 finalVal)
 {
 #ifndef forSimulator
 	gIntlMgrExists = -1;
 	::ResetCalibrationInfo();
 	::ResetClocks ();
+	EmLowMem_SetGlobal (hwrBatteryLevel, 255);
+	EmLowMem_SetGlobal (hwrBatteryPercent, 100);
 #endif
 
 	counter = 0;
 	until = untilStep;
+	finalUntil = finalVal;
 #ifndef forSimulator
 	saveUntil = until;
 #endif
@@ -1333,9 +1504,9 @@ Gremlins::New (const GremlinInfo& info)
 		//---------------------------------------------------------------------
 		// If this is an executable, call SysUIAppSwitch
 		//---------------------------------------------------------------------
-		if (IsExecutable (dbInfo.type, dbInfo.creator, dbInfo.dbAttrs))
+		if (::IsExecutable (dbInfo.type, dbInfo.creator, dbInfo.dbAttrs))
 		{
-			Err err = SysUIAppSwitch (dbInfo.cardNo, dbInfo.dbID,
+			Err err = ::SysUIAppSwitch (dbInfo.cardNo, dbInfo.dbID,
 							sysAppLaunchCmdNormalLaunch, NULL);
 			Errors::ThrowIfPalmError (err);
 		}
@@ -1349,27 +1520,27 @@ Gremlins::New (const GremlinInfo& info)
 			DmSearchStateType	searchState;
 			UInt16				cardNo;
 			LocalID				dbID;
-			Err err = DmGetNextDatabaseByTypeCreator (true, &searchState, 
+			Err err = ::DmGetNextDatabaseByTypeCreator (true, &searchState, 
 						sysFileTApplication, dbInfo.creator, 
 						true, &cardNo, &dbID);
 			Errors::ThrowIfPalmError (err);
 
 			// Create the param block
-			emuptr	cmdPBP = (emuptr) MemPtrNew (sizeof (SysAppLaunchCmdOpenDBType));
+			emuptr	cmdPBP = (emuptr) ::MemPtrNew (sizeof (SysAppLaunchCmdOpenDBType));
 			Errors::ThrowIfNULL ((void*) cmdPBP);
 
 			// Fill it in
-			MemPtrSetOwner ((MemPtr) cmdPBP, 0);
+			::MemPtrSetOwner ((MemPtr) cmdPBP, 0);
 			EmMemPut16 (cmdPBP + offsetof (SysAppLaunchCmdOpenDBType, cardNo), dbInfo.cardNo);
 			EmMemPut32 (cmdPBP + offsetof (SysAppLaunchCmdOpenDBType, dbID), dbInfo.dbID);
 
 			// Switch now
-			err = SysUIAppSwitch (cardNo, dbID, sysAppLaunchCmdOpenDB, (MemPtr) cmdPBP);
+			err = ::SysUIAppSwitch (cardNo, dbID, sysAppLaunchCmdOpenDB, (MemPtr) cmdPBP);
 			Errors::ThrowIfPalmError (err);
 		}
 	}
 
-	this->Initialize (info.fNumber, info.fSteps);
+	this->Initialize (info.fNumber, info.fSteps, info.fFinal);
 
 	gremlinStartTime = Platform::GetMilliseconds ();
 
@@ -1412,6 +1583,8 @@ Gremlins::Save (SessionFile& f)
 	Chunk			chunk;
 	EmStreamChunk	s (chunk);
 
+	Bool hordesIsOn = Hordes::IsOn ();
+
 	s << kCurrentVersion;
 
 	s << keyProbabilitiesSum;
@@ -1420,14 +1593,14 @@ Gremlins::Save (SessionFile& f)
 	s << lastPenDown;
 	s << number;
 	s << counter;
-	s << until;
+	s << finalUntil;
 	s << saveUntil;
 	s << inited;
 	s << catchUp;
 	s << needPenUp;
 	s << charsToType;
 
-	s << (Hordes::IsOn() != 0);
+	s << (hordesIsOn != false);
 	s << gremlinStartTime;
 	s << gremlinStopTime;
 
@@ -1439,6 +1612,7 @@ Gremlins::Save (SessionFile& f)
 	info.fNumber = number;
 	info.fSaveFrequency = gGremlinSaveFrequency;
 	info.fSteps = until;
+	info.fFinal = finalUntil;
 
 	s << info;
 
@@ -1480,7 +1654,7 @@ Gremlins::Load (SessionFile& f)
 			s >> lastPenDown;
 			s >> number;
 			s >> counter;
-			s >> until;
+			s >> finalUntil;
 			s >> saveUntil;
 			s >> inited;
 			s >> catchUp;
@@ -1493,6 +1667,10 @@ Gremlins::Load (SessionFile& f)
 			s >> gremlinStopTime;
 
 			s >> gGremlinNext;
+
+			// sync until to finalUntil
+
+			until = finalUntil;
 
 			// Patch up the start and stop times.
 
@@ -1591,7 +1769,7 @@ Boolean Gremlins::SetSeed(UInt32 newSeed)
  *
  * RETURNS: Nothing.
  * 
- * CALLED BY: Uncalled. (to be called from Debug Console)
+ * CALLED BY: Hordes::Step
  *
  * REVISION HISTORY:
  *			Name	Date		Description
@@ -1605,6 +1783,21 @@ void Gremlins::SetUntil(UInt32 newUntil)
 #ifndef forSimulator
 	saveUntil = until;
 #endif
+}
+
+/************************************************************
+ *
+ * FUNCTION: RestoreFinalUntil
+ *
+ * DESCRIPTION: Restores the original max gremlins limit.
+ *
+ * CALLED BY: Hordes::Resume
+ *
+ *************************************************************/
+
+void Gremlins::RestoreFinalUntil (void)
+{
+	until = finalUntil;
 }
 
 /************************************************************
@@ -1703,8 +1896,6 @@ Gremlins::Stop (void)
 }
 
 
-
-
 /************************************************************
  *
  * FUNCTION: SendCharsToType
@@ -1730,6 +1921,7 @@ Boolean Gremlins::SendCharsToType()
 	{
 		WChar theChar;
 		UInt16 charSize = TxtGetNextChar(charsToType, 0, &theChar);
+		EmEventPlayback::RecordKeyEvent (theChar, 0, 0);
 		StubAppEnqueueKey(theChar, 0, 0);
 		PRINTF ("--- Gremlin #%ld Gremlins::SendCharsToType: key = %ld", (long) number, (long) theChar);
 		strcpy(&charsToType[0], &charsToType[charSize]);
@@ -1746,21 +1938,19 @@ Boolean Gremlins::SendCharsToType()
  *
  * DESCRIPTION: Make a phony event for gremlin mode.
  *
- * PARAMETERS: 
+ * PARAMETERS:  None
  *
  * RETURNS: TRUE if a key or point was enqueued, FALSE otherwise.
  * 
  * CALLED BY: TDEProcessMacEvents in EmEmulatorEvents.cp.
  *
  * REVISION HISTORY:
- *			Name	Date		Description
- *			----	----		-----------
- *			Roger	06/01/95	Created.
- *			David	07/31/95	Moved to emulator level.
- *			kwk	08/28/98	Removed usage of TxtCharIsVirtual macro.
- *			kwk		07/03/99	Set command bit for page up/page down
- *								keydown events, since these are virtual
- *								(to match Graffiti behavior).
+ *	06/01/95	rsf	Created by Roger Flores.
+ *	07/31/95	David Moved to emulator level.
+ *	08/28/98	kwk	Removed usage of TxtCharIsVirtual macro.
+ *	07/03/99	kwk	Set command bit for page up/page down keydown
+ *					events, since these are virtual (to match Graffiti behavior).
+ *	06/04/01	kwk	Add support for Big-5 char encoding (Trad. Chinese).
  *
  *************************************************************/
 Boolean Gremlins::GetFakeEvent()
@@ -1798,6 +1988,7 @@ Boolean Gremlins::GetFakeEvent()
 	// check to see if the event loop needs time to catch up.
 	if (catchUp)
 	{
+		EmEventPlayback::RecordNullEvent ();
 		catchUp = false;
 		PRINTF ("--- Gremlin #%ld Gremlins::GetFakeEvent: playing catchup; leaving", (long) number);
 		return false;
@@ -1815,6 +2006,7 @@ Boolean Gremlins::GetFakeEvent()
 		lastPointY = pen.y;
 		lastPenDown = false;
 		needPenUp = false;
+		EmEventPlayback::RecordPenEvent (pen);
 		StubAppEnqueuePt(&pen);
 		PRINTF ("--- Gremlin #%ld Gremlins::GetFakeEvent: posted pen up; leaving", (long) number);
 		return true;
@@ -1832,19 +2024,34 @@ Boolean Gremlins::GetFakeEvent()
 	chance = randPercent;
 
 	// Now fake an input
-	if (chance < KEY_DOWN_EVENT_WITHOUT_FOCUS_CHANCE ||
-		(chance < KEY_DOWN_EVENT_WITH_FOCUS_CHANCE && IsFocus()))
+	if ((chance < KEY_DOWN_EVENT_WITHOUT_FOCUS_CHANCE)
+	 || (chance < KEY_DOWN_EVENT_WITH_FOCUS_CHANCE && IsFocus()))
 	{
-		if (randPercent < TYPE_QUOTE_CHANCE && IsFocus())
+		if ((randPercent < TYPE_QUOTE_CHANCE) && IsFocus())
+		{
+			const char** quoteArray = kAsciiQuotes;
+			
+			// 80% of the time we'll use text that's appropriate for the device's
+			// character encoding. The other 20%, we'll use 7-bit ASCII.
+			if (randN(10) < 8)
 			{
-			UInt32 language;
-			if ((FtrGet(sysFtrCreator, sysFtrNumLanguage, &language) == 0)
-			&& (language == lJapanese)
-			&& (randN(10) < 8)) {
-				quote = kJapaneseQuotes[randN(NUM_OF_QUOTES)];
-			} else {
-				quote = kEnglishQuotes[randN(NUM_OF_QUOTES)];
+				UInt32 encoding;
+				if (FtrGet(sysFtrCreator, sysFtrNumEncoding, &encoding) != errNone)
+				{
+					encoding = charEncodingPalmLatin;
+				}
+				
+				for (UInt16 i = 0; i < sizeof(kQuotesInfo) / sizeof(QuotesInfoType); i++)
+				{
+					if (kQuotesInfo[i].charEncoding == encoding)
+					{
+						quoteArray = kQuotesInfo[i].strings;
+						break;
+					}
+				}
 			}
+
+			quote = quoteArray[randN(NUM_OF_QUOTES)];
 			strcat(charsToType, quote);
 			
 			// The full field functionality doesn't need to be tested much
@@ -1867,6 +2074,10 @@ Boolean Gremlins::GetFakeEvent()
 			}
 
 			Bool	result = SendCharsToType ();
+
+			if (!result)
+				EmEventPlayback::RecordNullEvent ();
+
 			PRINTF ("--- Gremlin #%ld Gremlins::GetFakeEvent: sent chars to type (2); leaving", (long) number);
 			return result;
 			}
@@ -1902,8 +2113,18 @@ Boolean Gremlins::GetFakeEvent()
 			if (i >= NUM_OF_KEYS)
 				return false;
 			
-			StubAppEnqueueKey(i, 0, ((i > 255) || (i == chrPageUp) || (i == chrPageDown)) ? commandKeyMask : 0);
-			PRINTF ("--- Gremlin #%ld Gremlins::GetFakeEvent: posted key = %ld; leaving", (long) number, (long) i);
+			if ((i > 255) || (i == chrPageUp) || (i == chrPageDown))
+			{
+				EmEventPlayback::RecordKeyEvent (i, 0, commandKeyMask);
+				StubAppEnqueueKey(i, 0, commandKeyMask);
+			}
+			else
+			{
+				EmEventPlayback::RecordKeyEvent (i, 0, 0);
+				StubAppEnqueueKey(i, 0, 0);
+			}
+
+			PRINTF ("--- Gremlin #%ld Gremlins::GetFakeEvent: posted key = %ld; leaving", (long) number, i);
 			return true;
 			}
 	}		
@@ -1917,6 +2138,7 @@ Boolean Gremlins::GetFakeEvent()
 		lastPointX = pen.x;
 		lastPointY = pen.y;
 		lastPenDown = true;
+		EmEventPlayback::RecordPenEvent (pen);
 		StubAppEnqueuePt(&pen);
 		PRINTF ("--- Gremlin #%ld Gremlins::GetFakeEvent: posted pen event = (%ld, %ld), leaving",
 				(long) number, (long) pen.x, (long) pen.y);
@@ -1929,69 +2151,99 @@ Boolean Gremlins::GetFakeEvent()
 
 	else if (chance < MENU_EVENT_CHANCE)
 	{
+		EmEventPlayback::RecordKeyEvent (vchrMenu, vchrMenu, commandKeyMask);
 		StubAppEnqueueKey(vchrMenu, vchrMenu, commandKeyMask);
 		PRINTF ("--- Gremlin #%ld Gremlins::GetFakeEvent: posted key = vchrMenu, leaving", (long) number);
 		return true;
 	}
-	
+
 
 	else if (chance < FIND_EVENT_CHANCE)
 	{
+		EmEventPlayback::RecordKeyEvent (vchrFind, vchrFind, commandKeyMask);
 		StubAppEnqueueKey(vchrFind, vchrFind, commandKeyMask);
 		PRINTF ("--- Gremlin #%ld Gremlins::GetFakeEvent: posted key = vchrFind, leaving", (long) number);
 		return true;
 	}
-	
+
 
 	else if (chance < KEYBOARD_EVENT_CHANCE)
 	{
+		EmEventPlayback::RecordKeyEvent (vchrKeyboard, vchrKeyboard, commandKeyMask);
 		StubAppEnqueueKey(vchrKeyboard, vchrKeyboard, commandKeyMask);
 		PRINTF ("--- Gremlin #%ld Gremlins::GetFakeEvent: posted key = vchrKeyboard, leaving", (long) number);
 		return true;
 	}
 
-	
+
 	else if (chance < LOW_BATTERY_EVENT_CHANCE)
 	{
+		EmEventPlayback::RecordKeyEvent (vchrLowBattery, vchrLowBattery, commandKeyMask);
 		StubAppEnqueueKey(vchrLowBattery, vchrLowBattery, commandKeyMask);
 		PRINTF ("--- Gremlin #%ld Gremlins::GetFakeEvent: posted key = vchrLowBattery, leaving", (long) number);
 		return true;
 	}
-	
+
 
 	else if (chance < APP_SWITCH_EVENT_CHANCE)
 	{
-		if (randPercent < LAUNCHER_EVENT_CHANCE)
+		// Modify the standard APP_SWITCH_EVENT_CHANCE by another factor
+		// of 5%.  Without it, we enter this code way too often, and
+		// Gremlins slows down a LOT! (Like, by a factor of 2.3).
+
+		if (randPercent < 5)
 		{
-			StubAppEnqueueKey(vchrLaunch, vchrLaunch, commandKeyMask);
-			PRINTF ("--- Gremlin #%ld Gremlins::GetFakeEvent: posted key = vchrLaunch, leaving", (long) number);
-			return true;
+			DatabaseInfoList	appList = Hordes::GetAppList ();
+
+			if (appList.size () > 0)
+			{
+				// Switch to a random app on the list.
+
+				DatabaseInfo&	dbInfo = appList [randN (appList.size ())];
+
+				//---------------------------------------------------------------------
+				// If this is an executable, call SysUIAppSwitch
+				//---------------------------------------------------------------------
+				if (::IsExecutable (dbInfo.type, dbInfo.creator, dbInfo.dbAttrs))
+				{
+					EmuAppInfo		currentApp = EmPatchState::GetCurrentAppInfo ();
+	
+					EmEventPlayback::RecordSwitchEvent (dbInfo.cardNo, dbInfo.dbID,
+						currentApp.fCardNo, currentApp.fDBID);
+
+					Err err = ::SysUIAppSwitch (dbInfo.cardNo, dbInfo.dbID,
+									sysAppLaunchCmdNormalLaunch, NULL);
+					Errors::ThrowIfPalmError (err);
+
+					PRINTF ("--- Gremlin #%ld Gremlins::GetFakeEvent: switched to app %s, leaving",
+						(long) number, dbInfo.name);
+
+					return true;
+				}
+
+				//---------------------------------------------------------------------
+				// else, say we tried and call it quits by falling through
+				//---------------------------------------------------------------------
+
+			}
 		}
-		else
-		{
-			Int16 hardKey;
-			
-			hardKey = vchrHard1 + randN(vchrHard4 - vchrHard1 + 1);
-			StubAppEnqueueKey(hardKey, hardKey, commandKeyMask);
-			PRINTF ("--- Gremlin #%ld Gremlins::GetFakeEvent: posted key = vchrHard%d, leaving",
-				(long) number, (int) hardKey - vchrHard1 + 1);
-			return true;
-		}
-		
 	}
 
-
+/*
 	else if (chance < POWER_OFF_CHANCE)
 	{
+		EmEventPlayback::RecordKeyEvent (vchrAutoOff, vchrAutoOff, commandKeyMask);
 		StubAppEnqueueKey(vchrAutoOff, vchrAutoOff, commandKeyMask);
 		PRINTF ("--- Gremlin #%ld Gremlins::GetFakeEvent: posted key = vchrAutoOff, leaving", (long) number);
 		return true;
 	}
-
+*/
 	PRINTF ("--- Gremlin #%ld Gremlins::GetFakeEvent: exiting with no event.",
 			(long) number);
 
 	// If nothing happened fall out to generate a nilEvent	
+
+	EmEventPlayback::RecordNullEvent ();
 	return false;
 }
 
@@ -2067,6 +2319,7 @@ void Gremlins::GetPenMovement()
 	}
 	lastPointX = pen.x;
 	lastPointY = pen.y;
+	EmEventPlayback::RecordPenEvent (pen);
 	StubAppEnqueuePt(&pen);
 #endif
 

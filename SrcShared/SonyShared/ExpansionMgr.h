@@ -21,7 +21,7 @@
 #include <SystemMgr.h>
 
 #ifdef BUILDING_AGAINST_PALMOS35
-	#define sysTrapExpansionMgr	sysTrapSysReserved2
+	#define sysTrapExpansionMgr	sysTrapExpansionDispatch //was sysTrapSysReserved2
 
 	#define expErrorClass			0x2900			// Post 3.5 this is defined in ErrorBase.h
 	
@@ -216,7 +216,5 @@ Err ExpCardInfo(UInt16 slotRefNumber, ExpCardInfoType* infoP)
 
 Err ExpSlotEnumerate(UInt16 *slotRefNumP, UInt32 *slotIteratorP)
 		EXPMGR_TRAP(expSlotEnumerate);
-
-
 
 #endif	// __EXPANSIONMGR_H__

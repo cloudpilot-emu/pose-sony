@@ -50,6 +50,18 @@ class EmCPU
 		virtual void 			Execute 			(void) = 0;
 		virtual void 			CheckAfterCycle		(void) = 0;
 
+		// Low-level access to CPU state.
+
+		virtual emuptr			GetPC				(void) = 0;
+		virtual emuptr			GetSP				(void) = 0;
+		virtual uint32			GetRegister			(int) = 0;
+
+		virtual void			SetPC				(emuptr) = 0;
+		virtual void			SetSP				(emuptr) = 0;
+		virtual void			SetRegister			(int, uint32) = 0;
+
+		virtual Bool			Stopped				(void) = 0;
+
 	protected:
 		EmSession*				fSession;
 };

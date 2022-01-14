@@ -26,6 +26,7 @@
 /I "..\SrcShared\Gzip"
 /I "..\SrcShared\jpeg"
 /I "..\SrcShared\omnithread"
+/I "..\SrcShared\Patches"
 /I "..\SrcShared\UAE"
 /D "STRICT"
 /D "WIN32"
@@ -35,4 +36,6 @@
 /D _WIN32_IE=0x0200
 /D MODET=1
 /D PALM_OS_EMULATOR
-/Zm200
+/D PLATFORM_WINDOWS=1
+/D USE_HOST_SPECIFIC_LOADER
+/Zm300

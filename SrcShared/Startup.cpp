@@ -14,39 +14,40 @@
 #include "EmCommon.h"
 #include "Startup.h"
 
-#include "Byteswapping.h"		// Canonical
+#include "EmDocument.h"			// EmDocument::AskNewSession
 #include "EmPalmStructs.h"		// EmProxyDatabaseHdrType
+#include "EmSession.h"			// gSession, EmSessionStopper
 #include "EmStreamFile.h"		// EmStreamFile
-#include "ErrorHandling.h"		// Errors::kOK
-#include "Hordes.h"				// Hordes::New
+#include "Hordes.h"				// Hordes::SetGremlinsHome
 #include "Miscellaneous.h"		// IsExecutable, GetLoadableFileList
-#include "Platform.h"			// ForceStartupScreen, QueryNewDocument
+#include "Platform.h"			// ForceStartupScreen
 #include "PreferenceMgr.h"		// Preference
 #include "Strings.r.h"			// kStr_Autoload, etc.
 
 #include <algorithm>			// find()
 #include <string>
+#include <utility>				// make_pair()
 #include <vector>
 
 // Startup actions.
 //static Bool				gAskWhatToDo;
 static Bool				gCreateSession;
 static Bool				gOpenSession;
+static Bool				gMinimize;
 
 // Post-startup actions.
 static Bool				gStartNewHorde;
 static Bool				gHordeQuitWhenDone;
+static Bool				gMinimizeQuitWhenDone;
 // Quit actions.
-static Bool				gClose;
 static Bool				gQuitOnExit;
-static Bool				gQuit;
 
 // Action-specific data.
 static Configuration	gCfg;				// For CreateSession.
 static EmFileRef		gSessionOpenRef;	// For OpenSession.
+static EmFileRef		gMinimizeRef;		// For Minimize
 static HordeInfo		gHorde;				// For StartNewGremlin
 static StringList		gHordeApps;			// For StartNewGremlin
-static EmFileRef		gSessionCloseRef;	// For CloseSession
 
 	// These are the files listed on the command line.
 static string			gAutoRunApp;
@@ -69,8 +70,9 @@ static const char		kOptDevice[]			= "device";
 static const char		kOptSkin[]				= "skin";
 static const char		kOptLoad[]				= "load";
 static const char		kOptRun[]				= "run";
+static const char		kOptMinimize[]			= "minimize";
 static const char		kOptQuitOnExit[]		= "quit_on_exit";
-static const char		kOptLog[]				= "log_dir";
+static const char		kOptPreference[]		= "preference";
 static const char		kOptHordeFirst[]		= "horde_first";
 static const char		kOptHordeLast[]			= "horde_last";
 static const char		kOptHordeApps[]			= "horde_apps";
@@ -100,8 +102,11 @@ kOptionMap [] =
 	{ "-silkscreen",			kOptSkin,				1 },
 	{ "-load_apps",				kOptLoad,				1 },
 	{ "-run_app",				kOptRun,				1 },
+	{ "-minimize",				kOptMinimize,			1 },
 	{ "-quit_on_exit",			kOptQuitOnExit,			0 },
-	{ "-log_save_dir",			kOptLog,				1 },
+	{ "-preference",			kOptPreference,			1 },
+	{ "-pref",					kOptPreference,			1 },
+	{ "-d",						kOptPreference,			1 },
 	{ "-horde",					kOptHordeFirst,			1 },
 	{ "-horde_first",			kOptHordeFirst,			1 },
 	{ "-horde_last",			kOptHordeLast,			1 },
@@ -114,7 +119,6 @@ kOptionMap [] =
 };
 
 
-typedef StringStringMap	OptionList;
 
 
 // Handy macro for helping us find and access options in the OptionList.
@@ -153,7 +157,7 @@ typedef StringStringMap	OptionList;
  *
  ***********************************************************************/
 
-static void PrvGetDatabaseInfosFromAppNames (const StringList& names, DatabaseInfoList& results)
+void Startup::PrvGetDatabaseInfosFromAppNames (const StringList& names, DatabaseInfoList& results)
 {
 	StringList	namesCopy (names);
 
@@ -220,7 +224,46 @@ static void PrvGetDatabaseInfosFromAppNames (const StringList& names, DatabaseIn
  *
  ***********************************************************************/
 
-static void PrvError (const char* msg)
+static string PrvWrap (const string& s, int chars_per_line)
+{
+	string result (s);
+	int index = 0;
+	int last_space = -1;
+	int last_cr = -1;
+
+	while (index < (int) result.size ())
+	{
+		char ch = result[index];
+
+		if (ch == ' ')
+		{
+			last_space = index;
+		}
+		else if (ch == '\n')
+		{
+			last_cr = index;
+			last_space = -1;
+		}
+
+		// Have we accumulated enough characters?
+
+		if (index - last_cr >= chars_per_line)
+		{
+			EmAssert (last_space >= 0);
+
+			result [last_space] = '\n';
+			last_cr = last_space;
+			last_space = -1;
+		}
+
+		++index;
+	}
+
+	return result;
+}
+
+
+void Startup::PrvError (const char* msg)
 {
 #if PLATFORM_UNIX
 	printf ("%s\n", msg);
@@ -228,69 +271,89 @@ static void PrvError (const char* msg)
 	EmDlg::DoCommonDialog (msg, kDlgFlags_OK);
 #endif
 }
-static void PrvDontUnderstand (const char* arg)
+
+void Startup::PrvDontUnderstand (const char* arg)
 {
 	char	buffer[200];
 	sprintf (buffer, "Don't understand the command line parameter \"%s\".", arg);
-	::PrvError (buffer);
+	Startup::PrvError (buffer);
 }
 
-static void PrvMissingArgument (const char* arg)
+void Startup::PrvMissingArgument (const char* arg)
 {
 	char	buffer[200];
 	sprintf (buffer, "The command line parameter \"%s\" needs to be followed by an "
 		"argument (\"No, it doesn't.\" \"Yes, it does.\" \"No, it doesn't...\").", arg);
-	::PrvError (buffer);
+	Startup::PrvError (buffer);
 }
 
-static void PrvInvalidRAMSize (const char* arg)
+void Startup::PrvInvalidRAMSize (const char* arg)
 {
 	char	buffer[200];
 	sprintf (buffer, "\"%s\" is an invalid RAM size. Specify 128, 256, 512, 1024, "
-		"2048, 4096, or 8192.", arg);
-	::PrvError (buffer);
+		"2048, 4096, 8192, or 16384.", arg);
+	Startup::PrvError (buffer);
 }
 
-static void PrvInvalidSkin (const char* argSkin, const char* argDevice)
+void Startup::PrvInvalidSkin (const char* argSkin, const char* argDevice)
 {
 	char	buffer[200];
 	sprintf (buffer, "The skin \"%s\" cannot be used with the device \"%s\".", argSkin, argDevice);
-	::PrvError (buffer);
+	Startup::PrvError (buffer);
 }
 
-static void PrvPrintHelp (void)
+void Startup::PrvInvalidPreference (const char* pref)
+{
+	char	buffer[200];
+	sprintf (buffer, "Don't understand the preference parameter \"%s\".", pref);
+	Startup::PrvError (buffer);
+}
+
+void Startup::PrvPrintHelp (void)
 {
 	printf ("Options are:\n");
 	printf (" -psf <file>          Session file to open at startup\n");
 	printf (" -rom <file>          ROM file to use at startup\n");
 	printf (" -ram_size <size>     Amount of RAM (in K) to emulate at startup\n");
-	printf (" -ram <size>          Synonym for -ram_size\n");
 	printf (" -device <name>       Device type to use at startup\n");
 	printf (" -skin <name>         Name of skin to use for the device\n");
-	printf (" -silkscreen <name>   Synonym for -skin\n");
 	printf (" -load_apps <name(s)> Comma-seperated list of names of .prc files to load at startup\n");
-	printf (" -run <name>          Name of file to automatically run at startup\n");
+	printf (" -run_app <name>      Name of file to automatically run at startup\n");
 	printf (" -quit_on_exit        Cause Poser to quit after -run application exits\n");
+	printf (" -pref <key=value>    Change a preference setting\n");
 	printf ("\n");
 
 	Platform::PrintHelp ();
 
-	printf ("\n");
-	printf ("Specifying the -psf option on the command line causes Poser to attempt\n");
-	printf ("to load and run the specified session file at startup.\n");
-	printf ("\n");
-	printf ("Specifying the -rom, -ram_size, and -device options on the command line\n");
-	printf ("causes Poser to create a new session based on those specifications.  If\n");
-	printf ("only some of those three options are specified, then Poser will present\n");
-	printf ("a New Session dialog with the specified items already filled in.\n");
-	printf ("\n");
-	printf ("The parameter passed with the -skin (or -silkscreen) option is the name\n");
-	printf ("of the silkscreen as defined in the .skin file.\n");
-	printf ("\n");
-	printf ("The parameter passed with the -load_apps option is a comma-seperated list\n");
-	printf ("of file names.  The parameter passed with the -run_app option is the name\n");
-	printf ("of the Palm OS application itself, not the name of the file it came from.\n");
-	printf ("This is generally the name that appears in the Palm OS Launcher.\n");
+	string help (
+		"\n"
+		"Specifying the -psf option on the command line causes Poser to attempt "
+		"to load and run the specified session file at startup.\n"
+		"\n"
+		"Specifying the -rom, -ram_size, and -device options on the command line "
+		"causes Poser to create a new session based on those specifications.  If "
+		"only some of those three options are specified, then Poser will present "
+		"a New Session dialog with the specified items already filled in.\n"
+		"\n"
+		"The parameter passed with the -skin option is the name "
+		"of the silkscreen as defined in the .skin file.\n"
+		"\n"
+		"The parameter passed with the -load_apps option is a comma-seperated list "
+		"of file names.  The parameter passed with the -run_app option is the name "
+		"of the Palm OS application itself, not the name of the file it came from.  "
+		"This is generally the name that appears in the Palm OS Launcher.\n"
+		"\n"
+		"The -pref option can be used to change a preference setting.  The parameter "
+		"passed with is is of the for key=value, where \"key\" is any of the keys "
+		"displayed in the preference file, and value is the value you want it to be.  "
+		"Note that using this option *changes* the preference.  It does not override "
+		"the preference.  Thus, when the emulator exits, the value specified on the "
+		"command line will be written to the preference file.\n"
+		"\n"
+		);
+
+	help = ::PrvWrap (help, 78);
+	printf ("%s", help.c_str ());
 }
 
 
@@ -310,69 +373,108 @@ static void PrvPrintHelp (void)
  *				options - the OptionList to received the parsed and
  *					validated parameters.
  *
- * RETURNED:    True if everything went swimmingly.  If an error occured
+ * RETURNED:    True if everything went swimmingly.  If an error occurred
  *				(for instance, an invalid switch was specified or a
  *				switch that needed a parameter didn't have one), the
  *				error is reported and the function returns false.
  *
  ***********************************************************************/
 
-static OptionList* gOptions;
+static OptionList*		gOptions;
+static PreferenceList*	gPreferences;
 
-static int PrvParseOneOption (int argc, char** argv, int& argIndex)
+int Startup::PrvParseOneOption (int argc, char** argv, int& argIndex)
 {
 	const char*	arg = argv[argIndex];
 
 	// For this argument, see if it is a recognized switch.
 
-	for (unsigned jj = 0; jj < countof (kOptionMap); ++jj)
+	for (size_t ii = 0; ii < countof (kOptionMap); ++ii)
 	{
-		if (_stricmp (arg, kOptionMap[jj].option) == 0)
+		if (_stricmp (arg, kOptionMap[ii].option) == 0)
 		{
 			// It's recognized; see if we need to also collect a parameter.
 
-			if (kOptionMap[jj].optType == 0)
+			if (kOptionMap[ii].optType == 0)
 			{
 				// No parameter, just add the switch to our collection.
 
-				(*gOptions)[kOptionMap[jj].optKey] = "";
+				(*gOptions)[kOptionMap[ii].optKey] = "";
 				argIndex += 1;
 				return 1;
 			}
-			else if (kOptionMap[jj].optType == 1)
+			else if (kOptionMap[ii].optType == 1)
 			{
 				if ((argIndex + 1) < argc)
 				{
 					// Add the switch and parameter to our collection.
+					// Put preferences on a seperate list -- a multimap
+					// -- so that we can support more than one.  All others
+					// go into a map collection so that we respond to just
+					// the last specified option.
 
-					(*gOptions)[kOptionMap[jj].optKey] = argv[argIndex + 1];
+					if (kOptionMap[ii].optKey == kOptPreference)
+						gPreferences->insert (make_pair (kOptionMap[ii].optKey, argv[argIndex + 1]));
+					else
+						(*gOptions)[kOptionMap[ii].optKey] = argv[argIndex + 1];
+
 					argIndex += 2;
 					return 2;
 				}
 				else
 				{
 					// Needed a parameter, but there wasn't one.
-					::PrvMissingArgument (arg);
+					Startup::PrvMissingArgument (arg);
 					return 0;
 				}
 			}
 		}
 	}
 
-	::PrvDontUnderstand (arg);
+	// If we got here, we didn't understand the argument.  Perhap someone
+	// provided a file name without a preceding -psf or -rom (this can happen
+	// in Windows when someone drops such a file on the application's icon).
+	// See if that's the case and try to support it.
+
+	EmFileRef	ref (arg);
+	if (ref.Exists ())
+	{
+		if (ref.IsType (kFileTypeROM))
+		{
+			(*gOptions)[kOptROM] = arg;
+			argIndex += 1;
+			return 1;
+		}
+
+		if (ref.IsType (kFileTypeSession))
+		{
+			(*gOptions)[kOptPSF] = arg;
+			argIndex += 1;
+			return 1;
+		}
+	}
+
+	// And if we got this far, return an error.
 
 	return 0;
 }
 
-static Bool PrvCollectOptions (int argc, char** argv, OptionList& options)
+
+Bool Startup::PrvCollectOptions (int argc, char** argv,
+							   OptionList& options,
+							   PreferenceList& prefs)
 {
 	// Iterate over the command line arguments.
 
 	gOptions = &options;
+	gPreferences = &prefs;
 
-	if (!Platform::CollectOptions (argc, argv, &::PrvParseOneOption))
+	int errorArg;
+
+	if (!Platform::CollectOptions (argc, argv, errorArg, &Startup::PrvParseOneOption))
 	{
-		::PrvPrintHelp ();
+		Startup::PrvDontUnderstand (argv[errorArg]);
+		Startup::PrvPrintHelp ();
 		return false;
 	}
 
@@ -395,7 +497,7 @@ static Bool PrvCollectOptions (int argc, char** argv, OptionList& options)
  *
  ***********************************************************************/
 
-static Bool PrvConvertRAM(const string& str, RAMSizeType& ramSize)
+Bool Startup::PrvConvertRAM (const string& str, RAMSizeType& ramSize)
 {
 	ramSize = atol (str.c_str ());
 
@@ -435,7 +537,7 @@ static Bool PrvConvertRAM(const string& str, RAMSizeType& ramSize)
  *
  ***********************************************************************/
 
-static void PrvParseFileList (EmFileRefList& fileList, string option)
+void Startup::PrvParseFileList (EmFileRefList& fileList, string option)
 {
 	StringList	items;
 	::SeparateList (items, option, ',');
@@ -456,6 +558,7 @@ static void PrvParseFileList (EmFileRefList& fileList, string option)
  * DESCRIPTION: Handle the following command line options:
  *
  *					kOptPSF
+ *					kOptMinimize
  *
  * PARAMETERS:  options - the OptionList containing the complete set
  *					of parsed switches and parameters.
@@ -466,12 +569,10 @@ static void PrvParseFileList (EmFileRefList& fileList, string option)
  *
  ***********************************************************************/
 
-static Bool PrvHandleOpenSessionParameters (OptionList& options)
+Bool Startup::PrvHandleOpenSessionParameters (OptionList& options)
 {
-	if (::IsBoundFully ())
-		return true;
-
 	DEFINE_VARS(PSF);
+	DEFINE_VARS(Minimize);
 
 	if (havePSF)
 	{
@@ -483,6 +584,18 @@ static Bool PrvHandleOpenSessionParameters (OptionList& options)
 
 		EmFileRef	psfRef = EmFileRef (optPSF);
 		Startup::ScheduleOpenSession (psfRef);
+	}
+
+	if (haveMinimize)
+	{
+		// Clear out any previous action
+
+		Startup::ScheduleAskWhatToDo ();
+
+		// Schedule the new action
+
+		EmFileRef	MinimizeRef = EmFileRef (optMinimize);
+		Startup::ScheduleMinimize (MinimizeRef);
 	}
 
 	return true;
@@ -508,11 +621,8 @@ static Bool PrvHandleOpenSessionParameters (OptionList& options)
  *
  ***********************************************************************/
 
-static Bool PrvHandleCreateSessionParameters (OptionList& options)
+Bool Startup::PrvHandleCreateSessionParameters (OptionList& options)
 {
-	if (::IsBound ())
-		return true;
-
 	DEFINE_VARS(ROM);
 	DEFINE_VARS(RAM);
 	DEFINE_VARS(Device);
@@ -536,9 +646,9 @@ static Bool PrvHandleCreateSessionParameters (OptionList& options)
 
 		if (haveRAM)
 		{
-			if (!::PrvConvertRAM (optRAM, cfg.fRAMSize))
+			if (!Startup::PrvConvertRAM (optRAM, cfg.fRAMSize))
 			{
-				::PrvInvalidRAMSize (optRAM.c_str ());
+				Startup::PrvInvalidRAMSize (optRAM.c_str ());
 				return false;
 			}
 		}
@@ -554,7 +664,7 @@ static Bool PrvHandleCreateSessionParameters (OptionList& options)
 			}
 			else
 			{
-				::PrvDontUnderstand (optDevice.c_str ());
+				Startup::PrvDontUnderstand (optDevice.c_str ());
 				return false;
 			}
 		}
@@ -562,7 +672,7 @@ static Bool PrvHandleCreateSessionParameters (OptionList& options)
 		// Try to start up with the specified parameters.
 		// If the command line didn't specify all the required values, ask for them.
 
-		if (!haveAll && !Platform::QueryNewDocument (cfg))
+		if (!haveAll && !EmDocument::AskNewSession (cfg))
 		{
 			// User cancelled the "New Configuration" dialog.
 			// Bring up the dialog with the New/Open/Download/Exit buttons.
@@ -609,7 +719,7 @@ static Bool PrvHandleCreateSessionParameters (OptionList& options)
  *
  ***********************************************************************/
 
-static Bool PrvHandleNewHordeParameters (OptionList& options)
+Bool Startup::PrvHandleNewHordeParameters (OptionList& options)
 {
 	DEFINE_VARS(HordeFirst);
 	DEFINE_VARS(HordeLast);
@@ -619,6 +729,8 @@ static Bool PrvHandleNewHordeParameters (OptionList& options)
 	DEFINE_VARS(HordeDepthMax);
 	DEFINE_VARS(HordeDepthSwitch);
 	DEFINE_VARS(HordeQuitWhenDone);
+
+	UNUSED_PARAM(optHordeQuitWhenDone);
 
 	if (haveHordeFirst ||
 		haveHordeLast ||
@@ -726,7 +838,7 @@ static Bool PrvHandleNewHordeParameters (OptionList& options)
  *
  ***********************************************************************/
 
-static Bool PrvHandleAutoLoadParameters (OptionList& options)
+Bool Startup::PrvHandleAutoLoadParameters (OptionList& options)
 {
 	DEFINE_VARS(Load);
 	DEFINE_VARS(Run);
@@ -736,7 +848,7 @@ static Bool PrvHandleAutoLoadParameters (OptionList& options)
 
 	if (haveLoad)
 	{
-		::PrvParseFileList (gAutoLoadFiles1, optLoad);
+		Startup::PrvParseFileList (gAutoLoadFiles1, optLoad);
 	}
 
 	if (haveRun)
@@ -759,8 +871,8 @@ static Bool PrvHandleAutoLoadParameters (OptionList& options)
  *
  * DESCRIPTION: Handle the following command line options:
  *
+ *					kOptDevice
  *					kOptSkin
- *					kOptSilkscreen (synonym)
  *
  * PARAMETERS:  options - the OptionList containing the complete set
  *					of parsed switches and parameters.
@@ -771,7 +883,7 @@ static Bool PrvHandleAutoLoadParameters (OptionList& options)
  *
  ***********************************************************************/
 
-static Bool PrvHandleSkinParameters (OptionList& options)
+Bool Startup::PrvHandleSkinParameters (OptionList& options)
 {
 	DEFINE_VARS(Device);
 	DEFINE_VARS(Skin);
@@ -782,17 +894,61 @@ static Bool PrvHandleSkinParameters (OptionList& options)
 
 		if (!device.Supported ())
 		{
-			::PrvDontUnderstand (optDevice.c_str ());
+			Startup::PrvDontUnderstand (optDevice.c_str ());
 			return false;
 		}
 
 		if (!::SkinValidSkin (device, optSkin))
 		{
-			::PrvInvalidSkin (optSkin.c_str (), optDevice.c_str ());
+			Startup::PrvInvalidSkin (optSkin.c_str (), optDevice.c_str ());
 			return false;
 		}
 
 		::SkinSetSkinName (device, optSkin);
+	}
+
+	return true;
+}
+
+
+/***********************************************************************
+ *
+ * FUNCTION:    PrvHandlePreferenceParameters
+ *
+ * DESCRIPTION: Handle the following command line options:
+ *
+ *					kOptPreference
+ *
+ * PARAMETERS:  prefs - the PreferenceList containing the complete set
+ *					of parsed preference parameters.
+ *
+ * RETURNED:    True if everything when OK.  If there's something wrong
+ *				with the specifications, this function displays an
+ *				error message and return false.
+ *
+ ***********************************************************************/
+
+Bool Startup::PrvHandlePreferenceParameters (PreferenceList& prefs)
+{
+	PreferenceList::iterator	iter = prefs.begin ();
+	while (iter != prefs.end ())
+	{
+		string				fullPrefString	= iter->second;
+		string::size_type	equalsPos		= fullPrefString.find ('=');
+
+		if (equalsPos == string::npos)
+		{
+			Startup::PrvInvalidPreference (fullPrefString.c_str ());
+			return false;
+		}
+
+		string	key = fullPrefString.substr (0, equalsPos);
+		string	value = fullPrefString.substr (equalsPos + 1);
+
+		Preference<string>	pref (key.c_str ());
+		pref = value;
+
+		++iter;
 	}
 
 	return true;
@@ -814,52 +970,54 @@ static Bool PrvHandleSkinParameters (OptionList& options)
  *
  ***********************************************************************/
 
-static void PrvParseCommandLine (int argc, char** argv)
+Bool Startup::PrvParseCommandLine (int argc, char** argv)
 {
 	OptionList		options;
+	PreferenceList	prefs;
 
 	// Convert the command line into a map of switch/parameter pairs.
 
-	if (!::PrvCollectOptions (argc, argv, options))
+	if (!Startup::PrvCollectOptions (argc, argv, options, prefs))
 		goto BadParameter;
 
 	// Handle kOptPSF.
 
-	if (!::PrvHandleOpenSessionParameters (options))
+	if (!Startup::PrvHandleOpenSessionParameters (options))
 		goto BadParameter;
 
 	// Handle kOptROM, kOptRAM, and kOptDevice.
 
-	if (!::PrvHandleCreateSessionParameters (options))
+	if (!Startup::PrvHandleCreateSessionParameters (options))
 		goto BadParameter;
 
 	// Handle kOptHordeFirst, kOptHordeLast, kOptHordeApps, kOptHordeSaveDir,
 	// kOptHordeSaveFreq, kOptHordeDepthMax, kOptHordeDepthSwitch, and
 	// kOptHordeQuitWhenDone.
 
-	if (!::PrvHandleNewHordeParameters (options))
+	if (!Startup::PrvHandleNewHordeParameters (options))
 		goto BadParameter;
 
 	// Handle kOptLoad, kOptRun, and kOptQuitOnExit.
 
-	if (!::PrvHandleAutoLoadParameters (options))
+	if (!Startup::PrvHandleAutoLoadParameters (options))
 		goto BadParameter;
 
 	// Handle kOptSkin
-	if (!::PrvHandleSkinParameters (options))
+	if (!Startup::PrvHandleSkinParameters (options))
 		goto BadParameter;
 
-	// Handle kOptLog
-	// !!! TBD
+	// Handle preference changes.
+	if (!Startup::PrvHandlePreferenceParameters (prefs))
+		goto BadParameter;
 
-	return;
+	return true;
 
 BadParameter:
 	// All bets are off.  Bring up the dialog with the
 	// New/Open/Download/Exit buttons.
 
 	Startup::ScheduleAskWhatToDo ();
-	return;
+	return false;
 }
 
 
@@ -927,7 +1085,7 @@ Bool Startup::DetermineStartupActions (int argc, char** argv)
 	// screen (by holding down the ShiftLock key) and skip the auto-
 	// loading of the previous session file.
 
-	if (::IsBound () || !Platform::ForceStartupScreen ())
+	if (!Platform::ForceStartupScreen ())
 	{
 		Preference<Configuration>	pref1 (kPrefKeyLastConfiguration);
 		Preference<EmFileRef>		pref2 (kPrefKeyLastPSF);
@@ -935,41 +1093,17 @@ Bool Startup::DetermineStartupActions (int argc, char** argv)
 		Configuration	cfg = *pref1;
 		EmFileRef		ramFileRef = *pref2;
 
-		// See if there is embedded PSF resource. If so, use it.
+		// See if there was a previously saved RAM file.  If so, open it.
 
-		if (::IsBoundFully ())
-		{			
-			Startup::ScheduleOpenSession (ramFileRef);	// Ref ignored...
-		}
-		
-		// Else, see if there is an embedded ROM. If so, we will be creating a
-		// new document based on it.
-
-		else if (::IsBoundPartially ())
-		{
-			// Get the configuration settings from the embedded configuration.
-			// If we can get them, create a new document based on them.
-
-			cfg.fDevice		= Platform::GetBoundDevice ();
-			cfg.fRAMSize	= Platform::GetBoundRAMSize ();
-
-			Startup::ScheduleCreateSession (cfg);	// ROM image comes from resource...
-		}
-
-		// Else, see if there was a previously saved RAM file.	If so, open it.
-
-		else if (ramFileRef.IsSpecified ())
+		if (ramFileRef.IsSpecified ())
 		{
 			Startup::ScheduleOpenSession (ramFileRef);
 		}
 
-
 		// Else, see if there was a previously created document.  If so,
 		// create a new document based on its settings.
 
-		else if (cfg.fDevice.Supported () &&
-				cfg.fRAMSize != 0 &&
-				cfg.fROMFile.IsSpecified () )
+		else if (cfg.IsValid () )
 		{
 			Startup::ScheduleCreateSession (cfg);
 		}
@@ -977,7 +1111,10 @@ Bool Startup::DetermineStartupActions (int argc, char** argv)
 		// Now that default actions have been established, let's see if
 		// there's anything interesting on the command line.
 
-		::PrvParseCommandLine (argc, argv);
+		if (!Startup::PrvParseCommandLine (argc, argv))
+		{
+			return false;
+		}
 	}
 
 	return true;
@@ -1003,7 +1140,7 @@ Bool Startup::DetermineStartupActions (int argc, char** argv)
  *
  ***********************************************************************/
 
-static void PrvLookForAutoloads (void)
+void Startup::PrvLookForAutoloads (void)
 {
 	gAutoLoadFiles2.clear();
 	gAutoRunFiles2.clear();
@@ -1014,7 +1151,7 @@ static void PrvLookForAutoloads (void)
 	::GetLoadableFileList (Platform::GetString (kStr_AutorunAndQuit), gAutoRunAndQuitFiles2);
 }
 
-static void PrvAppendFiles (EmFileRefList& list1, const EmFileRefList& list2)
+void Startup::PrvAppendFiles (EmFileRefList& list1, const EmFileRefList& list2)
 {
 	list1.insert(list1.end(), list2.begin(), list2.end());
 }
@@ -1023,15 +1160,15 @@ void Startup::GetAutoLoads (EmFileRefList& fileList)
 {
 	fileList.clear();
 
-	::PrvLookForAutoloads();
+	Startup::PrvLookForAutoloads();
 
-	::PrvAppendFiles (fileList, gAutoLoadFiles1);
-//	::PrvAppendFiles (fileList, gAutoRunFiles1);
-//	::PrvAppendFiles (fileList, gAutoRunAndQuitFiles1);
+	Startup::PrvAppendFiles (fileList, gAutoLoadFiles1);
+//	Startup::PrvAppendFiles (fileList, gAutoRunFiles1);
+//	Startup::PrvAppendFiles (fileList, gAutoRunAndQuitFiles1);
 
-	::PrvAppendFiles (fileList, gAutoLoadFiles2);
-	::PrvAppendFiles (fileList, gAutoRunFiles2);
-	::PrvAppendFiles (fileList, gAutoRunAndQuitFiles2);
+	Startup::PrvAppendFiles (fileList, gAutoLoadFiles2);
+	Startup::PrvAppendFiles (fileList, gAutoRunFiles2);
+	Startup::PrvAppendFiles (fileList, gAutoRunAndQuitFiles2);
 
 	if (/*gAutoRunAndQuitFiles1.size() +*/ gAutoRunAndQuitFiles2.size() > 0)
 	{
@@ -1053,7 +1190,7 @@ void Startup::GetAutoLoads (EmFileRefList& fileList)
  *
  ***********************************************************************/
 
-static string PrvTryGetApp (const EmFileRefList& fileList)
+string Startup::PrvTryGetApp (const EmFileRefList& fileList)
 {
 	string	result;
 
@@ -1099,7 +1236,7 @@ string Startup::GetAutoRunApp (void)
 		appNames.push_back (gAutoRunApp);
 
 		DatabaseInfoList	dbInfos;
-		::PrvGetDatabaseInfosFromAppNames (appNames, dbInfos);
+		Startup::PrvGetDatabaseInfosFromAppNames (appNames, dbInfos);
 
 		if (dbInfos.size() > 0)
 		{
@@ -1112,16 +1249,16 @@ string Startup::GetAutoRunApp (void)
 	// and AutoRunAndQuit directories.
 
 //	if (result.empty())
-//		result = ::PrvTryGetApp (gAutoRunFiles1);
+//		result = Startup::PrvTryGetApp (gAutoRunFiles1);
 
 	if (result.empty())
-		result = ::PrvTryGetApp (gAutoRunFiles2);
+		result = Startup::PrvTryGetApp (gAutoRunFiles2);
 
 //	if (result.empty())
-//		result = ::PrvTryGetApp (gAutoRunAndQuitFiles1);
+//		result = Startup::PrvTryGetApp (gAutoRunAndQuitFiles1);
 
 	if (result.empty())
-		result = ::PrvTryGetApp (gAutoRunAndQuitFiles2);
+		result = Startup::PrvTryGetApp (gAutoRunAndQuitFiles2);
 
 	return result;
 }
@@ -1150,7 +1287,7 @@ Bool Startup::AskWhatToDo (void)
 //	gAskWhatToDo = false;
 //	return result;
 
-	return !gCreateSession && !gOpenSession && !gQuit && !gClose;
+	return !gCreateSession && !gOpenSession;
 }
 
 
@@ -1199,9 +1336,45 @@ Bool Startup::CreateSession (Configuration& cfg)
 Bool Startup::OpenSession (EmFileRef& ref)
 {
 	Bool	result = gOpenSession;
+
 	if (result)
+	{
 		ref = gSessionOpenRef;
+	}
+
 	gOpenSession = false;
+
+	return result;
+}
+
+
+/***********************************************************************
+ *
+ * FUNCTION:    Startup::Minimize
+ *
+ * DESCRIPTION: Return whether or not we are supposed to open an old
+ *				session based on previously determined criteria.  This
+ *				is a one-shot function: subsequent calls will return
+ *				false until ScheduleOpenSession is called again.
+ *
+ * PARAMETERS:  ref - the EmFileRef to receive the reference to
+ *					the .psf file to be opened.
+ *
+ * RETURNED:    True if so.
+ *
+ ***********************************************************************/
+
+Bool Startup::Minimize (EmFileRef& ref)
+{
+	Bool	result = gMinimize;
+
+	if (result)
+	{
+		ref = gMinimizeRef;
+	}
+
+	gMinimize = false;
+
 	return result;
 }
 
@@ -1234,7 +1407,9 @@ Bool Startup::NewHorde (HordeInfo* info)
 
 			// Find the AppInfos for the user-specified applications.
 
-			::PrvGetDatabaseInfosFromAppNames (gHordeApps, info->fAppList);
+			EmSessionStopper	stopper (gSession, kStopOnSysCall);
+
+			Startup::PrvGetDatabaseInfosFromAppNames (gHordeApps, info->fAppList);
 		}
 
 		gStartNewHorde = false;
@@ -1265,23 +1440,20 @@ Bool Startup::HordeQuitWhenDone (void)
 
 /***********************************************************************
  *
- * FUNCTION:    Startup::CloseSession
+ * FUNCTION:    Startup::MinimizeQuitWhenDone
  *
- * DESCRIPTION: Return whether or not Poser is supposed to close the
- *				current session right now.
+ * DESCRIPTION: Return whether or not we are supposed to quit the
+ *				emulator session when the Horde has completed.
  *
- * PARAMETERS:  None
+ * PARAMETERS:  none.
  *
  * RETURNED:    True if so.
  *
  ***********************************************************************/
 
-Bool Startup::CloseSession (EmFileRef& f)
+Bool Startup::MinimizeQuitWhenDone (void)
 {
-	Bool	result = gClose;
-	f = gSessionCloseRef;
-	gClose = false;
-	return result;
+	return gMinimizeQuitWhenDone;
 }
 
 
@@ -1308,26 +1480,6 @@ Bool Startup::QuitOnExit (void)
 
 /***********************************************************************
  *
- * FUNCTION:    Startup::Quit
- *
- * DESCRIPTION: Return whether or not it's time to quit.
- *
- * PARAMETERS:  None
- *
- * RETURNED:    True if so.
- *
- ***********************************************************************/
-
-Bool Startup::Quit (void)
-{
-	Bool	result = gQuit;
-	gQuit = false;
-	return result;
-}
-
-
-/***********************************************************************
- *
  * FUNCTION:    Startup::Clear
  *
  * DESCRIPTION: Clear all settings.
@@ -1340,11 +1492,10 @@ Bool Startup::Quit (void)
 
 void Startup::Clear (void)
 {
-	gCreateSession = false;
-	gOpenSession = false;
-	gStartNewHorde = false;
-	gQuitOnExit = false;
-	gQuit = false;
+	gCreateSession	= false;
+	gOpenSession	= false;
+	gStartNewHorde	= false;
+	gQuitOnExit		= false;
 
 	gAutoRunApp = "";
 	gAutoLoadFiles1.clear();
@@ -1420,6 +1571,29 @@ void Startup::ScheduleOpenSession (const EmFileRef& ref)
 
 /***********************************************************************
  *
+ * FUNCTION:    Startup::ScheduleMinimize
+ *
+ * DESCRIPTION: Schedule our "state machine" so that OpenSession will
+ *				return True.
+ *
+ * PARAMETERS:  ref - the EmFileRef returned to the caller of
+ *					OpenSession.
+ *
+ * RETURNED:    Nothing
+ *
+ ***********************************************************************/
+
+void Startup::ScheduleMinimize (const EmFileRef& ref)
+{
+	gMinimize = true;
+	gMinimizeQuitWhenDone = true;
+//	gAskWhatToDo = false;
+	gMinimizeRef = ref;
+}
+
+
+/***********************************************************************
+ *
  * FUNCTION:    Startup::ScheduleNewHorde
  *
  * DESCRIPTION: Schedule our "state machine" so that NewHorde will
@@ -1451,26 +1625,6 @@ void Startup::ScheduleNewHorde (const HordeInfo& info, const StringList& appName
 
 /***********************************************************************
  *
- * FUNCTION:    Startup::ScheduleCloseSession
- *
- * DESCRIPTION: Schedule our "state machine" so that CloseSession will
- *				return True.
- *
- * PARAMETERS:  None
- *
- * RETURNED:    Nothing
- *
- ***********************************************************************/
-
-void Startup::ScheduleCloseSession (const EmFileRef& f)
-{
-	gSessionCloseRef = f;
-	gClose = true;
-}
-
-
-/***********************************************************************
- *
  * FUNCTION:    Startup::ScheduleQuitOnExit
  *
  * DESCRIPTION: Schedule our "state machine" so that QuitOnExit will
@@ -1486,26 +1640,3 @@ void Startup::ScheduleQuitOnExit (void)
 {
 	gQuitOnExit = true;
 }
-
-
-/***********************************************************************
- *
- * FUNCTION:    Startup::ScheduleQuit
- *
- * DESCRIPTION: Schedule our "state machine" so that Quit will
- *				return True.
- *
- * PARAMETERS:  None
- *
- * RETURNED:    Nothing
- *
- ***********************************************************************/
-
-void Startup::ScheduleQuit (void)
-{
-//	Startup::Clear();
-	gQuit = true;
-//	gAskWhatToDo = false;
-}
-
-

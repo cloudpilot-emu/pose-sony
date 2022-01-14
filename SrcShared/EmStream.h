@@ -8,7 +8,6 @@
 #ifndef EmStream_h
 #define EmStream_h
 
-#include "Byteswapping.h"		// Canonical
 #include "EmTypes.h"			// ErrCode
 
 #include <deque>
@@ -50,87 +49,18 @@ class EmStream
 		virtual ErrCode			PutBytes		(const void*	inBuffer,
 												 int32			ioByteCount);
 
-		EmStream&				operator <<		(const char* inString)
-								{
-									WriteCString (inString);
-									return (*this);
-								}
-
-		EmStream&				operator <<		(const string& inString)
-								{
-									WriteString (inString);
-									return (*this);
-								}
-
-		EmStream&				operator <<		(int8 inNum)
-								{
-									Canonical (inNum);
-									PutBytes (&inNum, sizeof (inNum));
-									return (*this);
-								}
-
-		EmStream&				operator <<		(uint8 inNum)
-								{
-									Canonical (inNum);
-									PutBytes (&inNum, sizeof (inNum));
-									return (*this);
-								}
-
-		EmStream&				operator <<		(char inChar)
-								{
-									Canonical (inChar);
-									PutBytes (&inChar, sizeof (inChar));
-									return (*this);
-								}
-
-		EmStream&				operator <<		(int16 inNum)
-								{
-									Canonical (inNum);
-									PutBytes (&inNum, sizeof (inNum));
-									return (*this);
-								}
-
-		EmStream&				operator <<		(uint16 inNum)
-								{
-									Canonical (inNum);
-									PutBytes (&inNum, sizeof (inNum));
-									return (*this);
-								}
-
-		EmStream&				operator <<		(int32 inNum)
-								{
-									Canonical (inNum);
-									PutBytes (&inNum, sizeof (inNum));
-									return (*this);
-								}
-
-		EmStream&				operator <<		(uint32 inNum)
-								{
-									Canonical (inNum);
-									PutBytes (&inNum, sizeof (inNum));
-									return (*this);
-								}
-
-		EmStream&				operator <<		(int64 inNum)
-								{
-									Canonical (inNum);
-									PutBytes (&inNum, sizeof (inNum));
-									return (*this);
-								}
-
-		EmStream&				operator <<		(uint64 inNum)
-								{
-									Canonical (inNum);
-									PutBytes (&inNum, sizeof (inNum));
-									return (*this);
-								}
-
-		EmStream&				operator <<		(bool inBool)
-								{
-									Canonical (inBool);
-									PutBytes (&inBool, sizeof (inBool));
-									return (*this);
-								}
+		EmStream&				operator <<		(const char* inString);
+		EmStream&				operator <<		(const string& inString);
+		EmStream&				operator <<		(int8 inNum);
+		EmStream&				operator <<		(uint8 inNum);
+		EmStream&				operator <<		(char inChar);
+		EmStream&				operator <<		(int16 inNum);
+		EmStream&				operator <<		(uint16 inNum);
+		EmStream&				operator <<		(int32 inNum);
+		EmStream&				operator <<		(uint32 inNum);
+		EmStream&				operator <<		(int64 inNum);
+		EmStream&				operator <<		(uint64 inNum);
+		EmStream&				operator <<		(bool inBool);
 
 						// Read Operations
 
@@ -139,87 +69,18 @@ class EmStream
 		int32					PeekData		(void*	outButter,
 												 int32	inByteCount);
 
-		EmStream&				operator >>		(char* outString)
-								{
-									ReadCString (outString);
-									return (*this);
-								}
-
-		EmStream&				operator >>		(string& outString)
-								{
-									ReadString (outString);
-									return (*this);
-								}
-
-		EmStream&				operator >>		(int8 &outNum)
-								{
-									GetBytes (&outNum, sizeof (outNum));
-									Canonical (outNum);
-									return (*this);
-								}
-
-		EmStream&				operator >>		(uint8 &outNum)
-								{
-									GetBytes (&outNum, sizeof (outNum));
-									Canonical (outNum);
-									return (*this);
-								}
-
-		EmStream&				operator >>		(char &outChar)
-								{
-									GetBytes (&outChar, sizeof (outChar));
-									Canonical (outChar);
-									return (*this);
-								}
-
-		EmStream&				operator >>		(int16 &outNum)
-								{
-									GetBytes (&outNum, sizeof (outNum));
-									Canonical (outNum);
-									return (*this);
-								}
-
-		EmStream&				operator >>		(uint16 &outNum)
-								{
-									GetBytes (&outNum, sizeof (outNum));
-									Canonical (outNum);
-									return (*this);
-								}
-
-		EmStream&				operator >>		(int32 &outNum)
-								{
-									GetBytes (&outNum, sizeof (outNum));
-									Canonical (outNum);
-									return (*this);
-								}
-
-		EmStream&				operator >>		(uint32 &outNum)
-								{
-									GetBytes (&outNum, sizeof (outNum));
-									Canonical (outNum);
-									return (*this);
-								}
-
-		EmStream&				operator >>		(int64 &outNum)
-								{
-									GetBytes (&outNum, sizeof (outNum));
-									Canonical (outNum);
-									return (*this);
-								}
-
-		EmStream&				operator >>		(uint64 &outNum)
-								{
-									GetBytes (&outNum, sizeof (outNum));
-									Canonical (outNum);
-									return (*this);
-								}
-
-		EmStream&				operator >>		(bool &outBool)
-								{
-									GetBytes (&outBool, sizeof( outBool));
-									Canonical (outBool);
-									return (*this);
-								}
+		EmStream&				operator >>		(char* outString);
+		EmStream&				operator >>		(string& outString);
+		EmStream&				operator >>		(int8 &outNum);
+		EmStream&				operator >>		(uint8 &outNum);
+		EmStream&				operator >>		(char &outChar);
+		EmStream&				operator >>		(int16 &outNum);
+		EmStream&				operator >>		(uint16 &outNum);
+		EmStream&				operator >>		(int32 &outNum);
+		EmStream&				operator >>		(uint32 &outNum);
+		EmStream&				operator >>		(int64 &outNum);
+		EmStream&				operator >>		(uint64 &outNum);
+		EmStream&				operator >>		(bool &outBool);
 
 		template <class T>
 		EmStream&				operator >>		(deque<T>& container)
@@ -326,6 +187,7 @@ class EmStream
 									return *this;
 								}
 
+
 		// Data-specific read/write functions
 		//   There is an equivalent Shift operator for each one
 		//	 except WritePtr/ReadPtr (since Ptr is really a char*,
@@ -350,6 +212,43 @@ class EmStream
 		int32					mMarker;
 		int32					mLength;
 };
+
+
+
+
+inline EmStream& operator << (EmStream& s, const MemPtr& p)
+{
+	s << (emuptr) p;
+
+	return s;
+}
+
+inline EmStream& operator >> (EmStream& s, MemPtr& p)
+{
+	emuptr	t;
+	s >> t;
+
+	p = (MemPtr) t;
+
+	return s;
+}
+
+inline EmStream& operator << (EmStream& s, const MemHandle& h)
+{
+	s << (emuptr) h;
+
+	return s;
+}
+
+inline EmStream& operator >> (EmStream& s, MemHandle& h)
+{
+	emuptr	t;
+	s >> t;
+
+	h = (MemHandle) t;
+
+	return s;
+}
 
 
 #if 0

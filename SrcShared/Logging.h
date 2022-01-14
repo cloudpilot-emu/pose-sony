@@ -20,6 +20,9 @@
 #include "omnithread.h"			// omni_mutex
 
 #include <stdarg.h>				// va_list
+#include <deque>				// deque
+
+typedef deque<uint8>	ByteDeque;
 
 class EmStreamFile;
 
@@ -34,8 +37,8 @@ class LogStreamInner
 								~LogStreamInner	(void);
 
 		int						DumpHex			(const void*, long dataLen);
-		int						VPrintf			(const char* fmt, va_list args);
-		int						Write			(const void* buffer, long size);
+		int						VPrintf			(const char* fmt, va_list args, Bool timestamp = true);
+		int						Write			(const void* buffer, long size, Bool timestamp = true);
 
 		void					Clear			(void);
 
@@ -46,18 +49,19 @@ class LogStreamInner
 		void					DumpToFile		(void);
 
 	private:
+		void					DumpToFile			(EmStreamFile&, const char*, long size);
 		EmFileRef				CreateFileReference	(void);
 		void					Timestamp			(void);
 		void					NewLine				(void);
 		void					Append				(const char* buffer, long size);
-		void					DumpToFile			(EmStreamFile&, const char*, long size);
+		void					TrimLeading			(void);
 
 		const char*				fBaseName;
 		long					fFileIndex;
 
-		StMemory				fBuffer;
+		ByteDeque				fBuffer;
 		long					fBufferSize;
-		long					fBufferOffset;
+		Bool					fDiscarded;
 
 		int32					fLastGremlinEventCounter;
 		uint32					fLastTimestampTime;
@@ -74,6 +78,7 @@ class LogStream
 	// Multithread-safe interface for logging information.
 
 		int						Printf			(const char* msg, ...);
+		int						PrintfNoTime	(const char* msg, ...);
 		int						DataPrintf		(const void*, long dataLen, const char* msg, ...);
 		int						VPrintf			(const char* fmt, va_list args);
 		int						Write			(const void* buffer, long size);
@@ -87,27 +92,33 @@ class LogStream
 		void					DumpToFile		(void);
 
 	private:
+		static void				PrefChanged			(PrefKeyType, PrefRefCon);	
+
+	private:
 		omni_mutex				fMutex;
 		LogStreamInner			fInner;
 };
 
-void		LogEvtAddEventToQueue		(emuptr);
-void		LogEvtAddUniqueEventToQueue	(emuptr, UInt32, Boolean);
+void		LogEvtAddEventToQueue		(const EventType& event);
+void		LogEvtAddUniqueEventToQueue	(const EventType& event, UInt32, Boolean);
 void		LogEvtEnqueueKey			(UInt16 ascii, UInt16 keycode, UInt16 modifiers);
-void		LogEvtEnqueuePenPoint		(emuptr);
+void		LogEvtEnqueuePenPoint		(const PointType&);
 
-void		LogEvtGetEvent				(emuptr, Int32 timeout);
-void		LogEvtGetPen				(emuptr, emuptr, emuptr);
-void		LogEvtGetSysEvent			(emuptr, Int32 timeout);
+void		LogEvtGetEvent				(const EventType& event, Int32 timeout);
+void		LogEvtGetPen				(Int16, Int16, Boolean);
+void		LogEvtGetSysEvent			(const EventType& event, Int32 timeout);
 
 LogStream*	LogGetStdLog				(void);
 void		LogStartup					(void);
+void		LogShutdown					(void);
 
-#define LogAppendMsg	LogGetStdLog ()->Printf
-#define LogAppendData	LogGetStdLog ()->DataPrintf
-#define LogClear		LogGetStdLog ()->Clear
-#define LogDump			LogGetStdLog ()->DumpToFile
-#define LogStartNew		LogGetStdLog ()->DumpToFile (); LogGetStdLog ()->Clear (); LogGetStdLog ()->EnsureNewFile
+#define LogAppendMsg		if (!LogGetStdLog ()) ; else LogGetStdLog ()->Printf
+#define LogAppendMsgNoTime	if (!LogGetStdLog ()) ; else LogGetStdLog ()->PrintfNoTime
+#define LogAppendData		if (!LogGetStdLog ()) ; else LogGetStdLog ()->DataPrintf
+#define LogClear			if (!LogGetStdLog ()) ; else LogGetStdLog ()->Clear
+#define LogDump				if (!LogGetStdLog ()) ; else LogGetStdLog ()->DumpToFile
+#define LogEnsureNewFile	if (!LogGetStdLog ()) ; else LogGetStdLog ()->EnsureNewFile
+#define LogStartNew			LogDump (); LogClear (); LogEnsureNewFile
 
 
 // The LogFoo macros below are called all the time.  When implemented in
@@ -181,12 +192,16 @@ inline Bool ReportCommon(int key)
 	DO_TO_REPORT_PREF (ReportLowMemoryAccess) 			\
 	DO_TO_REPORT_PREF (ReportLowStackAccess)			\
 	DO_TO_REPORT_PREF (ReportMemMgrDataAccess)			\
+	DO_TO_REPORT_PREF (ReportMemMgrLeaks) 				\
 	DO_TO_REPORT_PREF (ReportMemMgrSemaphore) 			\
 	DO_TO_REPORT_PREF (ReportOffscreenObject)			\
+	DO_TO_REPORT_PREF (ReportOverlayErrors)				\
+	DO_TO_REPORT_PREF (ReportProscribedFunction)		\
 	DO_TO_REPORT_PREF (ReportROMAccess)					\
 	DO_TO_REPORT_PREF (ReportScreenAccess)				\
 	DO_TO_REPORT_PREF (ReportSizelessObject)			\
 	DO_TO_REPORT_PREF (ReportStackAlmostOverflow) 		\
+	DO_TO_REPORT_PREF (ReportStrictIntlChecks)			\
 	DO_TO_REPORT_PREF (ReportSystemGlobalAccess)		\
 	DO_TO_REPORT_PREF (ReportUIMgrDataAccess)			\
 	DO_TO_REPORT_PREF (ReportUnlockedChunkAccess)

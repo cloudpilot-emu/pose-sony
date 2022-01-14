@@ -14,6 +14,7 @@
 #include "EmCommon.h"
 #include "EmRegsFrameBuffer.h"
 
+#include "Byteswapping.h"		// ByteswapWords
 #include "EmMemory.h"			// EmMemDoGet32
 #include "EmScreen.h"			// EmScreen::MarkDirty
 #include "Miscellaneous.h"		// StWordSwapper

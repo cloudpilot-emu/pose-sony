@@ -25,7 +25,8 @@ class EmRegsVZVisorPrism : public EmRegsVZ
 		virtual Bool			GetLCDHasFrame			(void);
 		virtual void			GetLCDBeginEnd			(emuptr& begin, emuptr& end);
 		virtual void			GetLCDScanlines			(EmScreenUpdateInfo& info);
-		virtual Bool			GetSerialPortOn			(int portNum);
+		virtual Bool			GetLineDriverState		(EmUARTDeviceType type);
+		virtual EmUARTDeviceType	GetUARTDevice		(int uartNum);
 
 		virtual uint8			GetPortInputValue		(int);
 		virtual uint8			GetPortInternalValue	(int);

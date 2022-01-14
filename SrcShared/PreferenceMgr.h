@@ -14,11 +14,12 @@
 #ifndef _PREFERENCEMGR_H_
 #define _PREFERENCEMGR_H_
 
-#include "EmFileRef.h"		 	// EmFileRefList
-#include "omnithread.h" 		// omni_mutex
-#include "EmFileRef.h"		 	// EmFileRef
-#include "Skins.h"				// SkinNameList
+#include "EmFileRef.h"		 	// EmFileRefList, EmFileRef
 #include "EmTransport.h"		// EmTransportType
+#include "EmHAL.h"				// EmUARTDeviceType
+#include "Skins.h"				// SkinNameList
+
+#include "omnithread.h" 		// omni_mutex
 
 #include <stdio.h>				// FILE
 #include <map>
@@ -81,6 +82,8 @@ class EmTransport;
 */
 
 typedef const char* PrefKeyType;
+
+bool PrefKeysEqual (PrefKeyType, PrefKeyType);
 
 class BasePreference
 {
@@ -184,9 +187,11 @@ class Preferences
 		void					DoNotify			(const string& key);
 
 	protected:
+		virtual Bool			ReadPreferences		(StringStringMap&);
+		virtual void			WritePreferences	(const StringStringMap&);
 		virtual EmFileRef		GetPrefRef			(void);
 		virtual void			WriteBanner 		(FILE*);
-		virtual bool			ReadBanner			(FILE*);
+		virtual Bool			ReadBanner			(FILE*);
 		virtual void			StripUnused 		(void);
 
 	protected:
@@ -224,6 +229,10 @@ class EmulatorPreferences : public Preferences
 
 		virtual void			Load				(void);
 
+		void					GetDatabaseMRU		(EmFileRefList&);
+		void					GetSessionMRU		(EmFileRefList&);
+		void					GetROMMRU			(EmFileRefList&);
+
 		EmFileRef				GetIndPRCMRU		(int);
 		EmFileRef				GetIndRAMMRU		(int);
 		EmFileRef				GetIndROMMRU		(int);
@@ -241,19 +250,23 @@ class EmulatorPreferences : public Preferences
 
 		void					SetTransports		(void);
 
-		void					SetTransportForIR		(EmTransport*);
-		void					SetTransportForSerial	(EmTransport*);
+		void					SetTransportForDevice	(EmUARTDeviceType, EmTransport*);
+		EmTransport*			GetTransportForDevice	(EmUARTDeviceType);
 
-		EmTransport*			GetTransportForIR		(void);
-		EmTransport*			GetTransportForSerial	(void);
+		// Utility routines for determining what should happen in DoDialog.
+
+		Bool					LogMessage			(Bool isFatal);
+		Bool					ShouldQuit			(Bool isFatal);
+		Bool					ShouldContinue		(Bool isFatal);
+		Bool					ShouldNextGremlin	(Bool isFatal);
 
 	protected:
 		virtual void			WriteBanner 		(FILE*);
-		virtual bool			ReadBanner			(FILE*);
+		virtual Bool			ReadBanner			(FILE*);
 		virtual void			StripUnused 		(void);
+		void					MigrateOldPrefs		(void);
 
-		EmTransport*			fTransportForIR;	
-		EmTransport*			fTransportForSerial;
+		EmTransport*			fTransports[kUARTEnd];
 };
 
 extern EmulatorPreferences* gEmuPrefs;
@@ -277,6 +290,7 @@ extern EmulatorPreferences* gEmuPrefs;
 #define FOR_EACH_UNINIT_PREF(DO_TO_PREF)						\
 	DO_TO_PREF(WindowLocation,	unused, unused)					\
 	DO_TO_PREF(GCWLocation,		unused, unused)					\
+	DO_TO_PREF(MPWLocation,		unused, unused)					\
 	DO_TO_PREF(BackgroundColor,	unused, unused) 				\
 	DO_TO_PREF(HighlightColor,	unused, unused)
 
@@ -284,32 +298,40 @@ extern EmulatorPreferences* gEmuPrefs;
 
 #define FOR_EACH_INIT_PREF(DO_TO_PREF)							\
 	DO_TO_PREF(CloseAction, CloseActionType, (kSaveAsk))		\
-	DO_TO_PREF(CommPort, string, (""))						\
 	DO_TO_PREF(RedirectNetLib, bool, (false))					\
 	DO_TO_PREF(EnableSounds, bool, (false))						\
-																\
+	DO_TO_PREF(PortSerial,			EmTransportDescriptor,	(kTransportNull))	\
+	DO_TO_PREF(PortIR,				EmTransportDescriptor,	(kTransportNull))	\
+	DO_TO_PREF(PortMystery,			EmTransportDescriptor,	(kTransportNull))	\
+	DO_TO_PREF(PortDownload,		EmTransportDescriptor,	(kTransportNull))	\
+																				\
+	DO_TO_PREF(PortSerialSocket,	string,				(""))					\
+	DO_TO_PREF(PortIRSocket,		string,				(""))					\
 	DO_TO_PREF(ReportFreeChunkAccess,			bool, (false)) 	\
 	DO_TO_PREF(ReportHardwareRegisterAccess,	bool, (false))	\
 	DO_TO_PREF(ReportLowMemoryAccess,			bool, (false)) 	\
 	DO_TO_PREF(ReportLowStackAccess,			bool, (false))	\
 	DO_TO_PREF(ReportMemMgrDataAccess,			bool, (false))	\
+	DO_TO_PREF(ReportMemMgrLeaks,				bool, (false))	\
 	DO_TO_PREF(ReportMemMgrSemaphore,			bool, (false)) 	\
+	DO_TO_PREF(ReportOverlayErrors,				bool, (false)) 	\
+	DO_TO_PREF(ReportProscribedFunction,			bool, (false)) 	\
 	DO_TO_PREF(ReportOffscreenObject,			bool, (false))	\
 	DO_TO_PREF(ReportROMAccess,					bool, (false))	\
 	DO_TO_PREF(ReportScreenAccess,				bool, (false))	\
 	DO_TO_PREF(ReportSizelessObject,			bool, (false))	\
 	DO_TO_PREF(ReportStackAlmostOverflow,		bool, (false)) 	\
+	DO_TO_PREF(ReportStrictIntlChecks,			bool, (false)) 	\
 	DO_TO_PREF(ReportSystemGlobalAccess,		bool, (false))	\
 	DO_TO_PREF(ReportUIMgrDataAccess,			bool, (false))	\
 	DO_TO_PREF(ReportUnlockedChunkAccess,		bool, (false)) 	\
 																\
-	DO_TO_PREF(ReportMemoryLeaks,				bool, (false))	\
 	DO_TO_PREF(ReportLockedRecords,				bool, (false))	\
 	DO_TO_PREF(ReportSysFatalAlert,				bool, (true))	\
 																\
 	DO_TO_PREF(InterceptSysFatalAlert,			bool, (true))	\
-	DO_TO_PREF(SilentRunning,					bool, (true))	\
-																\
+	DO_TO_PREF(DialogBeep,						bool,	(false))				\
+																	\
 	DO_TO_PREF(LogErrorMessages,	uint8, (0))					\
 	DO_TO_PREF(LogWarningMessages,	uint8, (0)) 				\
 	DO_TO_PREF(LogGremlins,			uint8, (0))					\
@@ -330,7 +352,8 @@ extern EmulatorPreferences* gEmuPrefs;
 	DO_TO_PREF(LogLLDebuggerData,	uint8, (0))					\
 	DO_TO_PREF(LogRPC,				uint8, (0)) 				\
 	DO_TO_PREF(LogRPCData,			uint8, (0)) 				\
-																\
+	DO_TO_PREF(LogFileSize,			long,				(1 * 1024L * 1024L))	\
+	DO_TO_PREF(LogDefaultDir,		EmDirRef,			())						\
 	DO_TO_PREF(DebuggerSocketPort, long, (6414))				\
 	DO_TO_PREF(RPCSocketPort, long, (6415)) 					\
 																\
@@ -357,7 +380,15 @@ extern EmulatorPreferences* gEmuPrefs;
 																\
 	DO_TO_PREF(Skins, SkinNameList, ())							\
 	DO_TO_PREF(Scale, ScaleType, (2))							\
-																\
+	DO_TO_PREF(DimWhenInactive,		bool,				(true))					\
+	DO_TO_PREF(ShowDebugMode,		bool,				(true))					\
+	DO_TO_PREF(ShowGremlinMode,		bool,				(true))					\
+	DO_TO_PREF(StayOnTop,			bool,				(false))				\
+																				\
+	DO_TO_PREF(WarningOff,			EmErrorHandlingOption,	(kShow))			\
+	DO_TO_PREF(ErrorOff,			EmErrorHandlingOption,	(kShow))			\
+	DO_TO_PREF(WarningOn,			EmErrorHandlingOption,	(kShow))			\
+	DO_TO_PREF(ErrorOn,				EmErrorHandlingOption,	(kShow))			\
 	DO_TO_PREF(LastTracerType, string, (""))					\
 	DO_TO_PREF(TracerTypes, string, (""))						\
 																\
@@ -366,97 +397,114 @@ extern EmulatorPreferences* gEmuPrefs;
 	DO_TO_PREF(SlotList, SlotInfoList, ())						\
 																\
 	DO_TO_PREF(UserName, string, ("Palm OS Emulator"))		\
-	DO_TO_PREF(SerialTargetHost, string, ("localhost"))	\
-	DO_TO_PREF(SerialTargetPort, long, (6416)) 					
 
-#else	// SONY_ROM
+#else	// !SONY_ROM
 
-#define FOR_EACH_INIT_PREF(DO_TO_PREF)							\
-	DO_TO_PREF(CloseAction, CloseActionType, (kSaveAsk))		\
-	DO_TO_PREF(CommPort, string, (""))						\
-	DO_TO_PREF(RedirectNetLib, bool, (false))					\
-	DO_TO_PREF(EnableSounds, bool, (false))						\
-																\
-	DO_TO_PREF(ReportFreeChunkAccess,			bool, (true)) 	\
-	DO_TO_PREF(ReportHardwareRegisterAccess,	bool, (true))	\
-	DO_TO_PREF(ReportLowMemoryAccess,			bool, (true)) 	\
-	DO_TO_PREF(ReportLowStackAccess,			bool, (true))	\
-	DO_TO_PREF(ReportMemMgrDataAccess,			bool, (true))	\
-	DO_TO_PREF(ReportMemMgrSemaphore,			bool, (true)) 	\
-	DO_TO_PREF(ReportOffscreenObject,			bool, (true))	\
-	DO_TO_PREF(ReportROMAccess,					bool, (true))	\
-	DO_TO_PREF(ReportScreenAccess,				bool, (true))	\
-	DO_TO_PREF(ReportSizelessObject,			bool, (true))	\
-	DO_TO_PREF(ReportStackAlmostOverflow,		bool, (true)) 	\
-	DO_TO_PREF(ReportSystemGlobalAccess,		bool, (true))	\
-	DO_TO_PREF(ReportUIMgrDataAccess,			bool, (true))	\
-	DO_TO_PREF(ReportUnlockedChunkAccess,		bool, (true)) 	\
-																\
-	DO_TO_PREF(ReportMemoryLeaks,				bool, (false))	\
-	DO_TO_PREF(ReportLockedRecords,				bool, (false))	\
-	DO_TO_PREF(ReportSysFatalAlert,				bool, (true))	\
-																\
-	DO_TO_PREF(InterceptSysFatalAlert,			bool, (true))	\
-	DO_TO_PREF(SilentRunning,					bool, (true))	\
-																\
-	DO_TO_PREF(LogErrorMessages,	uint8, (0))					\
-	DO_TO_PREF(LogWarningMessages,	uint8, (0)) 				\
-	DO_TO_PREF(LogGremlins,			uint8, (0))					\
-	DO_TO_PREF(LogCPUOpcodes,		uint8, (0))					\
-	DO_TO_PREF(LogEnqueuedEvents,	uint8, (0))					\
-	DO_TO_PREF(LogDequeuedEvents,	uint8, (0))					\
-	DO_TO_PREF(LogSystemCalls,		uint8, (0)) 				\
-	DO_TO_PREF(LogApplicationCalls,	uint8, (0))					\
-	DO_TO_PREF(LogSerial,			uint8, (0))					\
-	DO_TO_PREF(LogSerialData,		uint8, (0))					\
-	DO_TO_PREF(LogNetLib,			uint8, (0))					\
-	DO_TO_PREF(LogNetLibData,		uint8, (0))					\
-	DO_TO_PREF(LogExgMgr,			uint8, (0))					\
-	DO_TO_PREF(LogExgMgrData,		uint8, (0))					\
-	DO_TO_PREF(LogHLDebugger,		uint8, (0))					\
-	DO_TO_PREF(LogHLDebuggerData,	uint8, (0))					\
-	DO_TO_PREF(LogLLDebugger,		uint8, (0))					\
-	DO_TO_PREF(LogLLDebuggerData,	uint8, (0))					\
-	DO_TO_PREF(LogRPC,				uint8, (0)) 				\
-	DO_TO_PREF(LogRPCData,			uint8, (0)) 				\
-																\
-	DO_TO_PREF(DebuggerSocketPort, long, (6414))				\
-	DO_TO_PREF(RPCSocketPort, long, (6415)) 					\
-																\
-	DO_TO_PREF(WarnAboutSkinsDir, bool, (true)) 				\
-																\
-	DO_TO_PREF(AskAboutStartMenu, bool, (true)) 				\
-	DO_TO_PREF(StartMenuItem, EmFileRef, ())					\
-																\
-	DO_TO_PREF(FillNewBlocks, bool, (false))					\
-	DO_TO_PREF(FillResizedBlocks, bool, (false))				\
-	DO_TO_PREF(FillDisposedBlocks, bool, (false))				\
-	DO_TO_PREF(FillStack, bool, (false))						\
-																\
-	DO_TO_PREF(LastConfiguration, Configuration, (EmDevice ("PalmIII"), 1024, EmFileRef())) 		\
-																\
-	DO_TO_PREF(GremlinInfo, GremlinInfo, ())					\
-	DO_TO_PREF(HordeInfo, HordeInfo, ())						\
-																\
-	DO_TO_PREF(LastPSF, EmFileRef, ())							\
-																\
-	DO_TO_PREF(ROM_MRU, EmFileRefList, ())						\
-	DO_TO_PREF(PRC_MRU, EmFileRefList, ())						\
-	DO_TO_PREF(PSF_MRU, EmFileRefList, ())						\
-																\
-	DO_TO_PREF(Skins, SkinNameList, ())							\
-	DO_TO_PREF(Scale, ScaleType, (2))							\
-																\
-	DO_TO_PREF(LastTracerType, string, (""))					\
-	DO_TO_PREF(TracerTypes, string, (""))						\
-																\
-	DO_TO_PREF(FfsHome, string, (""))							\
-																\
-	DO_TO_PREF(SlotList, SlotInfoList, ())						\
-																\
-	DO_TO_PREF(UserName, string, ("Palm OS Emulator"))		\
-	DO_TO_PREF(SerialTargetHost, string, ("localhost"))	\
-	DO_TO_PREF(SerialTargetPort, long, (6416)) 					
+#define FOR_EACH_INIT_PREF(DO_TO_PREF)											\
+	DO_TO_PREF(RedirectNetLib,		bool,				(true))					\
+	DO_TO_PREF(EnableSounds,		bool,				(false))				\
+	DO_TO_PREF(CloseAction,			CloseActionType,	(kSaveAsk))				\
+	DO_TO_PREF(UserName,			string,				("Palm OS Emulator"))	\
+																				\
+	DO_TO_PREF(PortSerial,			EmTransportDescriptor,	(kTransportNull))	\
+	DO_TO_PREF(PortIR,				EmTransportDescriptor,	(kTransportNull))	\
+	DO_TO_PREF(PortMystery,			EmTransportDescriptor,	(kTransportNull))	\
+	DO_TO_PREF(PortDownload,		EmTransportDescriptor,	(kTransportNull))	\
+																				\
+	DO_TO_PREF(PortSerialSocket,	string,				(""))					\
+	DO_TO_PREF(PortIRSocket,		string,				(""))					\
+																				\
+	DO_TO_PREF(ReportFreeChunkAccess,			bool,	(true))					\
+	DO_TO_PREF(ReportHardwareRegisterAccess,	bool,	(true))					\
+	DO_TO_PREF(ReportLowMemoryAccess,			bool,	(true))					\
+	DO_TO_PREF(ReportLowStackAccess,			bool,	(true))					\
+	DO_TO_PREF(ReportMemMgrDataAccess,			bool,	(true))					\
+	DO_TO_PREF(ReportMemMgrLeaks,				bool,	(true))					\
+	DO_TO_PREF(ReportMemMgrSemaphore,			bool,	(true))					\
+	DO_TO_PREF(ReportOffscreenObject,			bool,	(true))					\
+	DO_TO_PREF(ReportOverlayErrors,				bool,	(true))					\
+	DO_TO_PREF(ReportProscribedFunction,		bool,	(true))					\
+	DO_TO_PREF(ReportROMAccess,					bool,	(true))					\
+	DO_TO_PREF(ReportScreenAccess,				bool,	(true))					\
+	DO_TO_PREF(ReportSizelessObject,			bool,	(true))					\
+	DO_TO_PREF(ReportStackAlmostOverflow,		bool,	(true))					\
+	DO_TO_PREF(ReportStrictIntlChecks,			bool,	(true))					\
+	DO_TO_PREF(ReportSystemGlobalAccess,		bool,	(true))					\
+	DO_TO_PREF(ReportUIMgrDataAccess,			bool,	(true))					\
+	DO_TO_PREF(ReportUnlockedChunkAccess,		bool,	(true))					\
+																				\
+	DO_TO_PREF(ReportLockedRecords,				bool,	(false))				\
+	DO_TO_PREF(ReportSysFatalAlert,				bool,	(true))					\
+																				\
+	DO_TO_PREF(InterceptSysFatalAlert,			bool,	(true))					\
+	DO_TO_PREF(DialogBeep,						bool,	(false))				\
+																				\
+	DO_TO_PREF(LogErrorMessages,	uint8,				(2))					\
+	DO_TO_PREF(LogWarningMessages,	uint8,				(2))					\
+	DO_TO_PREF(LogGremlins,			uint8,				(0))					\
+	DO_TO_PREF(LogCPUOpcodes,		uint8,				(0))					\
+	DO_TO_PREF(LogEnqueuedEvents,	uint8,				(0))					\
+	DO_TO_PREF(LogDequeuedEvents,	uint8,				(0))					\
+	DO_TO_PREF(LogSystemCalls,		uint8,				(0))					\
+	DO_TO_PREF(LogApplicationCalls,	uint8,				(0))					\
+	DO_TO_PREF(LogSerial,			uint8,				(0))					\
+	DO_TO_PREF(LogSerialData,		uint8,				(0))					\
+	DO_TO_PREF(LogNetLib,			uint8,				(0))					\
+	DO_TO_PREF(LogNetLibData,		uint8,				(0))					\
+	DO_TO_PREF(LogExgMgr,			uint8,				(0))					\
+	DO_TO_PREF(LogExgMgrData,		uint8,				(0))					\
+	DO_TO_PREF(LogHLDebugger,		uint8,				(0))					\
+	DO_TO_PREF(LogHLDebuggerData,	uint8,				(0))					\
+	DO_TO_PREF(LogLLDebugger,		uint8,				(0))					\
+	DO_TO_PREF(LogLLDebuggerData,	uint8,				(0))					\
+	DO_TO_PREF(LogRPC,				uint8,				(0))					\
+	DO_TO_PREF(LogRPCData,			uint8,				(0))					\
+																				\
+	DO_TO_PREF(LogFileSize,			long,				(1 * 1024L * 1024L))	\
+	DO_TO_PREF(LogDefaultDir,		EmDirRef,			())						\
+																				\
+	DO_TO_PREF(DebuggerSocketPort,	long,				(6414))					\
+	DO_TO_PREF(RPCSocketPort,		long,				(6415))					\
+																				\
+	DO_TO_PREF(WarnAboutSkinsDir,	bool,				(true))					\
+																				\
+	DO_TO_PREF(AskAboutStartMenu,	bool,				(true))					\
+	DO_TO_PREF(StartMenuItem,		EmFileRef,			())						\
+																				\
+	DO_TO_PREF(FillNewBlocks,		bool,				(false))				\
+	DO_TO_PREF(FillResizedBlocks,	bool,				(false))				\
+	DO_TO_PREF(FillDisposedBlocks,	bool,				(false))				\
+	DO_TO_PREF(FillStack,			bool,				(false))				\
+																				\
+	DO_TO_PREF(LastConfiguration,	Configuration,		(EmDevice ("PalmIII"), 1024, EmFileRef()))	\
+																				\
+	DO_TO_PREF(GremlinInfo,			GremlinInfo,		())						\
+	DO_TO_PREF(HordeInfo,			HordeInfo,			())						\
+																				\
+	DO_TO_PREF(LastPSF,				EmFileRef,			())						\
+																				\
+	DO_TO_PREF(ROM_MRU,				EmFileRefList,		())						\
+	DO_TO_PREF(PRC_MRU,				EmFileRefList,		())						\
+	DO_TO_PREF(PSF_MRU,				EmFileRefList,		())						\
+																				\
+	DO_TO_PREF(Skins,				SkinNameList,		())						\
+	DO_TO_PREF(Scale,				ScaleType,			(2))					\
+	DO_TO_PREF(DimWhenInactive,		bool,				(true))					\
+	DO_TO_PREF(ShowDebugMode,		bool,				(true))					\
+	DO_TO_PREF(ShowGremlinMode,		bool,				(true))					\
+	DO_TO_PREF(StayOnTop,			bool,				(false))				\
+																				\
+	DO_TO_PREF(WarningOff,			EmErrorHandlingOption,	(kShow))			\
+	DO_TO_PREF(ErrorOff,			EmErrorHandlingOption,	(kShow))			\
+	DO_TO_PREF(WarningOn,			EmErrorHandlingOption,	(kShow))			\
+	DO_TO_PREF(ErrorOn,				EmErrorHandlingOption,	(kShow))			\
+																				\
+	DO_TO_PREF(LastTracerType,		string,				(""))					\
+	DO_TO_PREF(TracerTypes,			string,				(""))					\
+																				\
+	DO_TO_PREF(FfsHome,				string,				(""))					\
+																				\
+	DO_TO_PREF(SlotList,			SlotInfoList,		())						\
 
 #endif	// SONY_ROM
 

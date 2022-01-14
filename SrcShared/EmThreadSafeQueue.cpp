@@ -165,8 +165,21 @@ void EmThreadSafeQueue<T>::Clear (void)
 	fContainer.clear ();
 }
 
+
+// ---------------------------------------------------------------------------
+//		¥ EmThreadSafeQueue::GetMaxSize
+// ---------------------------------------------------------------------------
+
+template <class T>
+int EmThreadSafeQueue<T>::GetMaxSize (void)
+{
+	return fMaxSize;
+}
+
 // Instantiate the ones we want.
-#include "EmSession.h"			// EmButtonEvent, EmKeyEvent, EmPenEvent
+
+#include "EmSession.h"			// uint8 (Byte), EmButtonEvent, EmKeyEvent, EmPenEvent
+
 template class EmThreadSafeQueue<uint8>;
 template class EmThreadSafeQueue<EmButtonEvent>;
 template class EmThreadSafeQueue<EmKeyEvent>;

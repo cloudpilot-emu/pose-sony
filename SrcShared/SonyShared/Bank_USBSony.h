@@ -146,6 +146,9 @@ class EmRegsUSBforPegN700C : public EmRegs
 		
 		emuptr					fBaseAddr;
 		HwrUSBforPegN700C		fRegs;
+
+		bool					fSecondFlg;		//for Redwood & Naples
+		long					fSecondCnt;		//for Redwood & Naples
 };
 
 #define	PegN700C_USB_RegsRange		0x0000FFFF

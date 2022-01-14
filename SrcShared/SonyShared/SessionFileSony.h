@@ -37,6 +37,17 @@ Bool ReadLCDCtrlRegsType (HwrLCDCtrlType& lcdRegs)
 	return false;
 }
 
+Bool ReadLCDCtrlRegsType (HwrLCDCtrlT2Type& lcdRegs)
+{
+	Chunk	chunk;
+	if (fFile.ReadChunk (kLCDCtrlRegs, chunk))
+	{
+		memcpy (&lcdRegs, chunk.GetPointer (), sizeof (lcdRegs));
+		return true;
+	}
+	return false;
+}
+
 Bool ReadLCDCtrlImage (void* image)
 {
 	long	result = this->ReadChunk (kLCDCtrlImage, image, kGzipCompression);
@@ -57,6 +68,11 @@ Bool ReadLCDCtrlPalette (RGBType palette[256])
 }
 
 void WriteLCDCtrlRegsType (const HwrLCDCtrlType& lcdRegs)
+{
+	fFile.WriteChunk (kLCDCtrlRegs, sizeof (lcdRegs), &lcdRegs);
+}
+
+void WriteLCDCtrlRegsType (const HwrLCDCtrlT2Type& lcdRegs)
 {
 	fFile.WriteChunk (kLCDCtrlRegs, sizeof (lcdRegs), &lcdRegs);
 }

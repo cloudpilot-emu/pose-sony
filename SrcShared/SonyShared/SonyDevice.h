@@ -12,10 +12,13 @@
 
 #define	PEGN700C_HalID		'ysmt'
 #define	Nasca_HalID			'nasc'
-#define	Nasca2_HalID		'nas2'
 #define	YellowStone_HalID	'ystn'
 #define	Venice_HalID		'vnce'
 #define	Modena_HalID		'mdna'
+
+#define Redwood_HalID		'rdwd'
+#define Naples_HalID		'npls'
+
 
 #define SONY_PEGN700C_MANUF	"Sony Corporation"
 #define SONY_PEGN700C_DB	"HighReso"

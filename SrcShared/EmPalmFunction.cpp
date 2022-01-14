@@ -16,18 +16,19 @@
 
 #include "EmBankROM.h"			// EmBankROM::GetMemoryStart
 #include "EmLowMem.h"			// LowMem_GetGlobal
+#include "EmMemory.h"			// CEnableFullAccess, EmMem_strcpy, EmMem_memcmp
 #include "EmPalmHeap.h"			// EmPalmHeap
+#include "EmPatchState.h"		// EmPatchState::OSMajorVersion
 #include "Miscellaneous.h"		// FindFunctionName
 #include "Platform.h"			// Platform::GetString
-#include "EmMemory.h"			// CEnableFullAccess
 #include "Strings.r.h"			// kStr_INetLibTrapBase
-#include "TrapPatches.h"		// Patches::OSMajorVersion
-#include "UAE_Utils.h"			// uae_strcpy
 
 #ifdef SONY_ROM
 #include "SonyShared/ExpansionMgr.h"
 #include "SonyShared/VfsMgr.h"
-#endif
+#endif //SONY_ROM
+
+#include <ctype.h>				// isalnum, toupper
 
 const UInt16	kMagicRefNum	= 0x666;	// See comments in HtalLibSendReply.
 
@@ -83,7 +84,7 @@ class EmFunctionRange
 	public:
 								EmFunctionRange	(const char* functionName);
 
-		Bool					InRange			(emuptr = m68k_getpc ());
+		Bool					InRange			(emuptr = gCPU->GetPC ());
 		void					Reset			(void);
 
 		Bool					HasRange		(void) { return fBegin != EmMemNULL; }
@@ -149,7 +150,7 @@ FOR_EACH_FUNCTION(RESET_OBJECT)
  * DESCRIPTION:	Create the object.  Initialize all data members.
  *
  * PARAMETERS:	functionName - name of function to track.  Storage is
- *					not owned by this object, so client should make
+ *					not owned by this object, so clients should make
  *					sure it exists for the life of this object.  The
  *					function name is typically provided as a string
  *					constant in global space.
@@ -308,12 +309,567 @@ void EmFunctionRange::GetRange (emuptr addr)
 		if (endAddr - startAddr != 0x16)
 			return;
 
-		if (uae_memcmp (startAddr, (void*) kCerticomMemCpyPattern, endAddr - startAddr) != 0)
+		if (EmMem_memcmp (startAddr, (void*) kCerticomMemCpyPattern, endAddr - startAddr) != 0)
 			return;
 
 		fBegin = startAddr;
 		fEnd = endAddr;
 	}
+}
+
+
+
+
+/***********************************************************************
+ *
+ * FUNCTION:	PrvProscribedFunction
+ *
+ * DESCRIPTION: Return whether or not the user should be warned about
+ *				calling this function.
+ *
+ * PARAMETERS:	context - information about the system call context.
+ *
+ * RETURNED:	True if this function is proscribed and should not be
+ *				called; false if it's OK for applications to call it.
+ *
+ ***********************************************************************/
+// *****************************************************************
+// * New Serial Manager trap selectors
+// *****************************************************************
+
+// The numbering of these #defines *MUST* match the order in SerialMgr.c
+
+#define sysSerialInstall				0
+#define sysSerialOpen					1
+#define sysSerialOpenBkgnd				2
+#define sysSerialClose					3
+#define sysSerialSleep					4
+#define sysSerialWake					5
+#define sysSerialGetDeviceCount			6
+#define sysSerialGetDeviceInfo			7
+#define sysSerialGetStatus				8
+#define sysSerialClearErr				9
+#define sysSerialControl				10
+#define sysSerialSend					11
+#define sysSerialSendWait				12
+#define sysSerialSendCheck				13
+#define sysSerialSendFlush				14
+#define sysSerialReceive				15
+#define sysSerialReceiveWait			16
+#define sysSerialReceiveCheck			17
+#define sysSerialReceiveFlush			18
+#define sysSerialSetRcvBuffer			19
+#define sysSerialRcvWindowOpen			20
+#define sysSerialRcvWindowClose			21
+#define sysSerialSetWakeupHandler		22
+#define sysSerialPrimeWakeupHandler		23
+#define sysSerialOpenV4					24
+#define sysSerialOpenBkgndV4			25
+#define sysSerialCustomControl			26
+
+
+// Selectors for routines found in the international manager. The order
+// of these selectors MUST match the jump table in IntlDispatch.c.
+
+#define intlIntlInit					0
+#define intlTxtByteAttr					1
+#define intlTxtCharAttr					2
+#define intlTxtCharXAttr				3
+#define intlTxtCharSize					4
+#define intlTxtGetPreviousChar			5
+#define intlTxtGetNextChar				6
+#define intlTxtGetChar					7
+#define intlTxtSetNextChar				8
+#define intlTxtCharBounds				9
+#define intlTxtPrepFindString			10
+#define intlTxtFindString				11
+#define intlTxtReplaceStr				12
+#define intlTxtWordBounds				13
+#define intlTxtCharEncoding				14
+#define intlTxtStrEncoding				15
+#define intlTxtEncodingName				16
+#define intlTxtMaxEncoding				17
+#define intlTxtTransliterate			18
+#define intlTxtCharIsValid				19
+#define intlTxtCompare					20
+#define intlTxtCaselessCompare			21
+#define intlTxtCharWidth				22
+#define intlTxtGetTruncationOffset		23
+#define intlIntlGetRoutineAddress		24
+#define intlIntlHandleEvent				25	// New for Palm OS 3.5
+#define intlTxtParamString				26
+#define intlTxtConvertEncodingV35		27	// Patched for Palm OS 3.5.2
+#define intlTxtConvertEncoding			28	// New for Palm OS 4.0
+#define intlIntlSetRoutineAddress		29
+#define intlTxtGetWordWrapOffset		30
+#define intlTxtNameToEncoding			31	
+#define	intlIntlStrictChecks			32
+
+
+// Selectors used for getting to the right Overlay Manager routine via
+// the OmDispatch trap.
+
+#define omInit							0
+#define omOpenOverlayDatabase			1
+#define omLocaleToOverlayDBName			2
+#define omOverlayDBNameToLocale			3
+#define omGetCurrentLocale				4
+#define omGetIndexedLocale				5
+#define omGetSystemLocale				6
+#define omSetSystemLocale				7
+#define omGetRoutineAddress				8
+#define omGetNextSystemLocale			9
+
+
+struct EmProscribedFunction
+{
+	uint16	fTrapWord;
+	int		fReason;
+};
+
+
+static const EmProscribedFunction kProscribedFunctionTrapWords [] =
+{
+	// Entries marked with "//*" are supported in PACE because Palm
+	// apps, test apps, or Palm Debugger needs them, but developers
+	// should probably still be warned that they should not be using
+	// them.  Additionally, the Fpl functions are marked this way
+	// because many applications call them, but we'd like to warn
+	// them to use the Flp functions.
+
+/*
+	6	Appendix B - Unsupported Palm OS APIs
+
+		The following is a list of Palm OS traps that are not supported
+		by the Timulator.  The list is broken into a number of different
+		groups (which more or less explains why the trap was not implemented).
+
+	6.1.1	Documented 'System Use Only' Traps
+
+		These traps are documented as "System Use Only" in the "Palm OS
+		Reference Manual".
+*/
+
+	{ sysTrapAlmAlarmCallback,			kProscribedDocumentedSystemUseOnly },
+	{ sysTrapAlmCancelAll,				kProscribedDocumentedSystemUseOnly },
+	{ sysTrapAlmDisplayAlarm,			kProscribedDocumentedSystemUseOnly },
+	{ sysTrapAlmEnableNotification,		kProscribedDocumentedSystemUseOnly },	//* supported
+	{ sysTrapAlmInit,					kProscribedDocumentedSystemUseOnly },
+	{ sysTrapAlmTimeChange,				kProscribedDocumentedSystemUseOnly },
+	{ sysTrapDmInit,					kProscribedDocumentedSystemUseOnly },
+	{ sysTrapEvtDequeueKeyEvent,		kProscribedDocumentedSystemUseOnly },
+	{ sysTrapEvtGetSysEvent,			kProscribedDocumentedSystemUseOnly },	//* pseudo supported
+	{ sysTrapEvtInitialize,				kProscribedDocumentedSystemUseOnly },
+	{ sysTrapEvtSetKeyQueuePtr,			kProscribedDocumentedSystemUseOnly },
+	{ sysTrapEvtSetPenQueuePtr,			kProscribedDocumentedSystemUseOnly },
+	{ sysTrapEvtSysInit,				kProscribedDocumentedSystemUseOnly },
+	{ sysTrapExgInit,					kProscribedDocumentedSystemUseOnly },
+	{ sysTrapFrmAddSpaceForObject,		kProscribedDocumentedSystemUseOnly },
+	{ sysTrapFtrInit,					kProscribedDocumentedSystemUseOnly },
+	{ sysTrapGrfFree,					kProscribedDocumentedSystemUseOnly },
+	{ sysTrapGrfInit,					kProscribedDocumentedSystemUseOnly },
+	{ sysTrapInsPtCheckBlink,			kProscribedDocumentedSystemUseOnly },
+	{ sysTrapInsPtInitialize,			kProscribedDocumentedSystemUseOnly },
+	{ sysTrapMemCardFormat,				kProscribedDocumentedSystemUseOnly },
+	{ sysTrapMemHandleFlags,			kProscribedDocumentedSystemUseOnly },
+	{ sysTrapMemHandleOwner,			kProscribedDocumentedSystemUseOnly },
+	{ sysTrapMemHandleResetLock,		kProscribedDocumentedSystemUseOnly },	//* supported for release ROMs
+	{ sysTrapMemHeapFreeByOwnerID,		kProscribedDocumentedSystemUseOnly },
+	{ sysTrapMemHeapInit,				kProscribedDocumentedSystemUseOnly },
+	{ sysTrapMemInit,					kProscribedDocumentedSystemUseOnly },
+	{ sysTrapMemInitHeapTable,			kProscribedDocumentedSystemUseOnly },
+	{ sysTrapMemKernelInit,				kProscribedDocumentedSystemUseOnly },
+	{ sysTrapMemPtrFlags,				kProscribedDocumentedSystemUseOnly },
+	{ sysTrapMemPtrOwner,				kProscribedDocumentedSystemUseOnly },
+	{ sysTrapMemPtrResetLock,			kProscribedDocumentedSystemUseOnly },
+	{ sysTrapMemStoreInit,				kProscribedDocumentedSystemUseOnly },
+	{ sysTrapMemStoreSetInfo,			kProscribedDocumentedSystemUseOnly },
+	{ sysTrapPenClose,					kProscribedDocumentedSystemUseOnly },
+	{ sysTrapPenGetRawPen,				kProscribedDocumentedSystemUseOnly },
+	{ sysTrapPenOpen,					kProscribedDocumentedSystemUseOnly },
+	{ sysTrapPenRawToScreen,			kProscribedDocumentedSystemUseOnly },
+	{ sysTrapPenScreenToRaw,			kProscribedDocumentedSystemUseOnly },
+	{ sysTrapScrCompressScanLine,		kProscribedDocumentedSystemUseOnly },
+	{ sysTrapScrCopyRectangle,			kProscribedDocumentedSystemUseOnly },
+	{ sysTrapScrDeCompressScanLine,		kProscribedDocumentedSystemUseOnly },
+	{ sysTrapScrDrawChars,				kProscribedDocumentedSystemUseOnly },
+	{ sysTrapScrDrawNotify,				kProscribedDocumentedSystemUseOnly },
+	{ sysTrapScrLineRoutine,			kProscribedDocumentedSystemUseOnly },
+	{ sysTrapScrRectangleRoutine,		kProscribedDocumentedSystemUseOnly },
+	{ sysTrapScrScreenInfo,				kProscribedDocumentedSystemUseOnly },
+	{ sysTrapScrSendUpdateArea,			kProscribedDocumentedSystemUseOnly },
+	{ sysTrapSlkProcessRPC,				kProscribedDocumentedSystemUseOnly },
+	{ sysTrapSlkSysPktDefaultResponse,	kProscribedDocumentedSystemUseOnly },
+	{ sysTrapSndInit,					kProscribedDocumentedSystemUseOnly },
+	{ sysTrapSysBatteryDialog,			kProscribedDocumentedSystemUseOnly },
+	{ sysTrapSysColdBoot,				kProscribedDocumentedSystemUseOnly },
+	{ sysTrapSysDoze,					kProscribedDocumentedSystemUseOnly },
+	{ sysTrapSysInit,					kProscribedDocumentedSystemUseOnly },
+	{ sysTrapSysLaunchConsole,			kProscribedDocumentedSystemUseOnly },	//* supported
+	{ sysTrapSysNewOwnerID,				kProscribedDocumentedSystemUseOnly },
+//	{ sysTrapSysReserved10Trap1,		kProscribedDocumentedSystemUseOnly },
+//	{ sysTrapSysReserved31Trap1,		kProscribedDocumentedSystemUseOnly },
+	{ sysTrapSysSemaphoreSet,			kProscribedDocumentedSystemUseOnly },
+	{ sysTrapSysUILaunch,				kProscribedDocumentedSystemUseOnly },
+	{ sysTrapSysWantEvent,				kProscribedDocumentedSystemUseOnly },
+	{ sysTrapTimInit,					kProscribedDocumentedSystemUseOnly },
+	{ sysTrapUIInitialize,				kProscribedDocumentedSystemUseOnly },
+	{ sysTrapUIReset,					kProscribedDocumentedSystemUseOnly },
+	{ sysTrapWinAddWindow,				kProscribedDocumentedSystemUseOnly },
+	{ sysTrapWinRemoveWindow,			kProscribedDocumentedSystemUseOnly },
+
+/*
+	6.1.2	Undocumented 'System Use Only' or 'HAL Use Only' Traps
+
+		These traps are routines in the HAL, documented in headers to be
+		called by Palm OS only, or I have spoken with the authors of those
+		traps who identified them as internal traps.
+*/
+
+	{ sysTrapAttnAllowClose,					kProscribedUndocumentedSystemUseOnly },	//* supported
+	{ sysTrapAttnDoEmergencySpecialEffects,		kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapAttnEffectOfEvent,					kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapAttnEnableNotification,			kProscribedUndocumentedSystemUseOnly },	//* supported
+	{ sysTrapAttnHandleEvent,					kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapAttnIndicatorAllow,				kProscribedUndocumentedSystemUseOnly },	//* supported
+	{ sysTrapAttnIndicatorAllowed,				kProscribedUndocumentedSystemUseOnly },	//* supported
+	{ sysTrapAttnIndicatorCheckBlink,			kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapAttnIndicatorGetBlinkPattern,		kProscribedUndocumentedSystemUseOnly },	//* supported
+	{ sysTrapAttnIndicatorSetBlinkPattern,		kProscribedUndocumentedSystemUseOnly },	//* supported
+	{ sysTrapAttnIndicatorTicksTillNextBlink,	kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapAttnInitialize,					kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapBltCopyRectangle,					kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapBltDrawChars,						kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapBltFindIndexes,					kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapBltGetPixel,						kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapBltLineRoutine,					kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapBltPaintPixel,						kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapBltPaintPixels,					kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapBltRectangleRoutine,				kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapBltRoundedRectangle,				kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapBltRoundedRectangleFill,			kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapDayHandleEvent,					kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapDbgControl,						kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapDbgSerDrvClose,					kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapDbgSerDrvControl,					kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapDbgSerDrvOpen,						kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapDbgSerDrvReadChar,					kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapDbgSerDrvStatus,					kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapDbgSerDrvWriteChar,				kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapFlashInit,							kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapFntPrvGetFontList,					kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapHwrBacklightV33,					kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapHwrBattery,						kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapHwrBatteryLevel,					kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapHwrCalcDynamicHeapSize,			kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapHwrCursorV33,						kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapHwrCustom,							kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapHwrDebuggerEnter,					kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapHwrDebuggerExit,					kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapHwrDebugSelect,					kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapHwrDisplayDoze,					kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapHwrDisplayDrawBootScreen,			kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapHwrDisplayInit,					kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapHwrDisplayPalette,					kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapHwrDisplaySleep,					kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapHwrDisplayWake,					kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapHwrDockSignals,					kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapHwrDockStatus,						kProscribedUndocumentedSystemUseOnly },	//* supported
+	{ sysTrapHwrDoze,							kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapHwrFlashWrite,						kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapHwrGetRAMMapping,					kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapHwrGetSilkscreenID,				kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapHwrIdentifyFeatures,				kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapHwrInterruptsInit,					kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapHwrIRQ1Handler,					kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapHwrIRQ2Handler,					kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapHwrIRQ3Handler,					kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapHwrIRQ4Handler,					kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapHwrIRQ5Handler,					kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapHwrIRQ6Handler,					kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapHwrLCDBaseAddrV33,					kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapHwrLCDContrastV33,					kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapHwrLCDGetDepthV33,					kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapHwrModelInitStage2,				kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapHwrModelInitStage3,				kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapHwrModelSpecificInit,				kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapHwrNVPrefGet,						kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapHwrNVPrefSet,						kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapHwrPluggedIn,						kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapHwrPostDebugInit,					kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapHwrPreDebugInit,					kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapHwrResetNMI,						kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapHwrResetPWM,						kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapHwrSetCPUDutyCycle,				kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapHwrSetSystemClock,					kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapHwrSleep,							kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapHwrSoundOff,						kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapHwrSoundOn,						kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapHwrTimerInit,						kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapHwrWake,							kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapKeyBootKeys,						kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapKeyHandleInterrupt,				kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapKeyInit,							kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapMemHeapPtr,						kProscribedUndocumentedSystemUseOnly },	//* supported (PalmDebugger)
+	{ sysTrapMemStoreSearch,					kProscribedUndocumentedSystemUseOnly },
+//	{ sysTrapOEMDispatch2,						kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapPalmPrivate3,						kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapScrCompress,						kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapScrDecompress,						kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapScrGetColortable,					kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapScrGetGrayPat,						kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapScrPalette,						kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapScrScreenInit,						kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapScrScreenLock,						kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapScrScreenUnlock,					kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapScrUpdateScreenBitmap,				kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapSndInterruptSmfIrregardless,		kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapSndPlaySmfIrregardless,			kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapSndPlaySmfResourceIrregardless,	kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapSysFatalAlertInit,					kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapSysKernelClockTick,				kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapSysNotifyBroadcastFromInterrupt,	kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapSysNotifyInit,						kProscribedUndocumentedSystemUseOnly },
+//	{ sysTrapSysReserved30Trap1,				kProscribedUndocumentedSystemUseOnly },
+//	{ sysTrapSysReserved30Trap2,				kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapSysUnimplemented,					kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapTimGetAlarm,						kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapTimSetAlarm,						kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapUIColorInit,						kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapWinGetFirstWindow,					kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapWinMoveWindowAddr,					kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapWinPrvInitCanvas,					kProscribedUndocumentedSystemUseOnly },
+	{ sysTrapWinScreenInit,						kProscribedUndocumentedSystemUseOnly },
+
+/*
+	6.1.3	Kernel Traps
+
+		These traps are not implemented because 68K applications do not have
+		access to the kernel APIs.
+*/
+
+	{ sysTrapSysEvGroupCreate,			kProscribedKernelUseOnly },
+	{ sysTrapSysEvGroupRead,			kProscribedKernelUseOnly },
+	{ sysTrapSysEvGroupSignal,			kProscribedKernelUseOnly },
+	{ sysTrapSysEvGroupWait,			kProscribedKernelUseOnly },
+	{ sysTrapSysKernelInfo,				kProscribedKernelUseOnly },
+	{ sysTrapSysMailboxCreate,			kProscribedKernelUseOnly },
+	{ sysTrapSysMailboxDelete,			kProscribedKernelUseOnly },
+	{ sysTrapSysMailboxFlush,			kProscribedKernelUseOnly },
+	{ sysTrapSysMailboxSend,			kProscribedKernelUseOnly },
+	{ sysTrapSysMailboxWait,			kProscribedKernelUseOnly },
+	{ sysTrapSysResSemaphoreCreate,		kProscribedKernelUseOnly },
+	{ sysTrapSysResSemaphoreDelete,		kProscribedKernelUseOnly },
+	{ sysTrapSysResSemaphoreRelease,	kProscribedKernelUseOnly },
+	{ sysTrapSysResSemaphoreReserve,	kProscribedKernelUseOnly },
+	{ sysTrapSysSemaphoreCreate,		kProscribedKernelUseOnly },
+	{ sysTrapSysSemaphoreDelete,		kProscribedKernelUseOnly },
+	{ sysTrapSysSemaphoreSignal,		kProscribedKernelUseOnly },
+	{ sysTrapSysSemaphoreWait,			kProscribedKernelUseOnly },
+	{ sysTrapSysTaskCreate,				kProscribedKernelUseOnly },
+	{ sysTrapSysTaskDelete,				kProscribedKernelUseOnly },
+	{ sysTrapSysTaskID,					kProscribedKernelUseOnly },
+	{ sysTrapSysTaskResume,				kProscribedKernelUseOnly },
+	{ sysTrapSysTaskSetTermProc,		kProscribedKernelUseOnly },
+	{ sysTrapSysTaskSuspend,			kProscribedKernelUseOnly },
+	{ sysTrapSysTaskSwitching,			kProscribedKernelUseOnly },
+	{ sysTrapSysTaskTrigger,			kProscribedKernelUseOnly },
+	{ sysTrapSysTaskUserInfoPtr,		kProscribedKernelUseOnly },
+	{ sysTrapSysTaskWait,				kProscribedKernelUseOnly },
+	{ sysTrapSysTaskWaitClr,			kProscribedKernelUseOnly },
+	{ sysTrapSysTaskWake,				kProscribedKernelUseOnly },
+	{ sysTrapSysTimerCreate,			kProscribedKernelUseOnly },
+	{ sysTrapSysTimerDelete,			kProscribedKernelUseOnly },
+	{ sysTrapSysTimerRead,				kProscribedKernelUseOnly },
+	{ sysTrapSysTimerWrite,				kProscribedKernelUseOnly },
+	{ sysTrapSysTranslateKernelErr,		kProscribedKernelUseOnly },
+
+/*
+	6.1.4	Obsolete Traps
+
+		These traps are not implemented because they are obsolete Palm OS
+		1.0 traps (or an esoteric obsolete trap such as WiCmdV32).
+*/
+
+	{ sysTrapFplAdd,			kProscribedObsolete },	//* supported (release ROM only)
+	{ sysTrapFplAToF,			kProscribedObsolete },	//* supported (release ROM only)
+	{ sysTrapFplBase10Info,		kProscribedObsolete },	//* supported (release ROM only)
+	{ sysTrapFplDiv,			kProscribedObsolete },	//* supported (release ROM only)
+	{ sysTrapFplFloatToLong,	kProscribedObsolete },	//* supported (release ROM only)
+	{ sysTrapFplFloatToULong,	kProscribedObsolete },	//* supported (release ROM only)
+	{ sysTrapFplFToA,			kProscribedObsolete },	//* supported (release ROM only)
+	{ sysTrapFplLongToFloat,	kProscribedObsolete },	//* supported (release ROM only)
+	{ sysTrapFplMul,			kProscribedObsolete },	//* supported (release ROM only)
+	{ sysTrapFplSub,			kProscribedObsolete },	//* supported (release ROM only)
+	{ sysTrapWiCmdV32,			kProscribedObsolete },
+
+/*
+	6.1.5	Ghost Traps
+
+		These traps were never implemented in Palm OS (although they appear
+		in CoreTraps.h), but they are listed for completeness.  One of the
+		traps in this group, MenuEraseMenu, was implemented but should be
+		unknown to developers, as it does not appear in any public header file.
+*/
+
+	{ sysTrapClipboardCheckIfItemExist,	kProscribedGhost },
+	{ sysTrapCtlValidatePointer,		kProscribedGhost },
+	{ sysTrapFrmSetCategoryTrigger,		kProscribedGhost },
+	{ sysTrapFrmSetLabel,				kProscribedGhost },
+	{ sysTrapMenuEraseMenu,				kProscribedGhost },
+	{ sysTrapSysUICleanup,				kProscribedGhost },
+	{ sysTrapWinDrawArc,				kProscribedGhost },
+	{ sysTrapWinDrawPolygon,			kProscribedGhost },
+	{ sysTrapWinEraseArc,				kProscribedGhost },
+	{ sysTrapWinErasePolygon,			kProscribedGhost },
+	{ sysTrapWinFillArc,				kProscribedGhost },
+	{ sysTrapWinFillPolygon,			kProscribedGhost },
+	{ sysTrapWinInvertArc,				kProscribedGhost },
+	{ sysTrapWinInvertPolygon,			kProscribedGhost },
+	{ sysTrapWinPaintArc,				kProscribedGhost },
+	{ sysTrapWinPaintPolygon,			kProscribedGhost },
+
+/*
+	6.1.6	Unimplemented NOP Traps
+
+		These traps should not be called by applications.  Some third-party
+		applications call these traps and it is safer to treat them as NOPs
+		for backwards compatibility.
+*/
+
+	{ sysTrapFplFree,				kProscribedSystemUseOnlyAnyway },	//* supported (release ROM only)
+	{ sysTrapFplInit,				kProscribedSystemUseOnlyAnyway },	//* supported (release ROM only)
+	{ sysTrapHwrTimerSleep,			kProscribedSystemUseOnlyAnyway },
+	{ sysTrapHwrTimerWake,			kProscribedSystemUseOnlyAnyway },
+	{ sysTrapPenSleep,				kProscribedSystemUseOnlyAnyway },
+	{ sysTrapPenWake,				kProscribedSystemUseOnlyAnyway },
+	{ sysTrapSerReceiveISP,			kProscribedSystemUseOnlyAnyway },
+//	{ sysTrapSrmSleep,				kProscribedSystemUseOnlyAnyway },	// sysTrapSerialDispatch
+//	{ sysTrapSrmWake,				kProscribedSystemUseOnlyAnyway },	// sysTrapSerialDispatch
+	{ sysTrapSysDisableInts,		kProscribedSystemUseOnlyAnyway },
+	{ sysTrapSysRestoreStatus,		kProscribedSystemUseOnlyAnyway },
+	{ sysTrapTimHandleInterrupt,	kProscribedSystemUseOnlyAnyway },
+	{ sysTrapTimSleep,				kProscribedSystemUseOnlyAnyway },
+	{ sysTrapTimWake,				kProscribedSystemUseOnlyAnyway },
+	{ sysTrapWinDisableWindow,		kProscribedSystemUseOnlyAnyway },
+	{ sysTrapWinEnableWindow,		kProscribedSystemUseOnlyAnyway },
+	{ sysTrapWinInitializeWindow,	kProscribedSystemUseOnlyAnyway },
+
+/*
+	6.1.7	Unimplemented Rare Traps
+
+		These traps all seem like traps that are only used internally by
+		Palm OS or by serial drivers or by OEM extensions, etc.  In other
+		words, these are traps that an application would not use.
+*/
+
+	{ sysTrapConGetS,						kProscribedRare },
+	{ sysTrapConPutS,						kProscribedRare },
+	{ sysTrapDayDrawDays,					kProscribedRare },
+	{ sysTrapDayDrawDaySelector,			kProscribedRare },
+	{ sysTrapDbgCommSettings,				kProscribedRare },
+	{ sysTrapDbgGetMessage,					kProscribedRare },
+	{ sysTrapDlkControl,					kProscribedRare },	//* sort of, returns dlkErrNoSession err
+	{ sysTrapDlkDispatchRequest,			kProscribedRare },	//* sort of, returns dlkErrNoSession err
+	{ sysTrapDlkStartServer,				kProscribedRare },	//* sort of, returns dlkErrNoSession err
+	{ sysTrapDmMoveOpenDBContext,			kProscribedRare },
+	{ sysTrapDmOpenDBWithLocale,			kProscribedRare },
+	{ sysTrapFlashCompress,					kProscribedRare },
+	{ sysTrapFlashErase,					kProscribedRare },
+	{ sysTrapFlashProgram,					kProscribedRare },
+	{ sysTrapMemGetRomNVParams,				kProscribedRare },
+	{ sysTrapMemNVParams,					kProscribedRare },
+	{ sysTrapResLoadForm,					kProscribedRare },
+	{ sysTrapSlkSetSocketListener,			kProscribedRare },
+	{ sysTrapSysNotifyDatabaseAdded,		kProscribedRare },
+	{ sysTrapSysNotifyDatabaseRemoved,		kProscribedRare },
+	{ sysTrapSysSetTrapAddress,				kProscribedRare }
+};
+
+static Bool	gProscribedTrapInitialized;
+static Bool	gProscribedTrap[sysNumTraps];
+
+Bool ProscribedFunction (const SystemCallContext& context)
+{
+	// Build up our table that allows this function to operate quickly.
+	// We turn a table of the system function dispatch numbers we want
+	// to warn about into a sparse array of booleans, where the index
+	// into the table is the trap index number, and each entry says
+	// whether or not to warn about the call.
+
+	if (!gProscribedTrapInitialized)
+	{
+		gProscribedTrapInitialized = true;
+
+		for (size_t ii = 0; ii < countof (kProscribedFunctionTrapWords); ++ii)
+		{
+			gProscribedTrap[::SysTrapIndex (kProscribedFunctionTrapWords[ii].fTrapWord)] = true;
+		}
+	}
+
+	// Handle system functions (as opposed to library functions).
+
+	if (::IsSystemTrap (context.fTrapWord))
+	{
+		// If this trap number is not on our list, let it pass.
+
+		if (gProscribedTrap[context.fTrapIndex])
+			return true;
+
+		// Some system functions are sub-dispatched with a sub-dispatch
+		// number in register D2.  We can find this number in context.fExtra.
+		// Look at the combination to see if they represent proscribed
+		// functions.
+
+		if (context.fTrapWord == sysTrapSerialDispatch)
+		{
+			if (context.fExtra == sysSerialSleep ||
+				context.fExtra == sysSerialWake)
+			{
+				return true;
+			}
+		}
+	}
+
+	// Looks like an OK function, so don't warn.
+
+	return false;
+}
+
+int GetProscribedReason (const SystemCallContext& context)
+{
+	// Handle system functions (as opposed to library functions).
+
+	if (::IsSystemTrap (context.fTrapWord))
+	{
+		// If this trap number is on our list, return the reason.
+
+		for (size_t ii = 0; ii < countof (kProscribedFunctionTrapWords); ++ii)
+		{
+			if (kProscribedFunctionTrapWords[ii].fTrapWord == context.fTrapWord)
+			{
+				return kProscribedFunctionTrapWords[ii].fReason;
+			}
+		}
+
+		// Some system functions are sub-dispatched with a sub-dispatch
+		// number in register D2.  We can find this number in context.fExtra.
+		// Look at the combination to see if they represent proscribed
+		// functions.
+
+		if (context.fTrapWord == sysTrapSerialDispatch)
+		{
+			if (context.fExtra == sysSerialSleep ||
+				context.fExtra == sysSerialWake)
+			{
+				return kProscribedSystemUseOnlyAnyway;
+			}
+		}
+	}
+
+	EmAssert (false);
+
+	return 0;
 }
 
 
@@ -344,7 +900,7 @@ void EmFunctionRange::GetRange (emuptr addr)
 
 emuptr GetFunctionAddress (uint16 trapWord, uint32 extra, Bool digDeep)
 {
-	// Ensure that it's in Canonical format.
+	// Ensure that it's in canonical format.
 
 	trapWord = ::SysTrapIndex (trapWord) | sysTrapBase;
 
@@ -443,7 +999,7 @@ emuptr GetLibFunctionAddress (uint16 trapWord, UInt16 refNum, Bool digDeep)
 	emuptr libEntry;
 	emuptr dispatchTblP;
 
-	if (Patches::OSMajorVersion () > 1)
+	if (EmPatchState::OSMajorVersion () > 1)
 	{
 		libEntry		= sysLibTableP + refNum * sizeof (SysLibTblEntryType);
 		dispatchTblP	= EmMemGet32 (libEntry + offsetof (SysLibTblEntryType, dispatchTblP));
@@ -465,11 +1021,12 @@ emuptr GetLibFunctionAddress (uint16 trapWord, UInt16 refNum, Bool digDeep)
 	int16 	offset = EmMemGet16 (dispatchTblP + ::LibTrapIndex (sysLibTrapName) * 2);
 #ifdef SONY_ROM
 	emuptr 	libNameP = dispatchTblP + (UInt16)offset;
-#else
+#else //!SONY_ROM
 	emuptr 	libNameP = dispatchTblP + offset;
-#endif
+#endif //SONY_ROM
+
 	char	libName[256];
-	uae_strcpy (libName, libNameP);
+	EmMem_strcpy (libName, libNameP);
 
 	// Iterate over our list of Palm OS-supplied libraries to see
 	// if this is one of them.	If so, the library is known to follow
@@ -573,7 +1130,7 @@ emuptr GetSysFunctionAddress (uint16 trapWord, uint32 extra, Bool digDeep)
 		{
 			return unimplementedAddress;
 		}
-#endif
+#endif //SONY_ROM
 
 		throw EmUnimplementedFunctionException ();
 	}
@@ -594,7 +1151,7 @@ emuptr GetSysFunctionAddress (uint16 trapWord, uint32 extra, Bool digDeep)
 #ifdef SONY_ROM
 			trapWord == sysTrapExpansionMgr		||	// for Sony & MemoryStick
 			trapWord == sysTrapVFSMgr			||	// for Sony & MemoryStick
-#endif
+#endif //SONY_ROM
 			trapWord == sysTrapSerialDispatch)
 		{
 			result2 = ::GetStdDispatchAddress (result, extra);
@@ -920,9 +1477,14 @@ char* GetTrapName (uint16 trapWord, uint32 extra, Bool digDeep)
 
 	try
 	{
+		name[0] = 0;
 		::FindTrapName (trapWord, name, extra, digDeep);
 	}
 	catch (...)
+	{
+	}
+
+	if (strlen (name) == 0)
 	{
 		strcpy (name, ">>> Unknown function name <<<");
 

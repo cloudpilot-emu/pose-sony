@@ -36,8 +36,8 @@ class EmFileImport
 														 EmFileImportMethod method);
 								~EmFileImport			(void);
 
-		static ErrCode			LoadPalmFile			(const void*, uint32, EmFileImportMethod);
-		static ErrCode			LoadPalmFileList		(const EmFileRefList&, EmFileImportMethod);
+		static ErrCode			LoadPalmFile			(const void*, uint32, EmFileImportMethod, LocalID&);
+		static ErrCode			LoadPalmFileList		(const EmFileRefList&, EmFileImportMethod, vector<LocalID>&);
 
 		static ErrCode			InstallExgMgrLib		(void);
 		static Bool				CanUseExgMgr			(void);
@@ -48,6 +48,7 @@ class EmFileImport
 		ErrCode					Cancel					(void);
 		Bool					Done					(void);
 		long					GetProgress				(void);
+		LocalID					GetLocalID				(void);
 
 		void					SetResult				(Err);
 		void					SetResult				(ErrCode);

@@ -14,6 +14,7 @@
 #include "EmCommon.h"
 #include "Profiling.h"
 
+#include "EmHAL.h"				// GetSystemClockFrequency
 #include "EmMemory.h"			// EmMemCheckAddress, EmMemGet16
 #include "EmPalmFunction.h"		// FindFunctionName, GetTrapName
 #include "EmStreamFile.h"		// EmStreamFile
@@ -446,6 +447,27 @@ int				gROMMapEnd = 0;
 #define TRAP_NUM(field)				(((field) >> 16) & 0x0FFFF)
 #define TRAP_EXTRA(field)			((field) & 0x0FFFF)
 
+// Creates unique file names for Profile output files
+
+string CreateFileNameForProfile (Bool forText);
+
+
+uint32	gCyclesPerSecond;
+
+uint32 inline PrvGetCyclesPerSecond (void)
+{
+	if (gCyclesPerSecond == 0)
+	{
+		gCyclesPerSecond = EmHAL::GetSystemClockFrequency ();
+	}
+
+	return gCyclesPerSecond;
+}
+
+uint32 inline PrvGetCyclesPerMillisecond (void)
+{
+	return PrvGetCyclesPerSecond () / 1000;
+}
 
 // ---------------------------------------------------------------------------
 //		¥ GetRoutineName
@@ -781,18 +803,18 @@ static void RecursivePrintBlock(FILE* resultsLog, int i, int depth, int parent)
 		static double cyclesKidsms;
 		static double cyclesKidspct;
 		
-		cyclesSelfms	= gCallTree[i].cyclesSelf / kCyclesPerMilliSecond16;
+		cyclesSelfms	= gCallTree[i].cyclesSelf / PrvGetCyclesPerMillisecond ();
 		cyclesSelfpct	= gCallTree[i].cyclesSelf / gCyclesCounted * 100;
-		cyclesKidsms	= gCallTree[i].cyclesPlusKids / kCyclesPerMilliSecond16;
+		cyclesKidsms	= gCallTree[i].cyclesPlusKids / PrvGetCyclesPerMillisecond ();
 		cyclesKidspct	= gCallTree[i].cyclesPlusKids / gCyclesCounted * 100;
 		
 		static double temp1;
 		static double temp2;
 		static double temp3;
 		
-		temp1 = (double) gCallTree[i].cyclesSelf / (double)gCallTree[i].entries / (double)kCyclesPerMilliSecond16;
-		temp2 = (double) gCallTree[i].cyclesMax / (double)kCyclesPerMilliSecond16;
-		temp3 = (double) gCallTree[i].cyclesMin / (double)kCyclesPerMilliSecond16;
+		temp1 = (double) gCallTree[i].cyclesSelf / (double)gCallTree[i].entries / (double)PrvGetCyclesPerMillisecond ();
+		temp2 = (double) gCallTree[i].cyclesMax / (double)PrvGetCyclesPerMillisecond ();
+		temp3 = (double) gCallTree[i].cyclesMin / (double)PrvGetCyclesPerMillisecond ();
 
 		fprintf (resultsLog, "%d", i);
 		fprintf (resultsLog, "\t%d", parent);
@@ -982,7 +1004,7 @@ static int FindOrAddCall (int head, emuptr address)
 	{
 		// look for existing
 		current = head;
-		while (current != NORECORD && gCallTree[current].address != (Int32) address)
+		while (current != NORECORD && gCallTree[current].address != address)
 		{
 			// Because of the "head == NORECORD" test above, we are guaranteed
 			// to enter the loop body at least once, thus initializing "prev".
@@ -1201,8 +1223,12 @@ void ProfilePrint(const char* fileName)
 						gCallTree[gExceptionRecord].cyclesPlusKids +
 						gCallTree[gOverflowRecord].cyclesPlusKids;
 	
+	string textFileName;
 	if (fileName == NULL)
-		fileName = DEFAULT_RESULTS_TEXT_FILENAME;
+	{	
+		textFileName = CreateFileNameForProfile (true);		// for text = true
+		fileName = textFileName.c_str ();
+	}
 
 	FILE* resultsLog = fopen (fileName, "w");
 
@@ -1298,8 +1324,17 @@ void ProfileDump (const char* fileName)
 
 	EmAssert (::ProfileCanDump ());
 
+	// Zero this out so that it can be refetched and recached for the
+	// current processor.
+
+	gCyclesPerSecond = 0;
+
+	string mwfFileName;
 	if (fileName == NULL)
-		fileName = DEFAULT_RESULTS_FILENAME;
+	{
+		mwfFileName = CreateFileNameForProfile (false);
+		fileName = mwfFileName.c_str ();		// for text = false
+	}
 
 	long romRoutineNameBytes = 0;
 	long romRoutineNames = 0;
@@ -1438,7 +1473,7 @@ void ProfileDump (const char* fileName)
 
 	header.sixtyfour1 = 0x00000064;
 	header.sixtyfour2 = 0x00000064;
-	header.countsPerTime = kCyclesPerSecond16/100;	// times will be shown in milliseconds
+	header.countsPerTime = PrvGetCyclesPerSecond ()/100;	// times will be shown in milliseconds
 
 	header.oddstuff0 = 0x00000000;
 	header.oddstuff1 = 0x00000000;
@@ -1941,74 +1976,136 @@ void ProfileTest()
 {
 	ProfileInit(15,5);
 	ProfileStart();
-	ProfileIncrementClock(110 * kCyclesPerSecond16);
+	ProfileIncrementClock(110 * PrvGetCyclesPerSecond ());
 	
 	ProfileInterruptExit(0x55555555);
-	ProfileIncrementClock(110 * kCyclesPerSecond16);
+	ProfileIncrementClock(110 * PrvGetCyclesPerSecond ());
 	
 	ProfileFnEnter(0xAAAAAAAA, 0);	// new
-		ProfileIncrementClock(100 * kCyclesPerSecond16);
+		ProfileIncrementClock(100 * PrvGetCyclesPerSecond ());
 		ProfileFnEnter(0xBBBBBBBB, 0);	// new kid
-			ProfileIncrementClock(10 * kCyclesPerSecond16);
+			ProfileIncrementClock(10 * PrvGetCyclesPerSecond ());
 			ProfileFnEnter(0xCCCCCCCC, 0);		// new kid
-				ProfileIncrementClock(1 * kCyclesPerSecond16);
+				ProfileIncrementClock(1 * PrvGetCyclesPerSecond ());
 				ProfileFnExit(0, 0);
-			ProfileIncrementClock(10 * kCyclesPerSecond16);
+			ProfileIncrementClock(10 * PrvGetCyclesPerSecond ());
 			ProfileFnEnter(0xDDDDDDDD, 0);		// new sib at end
-				ProfileIncrementClock(1 * kCyclesPerSecond16);
+				ProfileIncrementClock(1 * PrvGetCyclesPerSecond ());
 				ProfileFnExit(0, 0);
-			ProfileIncrementClock(10 * kCyclesPerSecond16);
+			ProfileIncrementClock(10 * PrvGetCyclesPerSecond ());
 			ProfileFnEnter(0xCCCCCCCC, 0);		// same kid
-				ProfileIncrementClock(1 * kCyclesPerSecond16);
+				ProfileIncrementClock(1 * PrvGetCyclesPerSecond ());
 				ProfileFnExit(0, 0);
-			ProfileIncrementClock(10 * kCyclesPerSecond16);
+			ProfileIncrementClock(10 * PrvGetCyclesPerSecond ());
 			ProfileFnExit(0, 0);
-		ProfileIncrementClock(100 * kCyclesPerSecond16);
+		ProfileIncrementClock(100 * PrvGetCyclesPerSecond ());
 		ProfileFnEnter(0xBBBBBBBB, 0);	// same kid
-			ProfileIncrementClock(10 * kCyclesPerSecond16);
+			ProfileIncrementClock(10 * PrvGetCyclesPerSecond ());
 			ProfileFnEnter(0xCCCCCCCC, 0);		// new kid
-				ProfileIncrementClock(1 * kCyclesPerSecond16);
+				ProfileIncrementClock(1 * PrvGetCyclesPerSecond ());
 				ProfileFnExit(0, 0);
-			ProfileIncrementClock(10 * kCyclesPerSecond16);
+			ProfileIncrementClock(10 * PrvGetCyclesPerSecond ());
 			ProfileFnExit(0, 0);
-		ProfileIncrementClock(100 * kCyclesPerSecond16);
+		ProfileIncrementClock(100 * PrvGetCyclesPerSecond ());
 		ProfileFnEnter(0xDDDDDDDD, 0);	// new sib at end
-			ProfileIncrementClock(10 * kCyclesPerSecond16);
+			ProfileIncrementClock(10 * PrvGetCyclesPerSecond ());
 			ProfileFnEnter(0xCCCCCCCC, 0);		// new kid
-				ProfileIncrementClock(1 * kCyclesPerSecond16);
+				ProfileIncrementClock(1 * PrvGetCyclesPerSecond ());
 				ProfileFnExit(0, 0);
 	
-	ProfileIncrementClock(120 * kCyclesPerSecond16);
+	ProfileIncrementClock(120 * PrvGetCyclesPerSecond ());
 	ProfileInterruptEnter(0x11111111, 0);	// interrupt
-		ProfileIncrementClock(10 * kCyclesPerSecond16);
+		ProfileIncrementClock(10 * PrvGetCyclesPerSecond ());
 		ProfileFnEnter(0x22222222, 0);		// new kid
-			ProfileIncrementClock(1 * kCyclesPerSecond16);
+			ProfileIncrementClock(1 * PrvGetCyclesPerSecond ());
 			ProfileFnExit(0, 0);
-		ProfileIncrementClock(10 * kCyclesPerSecond16);
+		ProfileIncrementClock(10 * PrvGetCyclesPerSecond ());
 		ProfileInterruptExit(0);
 
-			ProfileIncrementClock(10 * kCyclesPerSecond16);
+			ProfileIncrementClock(10 * PrvGetCyclesPerSecond ());
 			ProfileFnExit(0, 0);
-		ProfileIncrementClock(100 * kCyclesPerSecond16);
+		ProfileIncrementClock(100 * PrvGetCyclesPerSecond ());
 		ProfileFnEnter(0xCCCCCCCC, 0);	// new kid in middle
-			ProfileIncrementClock(10 * kCyclesPerSecond16);
+			ProfileIncrementClock(10 * PrvGetCyclesPerSecond ());
 			ProfileFnExit(0, 0);
-		ProfileIncrementClock(100 * kCyclesPerSecond16);
+		ProfileIncrementClock(100 * PrvGetCyclesPerSecond ());
 		ProfileFnEnter(0xAAAAAAAA, 0);	// new kid at beginning
-			ProfileIncrementClock(10 * kCyclesPerSecond16);
+			ProfileIncrementClock(10 * PrvGetCyclesPerSecond ());
 			ProfileFnExit(0, 0);
-		ProfileIncrementClock(100 * kCyclesPerSecond16);
+		ProfileIncrementClock(100 * PrvGetCyclesPerSecond ());
 		ProfileFnExit(0, 0);
-	ProfileIncrementClock(100 * kCyclesPerSecond16);
+	ProfileIncrementClock(100 * PrvGetCyclesPerSecond ());
 	// ProfileFnExit(0);
-	// ProfileIncrementClock(100 * kCyclesPerSecond16);
+	// ProfileIncrementClock(100 * PrvGetCyclesPerSecond ());
 	// ProfileFnExit(0);
 
 	ProfileInterruptEnter(0x99999999, 0);	// interrupt
-	ProfileIncrementClock(10 * kCyclesPerSecond16);
+	ProfileIncrementClock(10 * PrvGetCyclesPerSecond ());
 
 	ProfileStop();
 	ProfileDump(NULL);
 	ProfileCleanup();
 }
 
+#if _DEBUG
+
+void ProfileIncrementClock(unsigned long by)
+{
+	gClockCycles += by;
+}
+
+void ProfileIncrementRead(int reads, int waitstates)
+{
+	gClockCycles += reads * (4 + waitstates);
+	gReadCycles += reads;
+}
+
+void ProfileIncrementWrite(int writes, int waitstates)
+{
+	gClockCycles += writes * (4 + waitstates);
+	gWriteCycles += writes;
+}
+
+#endif
+
+
+/***********************************************************************
+ *
+ * FUNCTION:	CreateFileNameForProfile
+ *
+ * DESCRIPTION:	Creates a file reference based on the base file name
+ *				passed in to the constructor. A new file reference is
+ *				always created.
+ *
+ * PARAMETERS:	none
+ *
+ * RETURNED:	nothing, but fileName is set properly as a side effect
+ *
+ ***********************************************************************/
+
+string CreateFileNameForProfile (Bool forText)
+{
+	EmFileRef	result;
+	char		buffer[32];
+
+	EmDirRef	poserDir = EmDirRef::GetEmulatorDirectory ();
+	
+	// Look for an unused file name.
+
+	UInt32 fileIndex = 0;
+
+	do
+	{
+		++fileIndex;
+
+		if (forText)
+			sprintf (buffer, "%s_%04ld.txt", "Profile Results", fileIndex);
+		else
+			sprintf (buffer, "%s_%04ld.mwp", "Profile Results", fileIndex);
+
+		result = EmFileRef (poserDir, buffer);
+	}
+	while (result.IsSpecified () && result.Exists ());
+
+	return buffer;
+}

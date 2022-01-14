@@ -17,6 +17,7 @@
 #include "EmCPU68K.h"			// ProcessException, etc.
 #include "EmSession.h"			// gSession->Reset
 #include "Platform.h"			// AllocateMemory
+#include "UAE.h"				// MakeSR, uae_s32, etc.
 
 
 // ---------------------------------------------------------------------------
@@ -36,7 +37,6 @@ void Exception (int nr, emuptr /*oldpc*/)
 {
 	EmAssert (gCPU68K);
 
-    MakeSR();
 	gCPU68K->ProcessException ((ExceptionNumber) nr);
 }
 
@@ -44,7 +44,6 @@ void Exception (int nr, emuptr /*oldpc*/)
 unsigned long op_illg (uint32 iOpcode)
 {
 	EmAssert (gCPU68K);
-
 	gCPU68K->ProcessIllegalInstruction (iOpcode);
 	return 0;
 }

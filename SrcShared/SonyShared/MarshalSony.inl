@@ -7,10 +7,10 @@ ExpCardInfoType Marshal::GetCardInfoBufType (emuptr p)		// fot Sony & MemoryStic
 	if (p)
 	{
 		Info.capabilityFlags = get_long (p + offsetof (ExpCardInfoType, capabilityFlags));
-		uae_memcpy ((void*) &Info.manufacturerStr,		p + offsetof (ExpCardInfoType, manufacturerStr),	expCardInfoStringMaxLen+1);
-		uae_memcpy ((void*) &Info.productStr,			p + offsetof (ExpCardInfoType, productStr),			expCardInfoStringMaxLen+1);
-		uae_memcpy ((void*) &Info.deviceClassStr,		p + offsetof (ExpCardInfoType, deviceClassStr),		expCardInfoStringMaxLen+1);
-		uae_memcpy ((void*) &Info.deviceUniqueIDStr,	p + offsetof (ExpCardInfoType, deviceUniqueIDStr),	expCardInfoStringMaxLen+1);
+		EmMem_memcpy ((void*) &Info.manufacturerStr,	p + offsetof (ExpCardInfoType, manufacturerStr),	expCardInfoStringMaxLen+1);
+		EmMem_memcpy ((void*) &Info.productStr,			p + offsetof (ExpCardInfoType, productStr),			expCardInfoStringMaxLen+1);
+		EmMem_memcpy ((void*) &Info.deviceClassStr,		p + offsetof (ExpCardInfoType, deviceClassStr),		expCardInfoStringMaxLen+1);
+		EmMem_memcpy ((void*) &Info.deviceUniqueIDStr,	p + offsetof (ExpCardInfoType, deviceUniqueIDStr),	expCardInfoStringMaxLen+1);
 	}
 	return Info;
 }
@@ -20,10 +20,10 @@ void Marshal::PutCardInfoBufType (emuptr p, ExpCardInfoType& Info)	// fot Sony &
 	if (p)
 	{
 		put_long	(p + offsetof (ExpCardInfoType, capabilityFlags),	Info.capabilityFlags);
-		uae_memcpy	(p + offsetof (ExpCardInfoType, manufacturerStr),	(void*) &Info.manufacturerStr,	 expCardInfoStringMaxLen+1);
-		uae_memcpy	(p + offsetof (ExpCardInfoType, productStr),		(void*) &Info.productStr,		 expCardInfoStringMaxLen+1);
-		uae_memcpy	(p + offsetof (ExpCardInfoType, deviceClassStr),	(void*) &Info.deviceClassStr,	 expCardInfoStringMaxLen+1);
-		uae_memcpy	(p + offsetof (ExpCardInfoType, deviceUniqueIDStr),	(void*) &Info.deviceUniqueIDStr, expCardInfoStringMaxLen+1);
+		EmMem_memcpy	(p + offsetof (ExpCardInfoType, manufacturerStr),	(void*) &Info.manufacturerStr,	 expCardInfoStringMaxLen+1);
+		EmMem_memcpy	(p + offsetof (ExpCardInfoType, productStr),		(void*) &Info.productStr,		 expCardInfoStringMaxLen+1);
+		EmMem_memcpy	(p + offsetof (ExpCardInfoType, deviceClassStr),	(void*) &Info.deviceClassStr,	 expCardInfoStringMaxLen+1);
+		EmMem_memcpy	(p + offsetof (ExpCardInfoType, deviceUniqueIDStr),	(void*) &Info.deviceUniqueIDStr, expCardInfoStringMaxLen+1);
 	}
 }
 
@@ -75,7 +75,8 @@ FileInfoType Marshal::GetFileInfoBufType (emuptr p)
 		if (nameAddr && fileInfo.nameBufLen > 0)
 		{
 			fileInfo.nameP = new char[fileInfo.nameBufLen];
-			uae_memcpy ((void*) fileInfo.nameP, nameAddr, fileInfo.nameBufLen);
+
+			EmMem_memcpy ((void*) fileInfo.nameP, nameAddr, fileInfo.nameBufLen);
 		}
 	}
 
@@ -92,7 +93,8 @@ void Marshal::PutFileInfoBufType (emuptr p, FileInfoType& finfo)	// for Sony & M
 		emuptr	nameAddr = get_long(p + offsetof (FileInfoType, nameP));
 		if (finfo.nameP)
 		{
-			uae_memcpy	(nameAddr,	(void*) finfo.nameP, finfo.nameBufLen);
+
+			EmMem_memcpy	(nameAddr,	(void*) finfo.nameP, finfo.nameBufLen);
 			delete finfo.nameP;
 			finfo.nameP = NULL;
 		}

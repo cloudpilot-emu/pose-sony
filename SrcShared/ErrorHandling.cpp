@@ -15,24 +15,29 @@
 #include "ErrorHandling.h"
 
 #include "DebugMgr.h"			// Debug::EnterDebugger
+#include "EmApplication.h"		// ScheduleQuit
 #include "EmBankDRAM.h"			// EmBankDRAM::ValidAddress
 #include "EmBankSRAM.h"			// EmBankSRAM::ValidAddress
-#include "EmCPU68K.h"			// kException_SoftBreak
+#include "EmCPU.h"				// gCPU
+#include "EmCPU68K.h"			// gCPU68K, kException_SoftBreak
 #include "EmDlg.h"				// kDebugReset, kErrorAlert, kContinueDebugReset, kCautionAlert
 #include "EmErrCodes.h"			// kError_OutOfMemory, ConvertFromStdCError
+#include "EmEventOutput.h"		// ErrorOccurred
+#include "EmEventPlayback.h"	// RecordErrorEvent
 #include "EmException.h"		// EmExceptionEnterDebugger
+#include "EmMinimize.h"			// EmMinimize::IsOn, NextMinimizer
 #include "EmPalmFunction.h"		// gLibErrorBase
+#include "EmPalmOS.h"			// GenerateStackCrawl
 #include "EmPalmStructs.h"		// EmAliasWindowType
+#include "EmPatchState.h"		// EmPatchState::GetCurrentAppInfo
 #include "EmSession.h"			// gSession
-#include "Hordes.h"				// Hordes::IsOn
+#include "Hordes.h"				// Hordes::IsOn, RecordErrorStats
 #include "Logging.h"			// LogWrite, ReportFoo functions
 #include "MetaMemory.h"			// MetaMemory
 #include "Miscellaneous.h"		// LaunchCmdToString, SystemCallContext, ReplaceString
 #include "Platform.h"			// GetString, CommonDialog
 #include "PreferenceMgr.h"		// Preference
-#include "Startup.h"			// ScheduleCloseSession
 #include "Strings.r.h"			// kStr_ values
-#include "TrapPatches.h"		// Patches::GetCurrentAppInfo
 
 
 // ===========================================================================
@@ -71,6 +76,69 @@ struct EmFieldLookup
 
 	// Used for SUB_FIELDS.
 	const EmFieldLookup*	fNextTable;		// pointer to sub-struct table
+};
+
+
+/*
+	BitmapType
+		Int16				width;
+		Int16				height;
+		UInt16				rowBytes;
+		BitmapFlagsType		flags;
+		UInt8				pixelSize;			// bits/pixel
+		UInt8				version;			// version of bitmap. This is vers 2
+		UInt16	 			nextDepthOffset;	// # of DWords to next BitmapType
+												//  from beginnning of this one
+		UInt8				transparentIndex;	// v2 only, if flags.hasTransparency is true,
+												// index number of transparent color
+		UInt8				compressionType;	// v2 only, if flags.compressed is true, this is
+												// the type, see BitmapCompressionType
+
+		UInt16	 			reserved;			// for future use, must be zero!
+
+		// [colorTableType] pixels | pixels*
+												// If hasColorTable != 0, we have:
+												//   ColorTableType followed by pixels. 
+												// If hasColorTable == 0:
+												//   this is the start of the pixels
+												// if indirect != 0 bits are stored indirectly.
+												//   the address of bits is stored here
+												//   In some cases the ColorTableType will
+												//   have 0 entries and be 2 bytes long.
+*/
+
+static const EmFieldLookup kBitmapTypeV2Table[] =
+{
+	FIELDS(BitmapTypeV2, width,				"BmpGetDimensions"),
+	FIELDS(BitmapTypeV2, height,			"BmpGetDimensions"),
+	FIELDS(BitmapTypeV2, rowBytes,			"BmpGetDimensions"),
+	FIELDS(BitmapTypeV2, flags,				NULL),
+	FIELDS(BitmapTypeV2, pixelSize,			"BmpGetBitDepth"),
+	FIELDS(BitmapTypeV2, version,			NULL),
+	FIELDS(BitmapTypeV2, nextDepthOffset,	"BmpGetNextBitmap"),
+	FIELDS(BitmapTypeV2, transparentIndex,	NULL),
+	FIELDS(BitmapTypeV2, compressionType,	NULL),
+	FIELDS(BitmapTypeV2, reserved,			NULL),
+	END_OF_FIELDS
+};
+
+
+static const EmFieldLookup kBitmapTypeV3Table[] =
+{
+	FIELDS(BitmapTypeV3, width,				"BmpGetDimensions"),
+	FIELDS(BitmapTypeV3, height,			"BmpGetDimensions"),
+	FIELDS(BitmapTypeV3, rowBytes,			"BmpGetDimensions"),
+	FIELDS(BitmapTypeV3, flags,				NULL),
+	FIELDS(BitmapTypeV3, pixelSize,			"BmpGetBitDepth"),
+	FIELDS(BitmapTypeV3, version,			NULL),
+	FIELDS(BitmapTypeV3, size,				NULL),
+	FIELDS(BitmapTypeV3, pixelFormat,		NULL),
+	FIELDS(BitmapTypeV3, unused,			NULL),
+	FIELDS(BitmapTypeV3, compressionType,	NULL),
+	FIELDS(BitmapTypeV3, density,			NULL),
+	FIELDS(BitmapTypeV3, transparentValue,	NULL),
+	FIELDS(BitmapTypeV3, nextDepthOffset,	"BmpGetNextBitmap"),
+	END_OF_FIELDS
 };
 
 
@@ -542,6 +610,7 @@ static const EmFieldLookup kScrollBarTypeTable[] =
 
 void PrvLookupField (const EmFieldLookup* table, size_t offset,
 					 const char*& fieldName, const char*& function);
+string PrvGetProscribedReason (const SystemCallContext& context);
 
 
 static ParamList	gUserParameters;
@@ -949,7 +1018,7 @@ void Errors::ReportErrNoGlobals (emuptr address, long size, Bool forRead)
 {
 	// Set the %launch_code message variable.
 
-	EmuAppInfo	appInfo		= Patches::GetCurrentAppInfo ();
+	EmuAppInfo	appInfo		= EmPatchState::GetCurrentAppInfo ();
 	const char*	launchStr	= ::LaunchCmdToString (appInfo.fCmd);
 
 	Errors::SetParameter ("%launch_code", launchStr);
@@ -1119,7 +1188,7 @@ void Errors::ReportErrCorruptedHeap (ErrCode corruptionType, emuptr chunkHdr)
 
 	// Show the dialog.
 
-	Errors::HandleDialog (kStr_ErrCorruptedHeap, kException_SoftBreak, kDlgFlags_continue_DEBUG_Reset, false);
+	Errors::HandleDialog (kStr_ErrCorruptedHeap, kException_SoftBreak, kDlgFlags_continue_debug_RESET, false);
 }
 
 
@@ -1247,6 +1316,28 @@ void Errors::ReportErrMemMgrStructures (emuptr address, long size, Bool forRead)
 	{
 		Errors::ReportErrAccessCommon (kStr_ErrMemMgrStructures, kException_BusErr, 0, address, size, forRead);
 	}
+}
+
+
+// ---------------------------------------------------------------------------
+//		¥ Errors::ReportErrMemMgrLeaks
+// ---------------------------------------------------------------------------
+
+void Errors::ReportErrMemMgrLeaks (int leaks)
+{
+	// Set the %app message variable.
+
+	Errors::SetStandardParameters ();
+
+	// Set the %num_leaks message variable.
+
+	Errors::SetParameter ("%num_leaks", leaks);
+
+	// Show the dialog.
+
+	StrCode	templateStrCode = leaks == 1 ? kStr_ErrMemoryLeak : kStr_ErrMemoryLeaks;
+	Errors::HandleDialog (templateStrCode, kException_SoftBreak,
+			kDlgFlags_Continue_DEBUG_Reset, false);
 }
 
 
@@ -1400,9 +1491,11 @@ void Errors::ReportErrFormAccess (emuptr formAddress, emuptr address, long size,
 
 			EmAliasFormType<PAS>	form (formAddress);
 
-			uint16	numObjects	= form.numObjects;
 			emuptr	firstObject	= form.objects;
+#ifndef NDEBUG
+			uint16	numObjects	= form.numObjects;
 			emuptr	lastObject	= firstObject + numObjects * EmAliasFormObjListType<PAS>::GetSize ();
+#endif
 
 			EmAssert (address >= firstObject && address < lastObject);
 
@@ -1524,6 +1617,66 @@ void Errors::ReportErrWindowAccess (emuptr windowAddress, emuptr address, long s
 
 
 // ---------------------------------------------------------------------------
+//		¥ Errors::ReportErrBitmapAccess
+// ---------------------------------------------------------------------------
+
+void Errors::ReportErrBitmapAccess (emuptr bitmapAddress, emuptr address, long size, Bool forRead)
+{
+	if (::ReportUIMgrDataAccess ())
+	{
+		// Set the %window message variable.
+
+		string	asString (::PrvAsHex8 (bitmapAddress));
+		Errors::SetParameter ("%bitmap", asString.c_str ());
+
+		// Set the %field and %function variables.
+
+		EmAssert (address >= bitmapAddress);
+
+		size_t		offset		= address - bitmapAddress;
+		const char*	fieldName	= NULL;
+		const char*	function	= NULL;
+
+		::PrvLookupField (kBitmapTypeV2Table, offset, fieldName, function);
+
+		Errors::SetParameter ("%field", fieldName);
+
+		Errors::ReportErrAccessCommon (kStr_ErrBitmapAccess, kException_BusErr, 0, address, size, forRead);
+	}
+}
+
+
+// ---------------------------------------------------------------------------
+//		¥ Errors::ReportErrProscribedFunction
+// ---------------------------------------------------------------------------
+
+void Errors::ReportErrProscribedFunction (const SystemCallContext& context)
+{
+	if (::ReportProscribedFunction ())
+	{
+		// Set the %app message variable.
+
+		Errors::SetStandardParameters ();
+
+		// Set the %function_name message variable.
+
+		string	asString (::GetTrapName (context, true));
+		Errors::SetParameter ("%function_name", asString.c_str ());
+
+		// Set the %reason message variable.
+
+		string	asString2 (::PrvGetProscribedReason (context));
+		Errors::SetParameter ("%reason", asString2.c_str ());
+
+		// Show the dialog.
+
+		Errors::HandleDialog (kStr_ErrProscribedFunction, kException_SoftBreak,
+			kDlgFlags_Continue_DEBUG_Reset, false);
+	}
+}
+
+
+// ---------------------------------------------------------------------------
 //		¥ Errors::ReportErrStepSpy
 // ---------------------------------------------------------------------------
 
@@ -1625,7 +1778,7 @@ void Errors::ReportErrWatchpoint (emuptr writeAddress,
 //		¥ Errors:ReportErrSysFatalAlert
 // ---------------------------------------------------------------------------
 
-EmDlgItemID Errors::ReportErrSysFatalAlert (const char* appMsg)
+void Errors::ReportErrSysFatalAlert (const char* appMsg)
 {
 	// Set the %app message variable.
 
@@ -1637,10 +1790,8 @@ EmDlgItemID Errors::ReportErrSysFatalAlert (const char* appMsg)
 
 	// Show the dialog.
 
-	EmDlgItemID	button = Errors::DoDialog (kStr_ErrSysFatalAlert,
-							kDlgFlags_Continue_DEBUG_Reset);
-
-	return button;
+	Errors::HandleDialog (kStr_ErrSysFatalAlert, kException_SoftBreak,
+							kDlgFlags_Continue_DEBUG_Reset, false);
 }
 
 
@@ -1781,53 +1932,13 @@ void Errors::ReportErrStackCommon (StrCode strIndex, ExceptionNumber excNum, int
 
 	// Generate the stack crawl information.
 
-	string	stackCrawlString;
-
+	emuptr				oldStackLow = gCPU->GetSP ();
 	EmStackFrameList	stackCrawl;
-	::GenerateStackCrawl (stackCrawl);
+	EmPalmOS::GenerateStackCrawl (stackCrawl);
 
-	emuptr	oldStackLow = m68k_areg (regs, 7);
-	EmStackFrameList::iterator	iter = stackCrawl.begin ();
-	while (iter != stackCrawl.end ())
-	{
-		// Get the function name.
-
-		char	funcName[256] = {0};
-		::FindFunctionName (iter->fAddressInFunction, funcName, NULL, NULL, 255);
-
-		// If we can't find the name, dummy one up.
-
-		if (strlen (funcName) == 0)
-		{
-			sprintf (funcName, "<Unknown @ 0x%08lX>", iter->fAddressInFunction);
-		}
-
-		// Get the stack size used by the function.
-
-		char	stackSize[20];
-		sprintf (stackSize, "%ld", iter->fA6 - oldStackLow);
-
-		// Catenate that information to the built-up string.
-
-		if (iter != stackCrawl.begin ())
-		{
-			stackCrawlString += ", ";
-		}
-
-		stackCrawlString += string (funcName) + "(" + string (stackSize) + ")";
-
-		// If the string looks long enough, stop.
-
-		if (stackCrawlString.size () > 200)
-		{
-			stackCrawlString += "...";
-			break;
-		}
-
-		oldStackLow = iter->fA6;
-
-		++iter;
-	}
+	string	stackCrawlString;
+	
+	stackCrawlString = ::StackCrawlString (stackCrawl, 200, true, oldStackLow);
 
 	// Set the %sc message variable.
 
@@ -1856,6 +1967,38 @@ void Errors::ReportErrCommon (StrCode strIndex, ExceptionNumber excNum, int flag
 	Errors::HandleDialog (strIndex, excNum,
 		::PrvButtonFlags (flags),
 		::PrvEnterDebuggerFirst (flags));
+}
+
+
+// ---------------------------------------------------------------------------
+//		¥ Errors:ReportErrCommPort
+// ---------------------------------------------------------------------------
+
+EmDlgItemID Errors::ReportErrCommPort (string errString)
+{
+	Errors::SetParameter ("%transport", errString);
+	string commString = Errors::ReplaceParameters (kStr_CommPortError);
+
+	EmDlgItemID	button = Errors::DoDialog (commString.c_str (),
+							kDlgFlags_OK, -1);
+
+	return button;
+}
+
+
+// ---------------------------------------------------------------------------
+//		¥ Errors:ReportErrSockets
+// ---------------------------------------------------------------------------
+
+EmDlgItemID Errors::ReportErrSockets (string errString)
+{
+	Errors::SetParameter ("%transport", errString);
+	string socketsString = Errors::ReplaceParameters (kStr_SocketsError);
+	
+	EmDlgItemID	button = Errors::DoDialog (socketsString.c_str (),
+							kDlgFlags_OK, -1);
+
+	return button;
 }
 
 
@@ -2065,6 +2208,40 @@ void Errors::HandleDialog (StrCode messageID,
 	string	msgTemplate (Platform::GetString (messageID));
 	string	msg (Errors::ReplaceParameters (msgTemplate, gUserParameters));
 
+	// If this error occurred while nested (that is, while Poser itself
+	// is calling into the ROM as a subroutine), then we can't really
+	// recover from that.  At the very least, we don't need to bother
+	// users with messages about our own mistakes.  So simply say
+	// that an internal error occurred and that we're now about to reset.
+
+	if (gSession && gSession->IsNested ())
+	{
+		EmExceptionReset	e (kResetSoft);
+		e.SetMessage (msg.c_str ());
+		throw e;
+	}
+
+	// Insert a note into the event stream that an error occurred.
+
+	EmEventPlayback::RecordErrorEvent ();
+
+	// If we reach this point, and minimization is taking place, then the
+	// error was generated on purpose. Instead of warning the user, silently
+	// switch to the next minimizer.
+
+	if (EmMinimize::IsOn ())
+	{
+		if (LogGremlins ())
+		{
+			LogAppendMsg ("Calling EmMinimize::ErrorOccurred after encountering an error");
+		}
+
+		EmEventOutput::ErrorOccurred (msg);
+		EmMinimize::ErrorOccurred ();
+
+		return;
+	}
+
 	EmDlgItemID	button;
 
 	do
@@ -2076,7 +2253,7 @@ void Errors::HandleDialog (StrCode messageID,
 		}
 		else
 		{
-			button = Errors::DoDialog (msg.c_str (), flags);
+			button = Errors::DoDialog (msg.c_str (), flags, messageID);
 
 			// If we show a dialog, then the user has already been told
 			// what's gone wrong.  They don't need CodeWarrior to tell
@@ -2130,7 +2307,7 @@ void Errors::HandleDialog (StrCode messageID,
 EmDlgItemID Errors::DoDialog (StrCode messageID, EmCommonDialogFlags flags)
 {
 	string	msg (Platform::GetString (messageID));
-	return Errors::DoDialog (msg.c_str (), flags);
+	return Errors::DoDialog (msg.c_str (), flags, messageID);
 }
 
 
@@ -2140,10 +2317,16 @@ EmDlgItemID Errors::DoDialog (StrCode messageID, EmCommonDialogFlags flags)
 //	Displays a dialog box with the given message and according to
 //	the given flags.  Returns which button was clicked.
 
-EmDlgItemID Errors::DoDialog (const char* msg, EmCommonDialogFlags flags)
+EmDlgItemID Errors::DoDialog (const char* msg, EmCommonDialogFlags flags, StrCode messageID)
 {
 	string	msgStr (msg);
 	msgStr = Errors::ReplaceParameters (msgStr, gUserParameters);
+
+	// If this error occurred while nested (that is, while Poser itself
+	// is calling into the ROM as a subroutine), then we can't really
+	// recover from that.  At the very least, we don't need to bother
+	// users with messages about our own mistakes.  So simply say
+	// that an internal error occurred and that we're now about to reset.
 
 	if (gSession && gSession->IsNested ())
 	{
@@ -2152,32 +2335,34 @@ EmDlgItemID Errors::DoDialog (const char* msg, EmCommonDialogFlags flags)
 		throw e;
 	}
 
-	// Let Hordes log the error message if it's running.
+	// See if this is a fatal or non-fatal message (also called "error"
+	// or "warning").  The message is non-fatal if the first button
+	// is a visible, enabled Continue button.
 
-	if (Hordes::DoDialog (msgStr, flags))
+	uint8	button0	= GET_BUTTON (0, flags);
+	Bool	isFatal	=	!((button0 & kButtonMask) == kDlgItemContinue &&
+						(button0 & (kButtonVisible | kButtonEnabled)) == (kButtonVisible | kButtonEnabled));
+
+	// Notify Hordes of the error so that it can keep stats.
+
+	Hordes::RecordErrorStats (messageID);
+
+	// Set flags governing Poser's return value.
+
+	if (isFatal)
+		gErrorHappened = true;
+	else
+		gWarningHappened = true;
+
+	// If we are logging this kind of message, then we can further check
+	// to see what kind of other actions to carry out.  Otherwise, we
+	// display the error message.
+
+	if (gEmuPrefs->LogMessage (isFatal))
 	{
-		return kDlgItemNextGremlin;
-	}
+		// Log the error message.
 
-	// If this is a warning and we were asked to not stop
-	// on those, then just continue.
-
-	if (Hordes::SilentRunning ())
-	{
-		char*	typeStr;
-
-		Bool	isFatal = (GET_BUTTON (0, flags) & kButtonMask) != kDlgItemContinue;
-
-		if (!isFatal)
-		{
-			typeStr = "WARNING";
-			gWarningHappened = true;
-		}
-		else
-		{
-			typeStr = "ERROR";
-			gErrorHappened = true;
-		}
+		const char*	typeStr = isFatal ? "ERROR" : "WARNING";
 
 		LogAppendMsg ("=== %s: ********************************************************************************", typeStr);
 		LogAppendMsg ("=== %s: %s", typeStr, msgStr.c_str ());
@@ -2185,17 +2370,39 @@ EmDlgItemID Errors::DoDialog (const char* msg, EmCommonDialogFlags flags)
 
 		LogDump ();
 
-		if (isFatal)
+		// Determine what else we should do: quit the emulator,
+		// continue on as if the user had pressed the Continue
+		// button, switch to the next Gremlin in a Horde, or
+		// display the message in a dialog.
+
+		if (gEmuPrefs->ShouldQuit (isFatal))
 		{
-			Startup::ScheduleCloseSession (EmFileRef ());
-			Startup::ScheduleQuit ();
+			EmAssert (gApplication);
+			gApplication->ScheduleQuit ();
+
+			if (Hordes::IsOn ())
+			{
+				return kDlgItemNextGremlin;
+			}
+
+			return kDlgItemContinue;
+		}
+		else if (gEmuPrefs->ShouldContinue (isFatal))
+		{
+			return kDlgItemContinue;
+		}
+		else if (gEmuPrefs->ShouldNextGremlin (isFatal))
+		{
+			return kDlgItemNextGremlin;
 		}
 
-		return kDlgItemContinue;
+		// ...else, drop through to show the dialog
 	}
 
-
-	LogDump ();
+	// If we got here, it's either because logging is off for this
+	// type of message (in which case, force the user to see the
+	// message, or else they'd completely miss it), or their error
+	// handling option said to show it in a dialog.
 
 	return EmDlg::DoCommonDialog (msgStr, flags);
 }
@@ -2425,17 +2632,23 @@ int Errors::GetIDForError (ErrCode error)
 		switch (error)
 		{
 			case kError_OutOfMemory:					return kStr_MemFull;
+
 			case kError_BadROM:							return kStr_BadROM;
 			case kError_WrongROMForType:				return kStr_WrongROMForType;
 			case kError_UnsupportedROM:					return kStr_UnsupportedROM;
 			case kError_InvalidDevice:					return kStr_InvalidDevice;
+			case kError_InvalidSessionFile:				return kStr_InvalidSession;
+			case kError_InvalidConfiguration:			return kStr_InvalidConfiguration;
+
 			case kError_CantDownloadROM_BadBaudRate:	return kStr_GenericError;
 			case kError_CantDownloadROM_SerialPortBusy:	return kStr_GenericError;
 			case kError_CantDownloadROM_Generic:		return kStr_GenericError;
+
 			case kError_OnlySameType:					return kStr_OnlySameType;
 			case kError_OnlyOnePSF:						return kStr_OnlyOnePSF;
 			case kError_OnlyOneROM:						return kStr_OnlyOneROM;
 			case kError_UnknownType:					return kStr_UnknownType;
+
 			case kError_BadDB_NameNotNULLTerminated:	return kStr_NameNotNULLTerminated;
 			case kError_BadDB_NameNotPrintable:			return kStr_NameNotPrintable;
 			case kError_BadDB_FileTooSmall:				return kStr_FileTooSmall;
@@ -2450,6 +2663,7 @@ int Errors::GetIDForError (ErrCode error)
 			case kError_BadDB_RecordMemError:			return kStr_RecordMemError;
 			case kError_BadDB_AppInfoMemError:			return kStr_AppInfoMemError;
 			case kError_BadDB_DuplicateResource:		return kStr_DuplicateResource;
+
 			default:									return kStr_GenericError;
 		}
 	}
@@ -2493,7 +2707,7 @@ int Errors::GetIDForRecovery (ErrCode error)
 
 void Errors::GetAppName (string& appNameUC, string& appNameLC)
 {
-	EmuAppInfo	appInfo = Patches::GetCurrentAppInfo ();
+	EmuAppInfo	appInfo = EmPatchState::GetCurrentAppInfo ();
 
 	if (strlen (appInfo.fName) > 0)
 	{
@@ -2516,7 +2730,7 @@ void Errors::GetAppName (string& appNameUC, string& appNameLC)
 
 void Errors::GetAppVersion (string& appVersion)
 {
-	EmuAppInfo	appInfo = Patches::GetCurrentAppInfo ();
+	EmuAppInfo	appInfo = EmPatchState::GetCurrentAppInfo ();
 
 	if (strlen (appInfo.fVersion) > 0)
 	{
@@ -2540,11 +2754,13 @@ Bool Errors::LooksLikeA5Access (emuptr address, long size, Bool forRead)
 	// The OS sets the high bit of the A5 register when calling PilotMain
 	// with a launch code that doesn't allow global variable access.
 
-	if ((address & 0x80000000) == 0 || (m68k_areg (regs, 5) & 0x80000000) == 0)
+	emuptr	A5 = gCPU68K->GetRegister (e68KRegID_A5);
+
+	if ((address & 0x80000000) == 0 || (A5 & 0x80000000) == 0)
 		return false;
 
 	emuptr	strippedAddress	= address & 0x7FFFFFFF;
-	emuptr	strippedA5		= m68k_areg (regs, 5) & 0x7FFFFFFF;
+	emuptr	strippedA5		= A5 & 0x7FFFFFFF;
 
 	// See if the stripped test address and the real A5 both reside in
 	// the dynamic heap.
@@ -2623,6 +2839,38 @@ void PrvLookupField (const EmFieldLookup* table, size_t offset,
 	}
 }
 
+
+// ---------------------------------------------------------------------------
+//		¥ PrvGetProscribedReason
+// ---------------------------------------------------------------------------
+
+string PrvGetProscribedReason (const SystemCallContext& context)
+{
+	string	result;
+	int		reason = ::GetProscribedReason (context);
+
+	switch (reason)
+	{
+		case kProscribedDocumentedSystemUseOnly:
+		case kProscribedUndocumentedSystemUseOnly:
+		case kProscribedKernelUseOnly:
+		case kProscribedGhost:
+		case kProscribedSystemUseOnlyAnyway:
+		case kProscribedRare:
+			result = Platform::GetString (kStr_SystemUseOnly);
+			break;
+
+		case kProscribedObsolete:
+			result = Platform::GetString (kStr_Obsolete);
+			break;
+
+		default:
+			EmAssert (false);
+			break;
+	}
+
+	return result;
+}
 
 #pragma mark -
 
@@ -3032,6 +3280,53 @@ EmDeferredErrWindowAccess::~EmDeferredErrWindowAccess (void)
 void EmDeferredErrWindowAccess::Do (void)
 {
 	Errors::ReportErrWindowAccess (fWindowAddress, fAddress, fSize, fForRead);
+}
+
+
+#pragma mark -
+
+// ---------------------------------------------------------------------------
+//		¥ EmDeferredErrBitmapAccess
+// ---------------------------------------------------------------------------
+
+EmDeferredErrBitmapAccess::EmDeferredErrBitmapAccess (emuptr bitmapAddress,
+													  emuptr address,
+													  long size,
+													  Bool forRead) :
+	EmDeferredErrAccessCommon (address, size, forRead),
+	fBitmapAddress (bitmapAddress)
+{
+}
+
+EmDeferredErrBitmapAccess::~EmDeferredErrBitmapAccess (void)
+{
+}
+
+void EmDeferredErrBitmapAccess::Do (void)
+{
+	Errors::ReportErrBitmapAccess (fBitmapAddress, fAddress, fSize, fForRead);
+}
+
+
+#pragma mark -
+
+// ---------------------------------------------------------------------------
+//		¥ EmDeferredErrProscribedFunction
+// ---------------------------------------------------------------------------
+
+EmDeferredErrProscribedFunction::EmDeferredErrProscribedFunction (const SystemCallContext& context) :
+	EmDeferredErr (),
+	fContext (context)
+{
+}
+
+EmDeferredErrProscribedFunction::~EmDeferredErrProscribedFunction (void)
+{
+}
+
+void EmDeferredErrProscribedFunction::Do (void)
+{
+	Errors::ReportErrProscribedFunction (fContext);
 }
 
 

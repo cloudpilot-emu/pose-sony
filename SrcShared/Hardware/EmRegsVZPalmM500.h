@@ -24,7 +24,8 @@ class EmRegsVZPalmM500 : public EmRegsVZ
 
 		virtual Bool			GetLCDScreenOn			(void);
 		virtual Bool			GetLCDBacklightOn		(void);
-		virtual Bool			GetSerialPortOn			(int uartNum);
+		virtual Bool			GetLineDriverState		(EmUARTDeviceType type);
+		virtual EmUARTDeviceType	GetUARTDevice		(int uartNum);
 		virtual Bool			GetVibrateOn			(void);
 		virtual uint16			GetLEDState				(void);
 

@@ -16,15 +16,18 @@
 
 #include "Byteswapping.h"		// ByteswapWords
 #include "DebugMgr.h"			// Debug::CheckStepSpy
-#include "EmCPU68K.h"			// ProcessException
+#include "EmCPU68K.h"			// gCPU68K
 #include "EmMemory.h"			// gRAMBank_Size, gRAM_Memory, gMemoryAccess
+#include "EmScreen.h"			// EmScreen::MarkDirty
 #include "EmSession.h"			// GetDevice
+#include "MetaMemory.h"			// MetaMemory::
 #include "Miscellaneous.h"		// StWordSwapper
+#include "Profiling.h"			// WAITSTATES_SRAM
 #include "SessionFile.h"		// WriteRAMImage
 
 #ifdef SONY_ROM
 #include "EmScreen.h"			// EmScreen::MarkDirty
-#endif
+#endif //SONY_ROM
 
 // ===========================================================================
 //		¥ SRAM Bank Accessors
@@ -53,6 +56,9 @@ static EmAddressBank	gAddressBank =
 static const emuptr	kMemoryStart	= 0x10000000;
 static const emuptr	kMemoryStartEZ	= 0x00000000;
 static const emuptr	kMemoryStartVZ	= 0x00000000;
+#ifdef SONY_ROM 
+static const emuptr	kMemoryStartSZ	= 0x00000000;
+#endif 
 
 emuptr 		gMemoryStart;
 
@@ -73,6 +79,36 @@ uint8* 		gRAM_MetaMemory;
 	LowMemHdrType*	gLowMemory;
 
 #endif
+
+
+static inline uint8* InlineGetMetaAddress (emuptr address)
+{
+	return (uint8*) &(gRAM_MetaMemory[address]);
+}
+
+static inline void PrvScreenCheck (uint8* metaAddress, emuptr address, size_t size)
+{
+#if defined (macintosh)
+
+	if (size == 1 && !MetaMemory::IsScreenBuffer8 (metaAddress))
+		return;
+
+	if (size == 2 && !MetaMemory::IsScreenBuffer16 (metaAddress))
+		return;
+
+	if (size == 4 && !MetaMemory::IsScreenBuffer32 (metaAddress))
+		return;
+
+#else
+
+	if (MetaMemory::IsScreenBuffer (metaAddress, size))
+
+#endif
+
+	{
+		EmScreen::MarkDirty (address, size);
+	}
+}
 
 
 /***********************************************************************
@@ -121,6 +157,12 @@ void EmBankSRAM::Initialize (RAMSizeType ramSize)
 	{
 		gMemoryStart = kMemoryStartVZ;
 	}
+#ifdef SONY_ROM
+	else if (gSession->GetDevice ().Supports68SZ328 ())
+	{
+		gMemoryStart = kMemoryStartSZ;
+	}
+#endif 
 	else
 	{
 		gMemoryStart = kMemoryStart;
@@ -272,21 +314,21 @@ uint32 EmBankSRAM::GetLong (emuptr address)
 #if (CHECK_FOR_ADDRESS_ERROR)
 	if ((address & 1) != 0)
 	{
-		AddressError (address, sizeof (uae_u32), true);
+		AddressError (address, sizeof (uint32), true);
 	}
 #endif
 
 #if (PREVENT_USER_SRAM_GET)
 	if (gMemAccessFlags.fProtect_SRAMGet)
 	{
-		ProtectedAccess (address, sizeof (uae_u32), true);
+		ProtectedAccess (address, sizeof (uint32), true);
 	}
 #endif
 
 #if (VALIDATE_SRAM_GET)
-	if (gMemAccessFlags.fValidate_SRAMGet && !ValidAddress (address, sizeof (uae_u32)))
+	if (gMemAccessFlags.fValidate_SRAMGet && !ValidAddress (address, sizeof (uint32)))
 	{
-		InvalidAccess (address, sizeof (uae_u32), true);
+		InvalidAccess (address, sizeof (uint32), true);
 	}
 #endif
 
@@ -306,7 +348,6 @@ uint32 EmBankSRAM::GetLong (emuptr address)
 
 uint32 EmBankSRAM::GetWord (emuptr address)
 {
-
 #if PROFILE_MEMORY
 	gMemoryAccess[kSRAMWordRead]++;
 #endif
@@ -314,21 +355,21 @@ uint32 EmBankSRAM::GetWord (emuptr address)
 #if (CHECK_FOR_ADDRESS_ERROR)
 	if ((address & 1) != 0)
 	{
-		AddressError (address, sizeof (uae_u16), true);
+		AddressError (address, sizeof (uint16), true);
 	}
 #endif
 
 #if (PREVENT_USER_SRAM_GET)
 	if (gMemAccessFlags.fProtect_SRAMGet)
 	{
-		ProtectedAccess (address, sizeof (uae_u16), true);
+		ProtectedAccess (address, sizeof (uint16), true);
 	}
 #endif
 
 #if (VALIDATE_SRAM_GET)
-	if (gMemAccessFlags.fValidate_SRAMGet && !ValidAddress (address, sizeof (uae_u16)))
+	if (gMemAccessFlags.fValidate_SRAMGet && !ValidAddress (address, sizeof (uint16)))
 	{
-		InvalidAccess (address, sizeof (uae_u16), true);
+		InvalidAccess (address, sizeof (uint16), true);
 	}
 #endif
 
@@ -348,7 +389,6 @@ uint32 EmBankSRAM::GetWord (emuptr address)
 
 uint32 EmBankSRAM::GetByte (emuptr address)
 {
-
 #if PROFILE_MEMORY
 	gMemoryAccess[kSRAMByteRead]++;
 #endif
@@ -356,14 +396,14 @@ uint32 EmBankSRAM::GetByte (emuptr address)
 #if (PREVENT_USER_SRAM_GET)
 	if (gMemAccessFlags.fProtect_SRAMGet)
 	{
-		ProtectedAccess (address, sizeof (uae_u8), true);
+		ProtectedAccess (address, sizeof (uint8), true);
 	}
 #endif
 
 #if (VALIDATE_SRAM_GET)
-	if (gMemAccessFlags.fValidate_SRAMGet && !ValidAddress (address, sizeof (uae_u8)))
+	if (gMemAccessFlags.fValidate_SRAMGet && !ValidAddress (address, sizeof (uint8)))
 	{
-		InvalidAccess (address, sizeof (uae_u8), true);
+		InvalidAccess (address, sizeof (uint8), true);
 	}
 #endif
 
@@ -392,7 +432,7 @@ void EmBankSRAM::SetLong (emuptr address, uint32 value)
 #if (CHECK_FOR_ADDRESS_ERROR)
 	if ((address & 1) != 0)
 	{
-		AddressError (address, sizeof (uae_u32), false);
+		AddressError (address, sizeof (uint32), false);
 	}
 #endif
 
@@ -400,15 +440,15 @@ void EmBankSRAM::SetLong (emuptr address, uint32 value)
 #if (PREVENT_USER_SRAM_SET)
 	if (gMemAccessFlags.fProtect_SRAMSet)
 	{
-		ProtectedAccess (address, sizeof (uae_u32), false);
+		ProtectedAccess (address, sizeof (uint32), false);
 	}
 #endif
-#endif // SONY_ROM
+#endif //!SONY_ROM
 
 #if (VALIDATE_SRAM_SET)
-	if (gMemAccessFlags.fValidate_SRAMSet && !ValidAddress (address, sizeof (uae_u32)))
+	if (gMemAccessFlags.fValidate_SRAMSet && !ValidAddress (address, sizeof (uint32)))
 	{
-		InvalidAccess (address, sizeof (uae_u32), false);
+		InvalidAccess (address, sizeof (uint32), false);
 	}
 #endif
 
@@ -419,12 +459,16 @@ void EmBankSRAM::SetLong (emuptr address, uint32 value)
 	emuptr phyAddress = address;
 	phyAddress &= gRAMBank_Mask;
 
+	register uint8*	metaAddress = InlineGetMetaAddress (phyAddress);
+//	META_CHECK (metaAddress, address, SetLong, uint32, false);
+	::PrvScreenCheck (metaAddress, address, sizeof (uint32));
+
 	EmMemDoPut32 (gRAM_Memory + phyAddress, value);
 
 	// See if any interesting memory locations have changed.  If so,
 	// CheckStepSpy will report it.
 
-	Debug::CheckStepSpy (address, sizeof (uae_u32));
+	Debug::CheckStepSpy (address, sizeof (uint32));
 
 #ifdef SONY_ROM
 	if (gSession->GetDevice().GetDeviceType() == kDevicePEGT400) {
@@ -434,7 +478,7 @@ void EmBankSRAM::SetLong (emuptr address, uint32 value)
 			EmScreen::MarkDirty (address, 4);
 		}
 	}
-#endif
+#endif //SONY_ROM
 }
 
 
@@ -451,7 +495,7 @@ void EmBankSRAM::SetWord (emuptr address, uint32 value)
 #if (CHECK_FOR_ADDRESS_ERROR)
 	if ((address & 1) != 0)
 	{
-		AddressError (address, sizeof (uae_u16), false);
+		AddressError (address, sizeof (uint16), false);
 	}
 #endif
 
@@ -459,15 +503,15 @@ void EmBankSRAM::SetWord (emuptr address, uint32 value)
 #if (PREVENT_USER_SRAM_SET)
 	if (gMemAccessFlags.fProtect_SRAMSet)
 	{
-		ProtectedAccess (address, sizeof (uae_u16), false);
+		ProtectedAccess (address, sizeof (uint16), false);
 	}
 #endif
-#endif // SONY_ROM
+#endif //!SONY_ROM
 
 #if (VALIDATE_SRAM_SET)
-	if (gMemAccessFlags.fValidate_SRAMSet && !ValidAddress (address, sizeof (uae_u16)))
+	if (gMemAccessFlags.fValidate_SRAMSet && !ValidAddress (address, sizeof (uint16)))
 	{
-		InvalidAccess (address, sizeof (uae_u16), false);
+		InvalidAccess (address, sizeof (uint16), false);
 	}
 #endif
 
@@ -478,12 +522,16 @@ void EmBankSRAM::SetWord (emuptr address, uint32 value)
 	emuptr phyAddress = address;
 	phyAddress &= gRAMBank_Mask;
 
+	register uint8*	metaAddress = InlineGetMetaAddress (phyAddress);
+//	META_CHECK (metaAddress, address, SetLong, uint16, false);
+	::PrvScreenCheck (metaAddress, address, sizeof (uint16));
+
 	EmMemDoPut16 (gRAM_Memory + phyAddress, value);
 
 	// See if any interesting memory locations have changed.  If so,
 	// CheckStepSpy will report it.
 
-	Debug::CheckStepSpy (address, sizeof (uae_u16));
+	Debug::CheckStepSpy (address, sizeof (uint16));
 
 #ifdef SONY_ROM
 	if (gSession->GetDevice().GetDeviceType() == kDevicePEGT400) {
@@ -493,7 +541,7 @@ void EmBankSRAM::SetWord (emuptr address, uint32 value)
 			EmScreen::MarkDirty (address, 2);
 		}
 	}
-#endif
+#endif //SONY_ROM
 }
 
 
@@ -511,15 +559,15 @@ void EmBankSRAM::SetByte (emuptr address, uint32 value)
 #if (PREVENT_USER_SRAM_SET)
 	if (gMemAccessFlags.fProtect_SRAMSet)
 	{
-		ProtectedAccess (address, sizeof (uae_u8), false);
+		ProtectedAccess (address, sizeof (uint8), false);
 	}
 #endif
-#endif // SONY_ROM
+#endif //!SONY_ROM
 
 #if (VALIDATE_SRAM_SET)
-	if (gMemAccessFlags.fValidate_SRAMSet && !ValidAddress (address, sizeof (uae_u8)))
+	if (gMemAccessFlags.fValidate_SRAMSet && !ValidAddress (address, sizeof (uint8)))
 	{
-		InvalidAccess (address, sizeof (uae_u8), false);
+		InvalidAccess (address, sizeof (uint8), false);
 	}
 #endif
 
@@ -530,12 +578,16 @@ void EmBankSRAM::SetByte (emuptr address, uint32 value)
 	emuptr phyAddress = address;
 	phyAddress &= gRAMBank_Mask;
 
+	register uint8*	metaAddress = InlineGetMetaAddress (phyAddress);
+//	META_CHECK (metaAddress, address, SetLong, uint8, false);
+	::PrvScreenCheck (metaAddress, address, sizeof (uint8));
+
 	EmMemDoPut8 (gRAM_Memory + phyAddress, value);
 
 	// See if any interesting memory locations have changed.  If so,
 	// CheckStepSpy will report it.
 
-	Debug::CheckStepSpy (address, sizeof (uae_u8));
+	Debug::CheckStepSpy (address, sizeof (uint8));
 
 #ifdef SONY_ROM
 	if (gSession->GetDevice().GetDeviceType() == kDevicePEGT400) {
@@ -545,7 +597,7 @@ void EmBankSRAM::SetByte (emuptr address, uint32 value)
 			EmScreen::MarkDirty (address, 1);
 		}
 	}
-#endif
+#endif //SONY_ROM
 }
 
 

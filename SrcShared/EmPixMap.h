@@ -44,7 +44,6 @@ enum EmPixMapFormat
 	kPixMapFormatLast
 };
 
-class EmScreenUpdateInfo;
 
 class EmPixMap
 {
@@ -75,6 +74,8 @@ class EmPixMap
 		void					CreateMask		(EmPixMap& dest) const;
 		EmRegion				CreateRegion	(void) const;
 
+		void					ChangeTone		(int32 percent, EmCoord firstLine = -1, EmCoord lastLine = -1);
+		void					ConvertToColor	(int type, EmCoord firstLine = -1, EmCoord lastLine = -1);
 		void					FlipScanlines	(void);
 		void					ConvertToFormat	(EmPixMapFormat);
 

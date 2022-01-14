@@ -16,13 +16,58 @@
 
 #include "EmTypes.h"			// ErrCode
 
+#include <string>				// string
+#include <vector>				// vector
+
+
 enum EmTransportType
 {
-	kTransportNone,
-	kTransportSerial,
-	kTransportSocket,
-	kTransportUSB
+	kTransportNull,		// "null:"
+	kTransportSerial,	// "serial:"
+	kTransportSocket,	// "tcp:"
+	kTransportUSB,		// "usb:"
+
+	kTransportUnknown
 };
+
+class EmTransport;
+
+
+// Wraps up a "transport descriptor", something that identifies
+// a tranport that a user can point to and use in the UI.
+
+class EmTransportDescriptor
+{
+	public:
+								EmTransportDescriptor	(void);
+								EmTransportDescriptor	(EmTransportType);
+								EmTransportDescriptor	(EmTransportType, const string&);
+								EmTransportDescriptor	(const string&);
+								EmTransportDescriptor	(const EmTransportDescriptor&);
+								~EmTransportDescriptor	(void);
+		EmTransportDescriptor&	operator=				(const EmTransportDescriptor&);
+
+		EmTransport*			CreateTransport			(void) const;
+
+		string					GetMenuName				(void) const;	// For menus (e.g., "COM1", "TCP/IP")
+		string					GetDescriptor			(void) const;	// Full text (e.g., "serial:COM1")
+		string					GetScheme				(void) const;	// First part of text (e.g., "serial", "socket")
+		string					GetSchemeSpecific		(void) const;	// Second part of text (e.g., "127.0.0.1:5001")
+		EmTransportType			GetType					(void) const;	// Scheme in numeric form
+
+		static string			GetSchemePrefix			(EmTransportType);	// Convert numeric format to scheme prefix
+
+		bool					operator==				(const EmTransportDescriptor&) const;
+
+	private:
+		Bool					PrvTestType				(EmTransportType type) const;
+
+	private:
+		string					fDescriptor;
+};
+
+typedef vector<EmTransportDescriptor>	EmTransportDescriptorList;
+
 
 class EmTransport
 {
@@ -49,10 +94,50 @@ class EmTransport
 		virtual Bool			CanRead				(void);
 		virtual Bool			CanWrite			(void);
 
-		virtual long			BytesInBuffer		(void);
+		virtual long			BytesInBuffer		(long minBytes);
+
+		virtual string			GetSpecificName		(void) = 0;
 
 		static void				CloseAllTransports	(void);
-		static EmTransportType	GetTransportTypeFromPortName (const char* portName);
 };
+
+
+class EmTransportNull : public EmTransport
+{
+	public:
+
+		// Note: this used to be named "Config", but that runs
+		// afoul of a bug in VC++ (see KB Q143082).
+		struct ConfigNull : public EmTransport::Config
+		{
+									ConfigNull		(void) {};
+			virtual					~ConfigNull		(void) {};
+
+			virtual EmTransport*	NewTransport	(void) { return new EmTransportNull; };
+			virtual EmTransport*	GetTransport	(void);
+		};
+
+	public:
+								EmTransportNull			(void);
+								EmTransportNull			(const EmTransportDescriptor&);
+								EmTransportNull			(const ConfigNull&);
+		virtual					~EmTransportNull		(void);
+
+		virtual ErrCode			Open					(void);
+		virtual ErrCode			Close					(void);
+
+		virtual ErrCode			Read					(long&, void*);
+		virtual ErrCode			Write					(long&, const void*);
+
+		virtual Bool			CanRead					(void);
+		virtual Bool			CanWrite				(void);
+
+		virtual long			BytesInBuffer			(long minBytes);
+
+		virtual string			GetSpecificName			(void);
+
+		static void				GetDescriptorList		(EmTransportDescriptorList&);
+};
+
 
 #endif /* EmTransport_h */

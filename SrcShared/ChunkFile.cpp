@@ -55,6 +55,8 @@ ChunkFile::~ChunkFile (void)
 }
 
 
+#pragma mark -
+
 /***********************************************************************
  *
  * FUNCTION:	ChunkFile::FindChunk
@@ -102,6 +104,69 @@ long ChunkFile::FindChunk (Tag targetTag)
 	return len;
 }
 
+
+/***********************************************************************
+ *
+ * FUNCTION:	ChunkFile::ReadChunk
+ *
+ * DESCRIPTION:	Find the requested chunk.  If successful, the file
+ *				marker will be pointing to the chunk data which can
+ *				then be read with ReadChunk.
+ *
+ * PARAMETERS:	targetTag - the tag of the chunk to find.
+ *
+ * RETURNED:	Size of the chunk, in bytes.  If the chunk can't be
+ *				found, kChunkNotFound is returned.
+ *
+ ***********************************************************************/
+
+Bool ChunkFile::ReadChunk (int index, Tag& tag, Chunk& chunk)
+{
+	long	fileOffset = 0;
+	long	fileLength = fStream.GetLength ();
+
+	fStream.SetMarker (fileOffset, kStreamFromStart);
+
+	while (fileOffset < fileLength)
+	{
+		// Read the chunk's tag and length.
+
+		Tag		chunkTag;
+		long	chunkLen;
+
+		fStream.GetBytes (&chunkTag, sizeof (chunkTag));
+		fStream.GetBytes (&chunkLen, sizeof (chunkLen));
+
+		Canonical (chunkTag);
+		Canonical (chunkLen);
+
+		// If this is the chunk we're looking for, read it in.
+
+		if (index == 0)
+		{
+			tag = chunkTag;
+			chunk.SetLength (chunkLen);
+			this->ReadChunk (chunkLen, chunk.GetPointer ());
+
+			// Return that we found the chunk.
+
+			return true;
+		}
+
+		// Move to the next chunk.
+
+		fStream.SetMarker (chunkLen, kStreamFromMarker);
+		fileOffset += sizeof (chunkTag) + sizeof (chunkLen) + chunkLen;
+		--index;
+	}
+
+	// Return that we didn't find the chunk.
+
+	return false;
+}
+
+
+#pragma mark -
 
 /***********************************************************************
  *
@@ -265,6 +330,8 @@ Bool ChunkFile::ReadString (Tag tag, string& s)
 }
 
 
+#pragma mark -
+
 /***********************************************************************
  *
  * FUNCTION:	ChunkFile::WriteChunk
@@ -372,6 +439,8 @@ void ChunkFile::WriteString (Tag tag, const string& s)
 }
 
 
+#pragma mark -
+
 /***********************************************************************
  *
  * FUNCTION:	ChunkFile::ReadChunk
@@ -433,6 +502,8 @@ void ChunkFile::WriteChunk (Tag tag, uint32 size, const void* data)
 }
 
 
+#pragma mark -
+
 /***********************************************************************
  *
  * FUNCTION:	ChunkFile::GetFile
@@ -450,6 +521,8 @@ EmStream& ChunkFile::GetStream (void) const
 	return fStream;
 }
 
+
+#pragma mark -
 
 /***********************************************************************
  *
@@ -496,6 +569,29 @@ Chunk::Chunk (long inLength) :
 
 /***********************************************************************
  *
+ * FUNCTION:	Chunk::Chunk
+ *
+ * DESCRIPTION:	Copy constructor.  Creates a "chunk" containing a copy
+ *				of the given data.
+ *
+ * PARAMETERS:	other - chunk containing the data to copy.
+ *
+ * RETURNED:	Nothing
+ *
+ ***********************************************************************/
+
+Chunk::Chunk (const Chunk& other) :
+	fPtr (NULL),
+	fUsedSize (0),
+	fAllocatedSize (0)
+{
+	this->SetLength (other.GetLength ());
+	memcpy (this->GetPointer (), other.GetPointer (), other.GetLength ());
+}
+
+
+/***********************************************************************
+ *
  * FUNCTION:	Chunk::~Chunk
  *
  * DESCRIPTION:	Destructor.  Disposes of the owned block of memory.
@@ -509,6 +605,31 @@ Chunk::Chunk (long inLength) :
 Chunk::~Chunk (void)
 {
 	Platform::DisposeMemory (fPtr);
+}
+
+
+/***********************************************************************
+ *
+ * FUNCTION:	Chunk::operator=
+ *
+ * DESCRIPTION:	Assignment operator.  Makes the controlled chunk
+ *				contain a copy of the data managed by the other chunk.
+ *
+ * PARAMETERS:	other - chunk containing the data to copy.
+ *
+ * RETURNED:	Referenced to the controlled object.
+ *
+ ***********************************************************************/
+
+Chunk& Chunk::operator= (const Chunk& other)
+{
+	if (this != &other)
+	{
+		this->SetLength (other.GetLength ());
+		memcpy (this->GetPointer (), other.GetPointer (), other.GetLength ());
+	}
+
+	return *this;
 }
 
 
@@ -576,12 +697,21 @@ void Chunk::SetLength (long inLength)
 		fAllocatedSize = newAllocatedLength;
 	}
 
+	// As a special case, allow the clean up of memory by setting the
+	// length to zero.
+
+	else if (inLength == 0)
+	{
+		Platform::DisposeMemory (fPtr);
+		fAllocatedSize = 0;
+	}
+
 	fUsedSize = inLength;
 }
 
 
 // ===========================================================================
-//	EmStreamChunk.cpp			   ©1993-1998 Metrowerks Inc. All rights reserved.
+//	EmStreamChunk.cpp
 // ===========================================================================
 //
 //	A Stream whose bytes are in a Chunk

@@ -14,8 +14,9 @@
 #include "EmCommon.h"
 #include "EmBankMapped.h"
 
-#include "EmCPU68K.h"			// ProcessException
+#include "EmCPU68K.h"			// gCPU68K
 #include "EmMemory.h"			// Memory::InitializeBanks
+#include "Profiling.h"			// WAITSTATES_DUMMYBANK
 
 #include <vector>
 
@@ -238,7 +239,7 @@ uint32 EmBankMapped::GetLong (emuptr address)
 {
 	if (CHECK_FOR_ADDRESS_ERROR && (address & 1) != 0)
 	{
-		AddressError (address, sizeof (uae_u32), true);
+		AddressError (address, sizeof (uint32), true);
 	}
 
 #if HAS_PROFILING
@@ -264,7 +265,7 @@ uint32 EmBankMapped::GetWord (emuptr address)
 {
 	if (CHECK_FOR_ADDRESS_ERROR && (address & 1) != 0)
 	{
-		AddressError (address, sizeof (uae_u16), true);
+		AddressError (address, sizeof (uint16), true);
 	}
 
 #if HAS_PROFILING
@@ -311,7 +312,7 @@ void EmBankMapped::SetLong (emuptr address, uint32 value)
 {
 	if (CHECK_FOR_ADDRESS_ERROR && (address & 1) != 0)
 	{
-		AddressError (address, sizeof (uae_u32), false);
+		AddressError (address, sizeof (uint32), false);
 	}
 
 #if HAS_PROFILING
@@ -340,7 +341,7 @@ void EmBankMapped::SetWord (emuptr address, uint32 value)
 {
 	if (CHECK_FOR_ADDRESS_ERROR && (address & 1) != 0)
 	{
-		AddressError (address, sizeof (uae_u16), false);
+		AddressError (address, sizeof (uint16), false);
 	}
 
 #if HAS_PROFILING
@@ -431,7 +432,10 @@ emuptr EmBankMapped::GetEmulatedAddress (const void* address)
 	MapRangeList::iterator	iter = ::PrvGetMappingInfo (address);
 
 	if (iter == gMappedRanges.end ())
+	{
+		EmAssert (false);
 		return EmMemNULL;
+	}
 
 	return iter->mappedAddress + ((char*) address - (char*) iter->realAddress);
 }

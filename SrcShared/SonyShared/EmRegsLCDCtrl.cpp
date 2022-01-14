@@ -5,7 +5,6 @@
 #include "EmPixMap.h"			// EmPixMap::GetLCDScanlines
 #include "EmMemory.h"			// EmMemGetRealAddress
 #include "SessionFile.h"		// 
-#include "UAE_Utils.h"			// uae_memcpy
 
 
 // Given a register (specified by its field name), return its address
@@ -285,6 +284,10 @@ void EmRegsMQLCDControl::SetSubBankHandlers (void)
 
 	INSTALL_HANDLER (StdReadBE,			StdWriteBE,				filler05);
 	INSTALL_HANDLER (ColorPaletteRead,	ColorPaletteWrite,		ColorPalette800);
+//	INSTALL_HANDLER (StdReadBE,			StdWriteBE,				SourceFIFOSpaceC00);
+	INSTALL_HANDLER (StdReadBE,			StdWriteBE,				USBDevice1000);
+//	INSTALL_HANDLER (StdReadBE,			StdWriteBE,				_filler07);
+
 }
 
 
@@ -417,7 +420,7 @@ void EmRegsMQLCDControl::GetLCDScanlines (EmScreenUpdateInfo& info)
 		long	firstLineOffset	= info.fFirstLine * rowBytes;
 		long	lastLineOffset	= info.fLastLine * rowBytes;
 
-		uae_memcpy (
+		EmMem_memcpy (
 			(void*) ((uint8*) info.fImage.GetBits () + firstLineOffset),
 			baseAddr + firstLineOffset,
 			lastLineOffset - firstLineOffset);

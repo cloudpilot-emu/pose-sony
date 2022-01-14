@@ -31,7 +31,7 @@ class EmRegsEZPalmIIIc : public EmRegsEZ
 		virtual void			GetLCDBeginEnd			(emuptr&, emuptr&);
 		virtual void			GetLCDScanlines			(EmScreenUpdateInfo& info);
 
-		virtual Bool			GetSerialPortOn			(int uartNum);
+		virtual Bool			GetLineDriverState		(EmUARTDeviceType type);
 
 		virtual uint8			GetPortInputValue		(int);
 		virtual uint8			GetPortInternalValue	(int);

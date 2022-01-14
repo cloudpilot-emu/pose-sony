@@ -57,38 +57,39 @@
 // Selectors for routines found in the international manager. The order
 // of these selectors MUST match the jump table in IntlDispatch.c.
 
-typedef enum {
-	intlIntlInit = 0,
-	intlTxtByteAttr,
-	intlTxtCharAttr,
-	intlTxtCharXAttr,
-	intlTxtCharSize,
-	intlTxtGetPreviousChar,
-	intlTxtGetNextChar,
-	intlTxtGetChar,
-	intlTxtSetNextChar,
-	intlTxtCharBounds,
-	intlTxtPrepFindString,
-	intlTxtFindString,
-	intlTxtReplaceStr,
-	intlTxtWordBounds,
-	intlTxtCharEncoding,
-	intlTxtStrEncoding,
-	intlTxtEncodingName,
-	intlTxtMaxEncoding,
-	intlTxtTransliterate,
-	intlTxtCharIsValid,
-	intlTxtCompare,
-	intlTxtCaselessCompare,
-	intlTxtCharWidth,
-	intlTxtGetTruncationOffset,
-	intlIntlGetRoutineAddress,
-	intlIntlHandleEvent,
-	intlTxtParamString,
-	
-	intlMaxSelector = intlTxtParamString,
-	intlBigSelector = 0x7FFF	// Force IntlSelector to be 16 bits.
-} IntlSelector;
+#define intlIntlInit					0
+#define intlTxtByteAttr					1
+#define intlTxtCharAttr					2
+#define intlTxtCharXAttr				3
+#define intlTxtCharSize					4
+#define intlTxtGetPreviousChar			5
+#define intlTxtGetNextChar				6
+#define intlTxtGetChar					7
+#define intlTxtSetNextChar				8
+#define intlTxtCharBounds				9
+#define intlTxtPrepFindString			10
+#define intlTxtFindString				11
+#define intlTxtReplaceStr				12
+#define intlTxtWordBounds				13
+#define intlTxtCharEncoding				14
+#define intlTxtStrEncoding				15
+#define intlTxtEncodingName				16
+#define intlTxtMaxEncoding				17
+#define intlTxtTransliterate			18
+#define intlTxtCharIsValid				19
+#define intlTxtCompare					20
+#define intlTxtCaselessCompare			21
+#define intlTxtCharWidth				22
+#define intlTxtGetTruncationOffset		23
+#define intlIntlGetRoutineAddress		24
+#define intlIntlHandleEvent				25	// New for Palm OS 3.5
+#define intlTxtParamString				26
+#define intlTxtConvertEncodingV35		27	// Patched for Palm OS 3.5.2
+#define intlTxtConvertEncoding			28	// New for Palm OS 4.0
+#define intlIntlSetRoutineAddress		29
+#define intlTxtGetWordWrapOffset		30
+#define intlTxtNameToEncoding			31	
+#define	intlIntlStrictChecks			32
 
 /***********************************************************************
  * Public routines

@@ -14,7 +14,7 @@
 //	1000 - 1999:		Message Templates
 //		1000 - 1199:		Error messages
 //		1200 - 1399:		Other messages
-//		1400 - 1499:		Menu Strings
+//		1400 - 1499:		Menu strings
 //	2000 - 2999:		Template Parts
 //		2000 - 2199:		Misc parts
 //		2200 - 2399:		Operations descriptions
@@ -23,9 +23,9 @@
 //			2500 - 2599:		User/app errors (e.g., "I don't understand that file")
 //		2600 - 2799:		Recovery strings (e.g., "Reboot and try again")
 //		2900 - 2964:		Exception descriptions (e.g., "bus error")
-//	3000 - 4999:		Palm OS system function names
-//	5000 - 6999:		Palm OS Library function names
-//	7000 - xxxx:		Palm OS Error descriptions
+//		3000 - 4999:		Palm OS system function names
+//		5000 - 6999:		Palm OS Library function names
+//		7000 - xxxx:		Palm OS Error descriptions
 
 #include "Strings.r.h"	// kStr_ values
 
@@ -94,8 +94,12 @@ BEGIN
 	kStr_ErrFormObjectListAccess	"%App just %op memory location %mem, which is in the ""%field"" field of the form object list entry with index #%index, which belongs to the form starting at %form.\n\nThe data at this memory location is owned by the Form Manager. Applications should not access the data directly. Instead, they should make the appropriate Form Manager calls."
 	kStr_ErrFormObjectAccess	"%App just %op memory location %mem, which is in the ""%field"" field of the %type starting at %object, which belongs to the form starting at %form.\n\nThe data at this memory location is owned by the Form Manager. Applications should not access the data directly. Instead, they should make the appropriate Form Manager calls."
 	kStr_ErrWindowAccess	"%App just %op memory location %mem, which is in the ""%field"" field of the window starting at %window.\n\nThe data at this memory location is owned by the Window Manager. Applications should not access the data directly. Instead, they should make the appropriate Window Manager calls."
+	kStr_ErrBitmapAccess	"%App just %op memory location %mem, which is in the ""%field"" field of the bitmap starting at %bitmap.\n\nThe data at this memory location is owned by the Palm OS. Applications should not access the data directly. Instead, they should make the appropriate Palm OS calls."
+	kStr_ErrProscribedFunction	"%App just called Palm OS routine ""%function_name"".\n\nApplications should not call this function because %reason."
 	kStr_ErrStepSpy	"%App just %op memory location %mem, changing it from %old_value to %new_value."
 	kStr_ErrWatchpoint	"%App just %op memory location %mem, which is in the range from %watch_start to %watch_end specified in the Breakpoint dialog box."
+	kStr_ErrMemoryLeak	"Found %num_leaks memory leak for %app. Information concerning the leak can be found in the log file."
+	kStr_ErrMemoryLeaks	"Found %num_leaks memory leaks for %app. Information concerning the leaks can be found in the log file."
 
 // Palm OS-detected errors
 
@@ -104,40 +108,58 @@ BEGIN
 
 // Other errors
 
-	kStr_BadChecksum	"The ROM you've chosen has an invalid checksum.\n\nThe most common reason for an invalid checksum has been from the use of utility programs that modify the contents of the ROM without also updating its internal checksum.\n\nPalm Computing does not support the use of this ROM. Use it with caution."
-	kStr_UnknownDevice	"Unable to determine an appropriate device emulation for this ROM file.\n\nPalm Computing does not support the use of this ROM. Use it with caution, as the operation of a ROM with an incorrect device emulation will certainly cause the ROM to crash, and may crash the Palm OS Emulator."
+	kStr_BadChecksum	"The ROM you've chosen has an invalid checksum.\n\nThe most common reason for an invalid checksum has been from the use of utility programs that modify the contents of the ROM without also updating its internal checksum.\n\nPalm, Inc. does not support the use of this ROM. Use it with caution."
+	kStr_UnknownDeviceWarning	"Unable to determine an appropriate device to emulate for this ROM file.\n\nPalm, Inc. does not support the use of this ROM. Use it with caution, as the operation of a ROM with an incorrect device emulation will certainly cause the ROM to crash, and may crash the Palm OS Emulator."
+	kStr_UnknownDeviceError	"This ROM is for a device not supported by this version of the emulator.\n\nPalm, Inc. does not support the use of this ROM."
 	kStr_MissingSkins	"Palm OS Emulator needs ""skin"" files in order to correctly display the hardware devices it emulates. The Emulator looks for these skins in a directory called ""Skins"". However, that directory was not found.\n\nPrevious versions of the Emulator would look for any directory starting with the word ""Skins"" and search that directory for skin files. With the current Emulator, the directory must be named exactly ""Skins"".\n\nIf you don't have any skin files at all, you can download them from the Emulator download Web page:\n\n     <http://www.palmos.com/dev/tech/tools/emulator>\n\nFollow the instructions included with that archive for installing the files."
-	kStr_InconsistantDatabaseDates	"The creation date (%cr_date) in the database header inside the file is more recent than the modification date (%mod_date).\n\nThe Emulator does not consider this to be a problem, and neither does the Palm OS. However, some versions of HotSync will test for this condition and report an error, so you may wish to fix the database before trying to install it on a device."
-	kStr_NULLDatabaseDate	"The creation date in the database header inside the file is zero.\n\nThe Emulator does not consider this to be a problem, and neither does the Palm OS. However, some versions of HotSync will test for this condition and report an error, so you may wish to fix the database before trying to install it on a device."
+	kStr_InconsistentDatabaseDates	"The creation date (%cr_date) in the database header inside ""%database_name"" is more recent than the modification date (%mod_date).\n\nThe Emulator does not consider this to be a problem, and neither does the Palm OS. However, some versions of HotSync will test for this condition and report an error, so you may wish to fix the database before trying to install it on a device."
+	kStr_NULLDatabaseDate	"The creation date in the database header inside ""%database_name"" is zero.\n\nThe Emulator does not consider this to be a problem, and neither does the Palm OS. However, some versions of HotSync will test for this condition and report an error, so you may wish to fix the database before trying to install it on a device."
 	kStr_NeedHostFS	"In order to make use of the information specified in this dialog, you need to have installed HostFS.prc. You can download this file from the Palm OS Emulator download Web page:\n\n     <http://www.palmos.com/dev/tech/tools/emulator/>"
 	kStr_InvalidAddressNotEven	"The address ""%s"" is invalid because it is not even."
 	kStr_InvalidAddressNotInROMOrRAM	"The address ""%s"" is invalid because it is not in ROM or RAM."
 	kStr_CannotParseCondition	"Can't parse the condition ""%s""."
-	kStr_UserNameTooLong	"The name entered into the HotSync User Name field is too long.  It needs to be 40 characters or less."
+	kStr_UserNameTooLong	"The name entered into the HotSync User Name field is too long. It needs to be 40 characters or less."
 
 // --------------------------------------------------------------------------------
 //	Message Templates -- Other messages
 // --------------------------------------------------------------------------------
 
+	kStr_SaveSessionAs	"Save session as:"
+	kStr_LoadSession	"Load session:"
+	kStr_LoadSessionForReplay	"Load session for replay:"
+	kStr_LoadSessionForMinimize	"Load session for minimize:"
+	kStr_SaveScreenAs	"Save screen as:"
+	kStr_ImportFile	"Import file:"
+	kStr_SaveBeforeClosing	"Save changes to the %AppName document ""%DocName"" before closing?"
+	kStr_SaveBeforeQuitting	"Save changes to the %AppName document ""%DocName"" before quitting?"
+
+	kStr_GremlinNumber	"Gremlin #%gremlin_number"
+	kStr_GremlinXofYEvents	"Event %current_event of %last_event"
+	kStr_GremlinXEvents	"Event %current_event"
+	kStr_GremlinElapsedTime	"Elapsed Time: %elapsed_time"
+
+	kStr_MinimizePassNumber	"Pass #%pass_number"
+	kStr_MinimizeXofYEvents	"Event %current_event of %last_event"
+	kStr_MinimizeElapsedTime	"Elapsed Time: %elapsed_time"
+	kStr_MinimizeRange	"Excluding range %first_event to %last_event"
+	kStr_MinimizeDiscarded	"Discarded %num_discarded_events of %num_total_events events"
+
 	kStr_AppAndVers	"%application %version"
 	kStr_XofYFiles	"%d of %d files"
-	kStr_GremlinNumber	"Gremlin #%ld"
-	kStr_XofYEvents	"Event %s of %s"
-	kStr_XEvents	"Event %s"
-	kStr_ElapsedTime	"Elapsed Time: %s"
 	kStr_GremlinStarted	"Gremlin #%d started, %ld steps.\n"
 	kStr_GremlinEnded	"Gremlin #%d stopped at event %ld of %ld after %ld milliseconds.\n"
-	kStr_SaveScreenAs	"Save screen as:"
 	kStr_EntireDevice	"Entire Palm OS device"
 	kStr_ErrDisplayMessage	"%s, Line: %d, %s"
 	kStr_UnknownFatalError	"Unknown fatal error occurred!"
 	kStr_EmulatorOff	"The emulator is not ready to %s at this time.\n(Perhaps it is turned off?)"
-	kStr_SaveBeforeClosing	"Save changes to the %AppName document ""%DocName"" before closing?"
-	kStr_SaveBeforeQuitting	"Save changes to the %AppName document ""%DocName"" before quitting?"
 	kStr_LogFileSize	"===========================================================\nThis file contains only the last %ldK of generated text.\n===========================================================\n\n"
 	kStr_InternalErrorException	"Hardware exception #%d occurred while the emulator was calling the Palm OS function ""%s""."
 	kStr_InternalErrorMessage	"%s\n\nThe error occurred while the emulator was calling the Palm OS function ""%s""."
-	kStr_WillNowReset	"  The emulator is now in an unstable state and will reset."
+	kStr_WillNowReset	" The emulator is now in an unstable state and will reset."
+	kStr_CommPortError	"The emulator could not open port %transport. Please make sure that it is not in use by another application, and that the emulated IR and Serial ports are not mapped to the same physical port, then reconfirm your port selection in Preferences...."
+	kStr_SocketsError	"The emulator could not open a sockets connection to %transport. Please check your TCP settings, and then reconfirm your host selection in Preferences...."
+	kStr_MustTurnOnLogging	"In order to utilize error handling options that don't display messages in a dialog box, the corresponding logging options must be turned on. Should those options be turned on now?"
+	kStr_MustTurnOnShowDialog	"In order to safely turn off logging options for errors and warnings, the corresponding error handling options must be set to ""Show in dialog"". Should those options be set now?"
 
 	kStr_ROMTransferInstructions+0	"1.  You should find a file named ""ROM Transfer.prc"" included\n     with the Palm OS Emulator. This is a Palm OS application\n     you should install on your Palm OS device before continuing.\n\n"
 	kStr_ROMTransferInstructions+1	"2.  Choose an appropriate serial port and speed from the menus\n     below. Faster speeds do not always work correctly. Choose\n     a slower speed if you experience problems.\n\n"
@@ -148,6 +170,11 @@ BEGIN
 	kStr_ROMTransferInstructions+6	"7.  Click the ""Begin"" button in this dialog. The Palm OS\n     Emulator will wait for your Palm device to respond.\n\n"
 	kStr_ROMTransferInstructions+7	"8.  The transfer will take several minutes, so please be patient.\n     If an error occurs during the transfer, the application may\n     be unresponsive or may appear to hang. If this happens,\n     wait for a few minutes to give the application a chance to\n     time-out. It should then resume normal operation.\n\n"
 	kStr_ROMTransferInstructions+8	"9.  After the ROM has been transferred to your desktop computer,\n     you will be asked to save it to a file. Save it with an\n     appropriate name (for example, ""Palm III.rom""). Then\n     create a a new emulator session using that ROM."
+
+// --------------------------------------------------------------------------------
+//	Message Templates -- Menu strings
+// --------------------------------------------------------------------------------
+
 	kStr_MenuSessionNew	"&New...\tN"
 	kStr_MenuSessionOpenOther	"&Other...\tO"
 	kStr_MenuSessionClose	"&Close\tW"
@@ -155,6 +182,7 @@ BEGIN
 	kStr_MenuSessionSaveAs	"Save &As..."
 	kStr_MenuSessionBound	"Save &Bound Emulator..."
 	kStr_MenuScreenSave	"Sa&ve Screen...\tM"
+	kStr_MenuSessionInfo	"Session Info..."
 	kStr_MenuImportOther	"&Other...\tI"
 	kStr_MenuExport	"Export &Database..."
 	kStr_MenuHotSync	"&HotSync\tH"
@@ -175,14 +203,17 @@ BEGIN
 
 	kStr_MenuLogging	"&Logging...\tL"
 	kStr_MenuDebugging	"&Debugging...\t\\"
+	kStr_MenuErrorHandling	"&Error Handling...\tE"
 	kStr_MenuTracing	"&Tracing...\tT"
 	kStr_MenuSkins	"&Skins...\tK"
-	kStr_MenuCards	"&Cards..."
+	kStr_MenuHostFS	"&HostFS..."
 	kStr_MenuBreakpoints	"&Breakpoints...\tB"
 	kStr_MenuGremlinsNew	"&New...\tG"
 	kStr_MenuGremlinsStep	"&Step"
 	kStr_MenuGremlinsResume	"&Resume"
 	kStr_MenuGremlinsStop	"Sto&p"
+	kStr_MenuEventReplay	"Repla&y..."
+	kStr_MenuEventMinimize	"&Minimize..."
 #if HAS_PROFILING
 
 	kStr_MenuProfileStart	"&Start\t["
@@ -190,7 +221,7 @@ BEGIN
 	kStr_MenuProfileDump	"&Dump"
 #endif
 
-	kStr_MenuAbout	"About Palm OS(R) Emulator"
+	kStr_MenuAbout	"About Palm OS® Emulator"
 #if PLATFORM_WINDOWS
 
 	kStr_MenuQuit	"E&xit\tQ"
@@ -213,7 +244,7 @@ BEGIN
 //	Template Parts -- Misc parts
 // --------------------------------------------------------------------------------
 
-	kStr_AppName	"Palm OS(R) Emulator"
+	kStr_AppName	"Palm OS® Emulator"
 	kStr_Untitled	"untitled"
 	kStr_DefaultROMName	"Palm.ROM"
 	kStr_ProfileResults	"Profile Results"
@@ -277,6 +308,11 @@ BEGIN
 	kStr_WhenException	"processing a hardware exception, indicating that the exception vector table has been overwritten."
 	kStr_WhenSysCall	"invoking a Palm OS System function, indicating that the system dispatch table has been overwritten."
 
+	kStr_ShowInDialog	"Show in dialog"
+	kStr_AutomaticallyContinue	"Automatically continue"
+	kStr_AutomaticallyQuit	"Automatically quit Emulator"
+	kStr_NextGremlin	"Switch to next Gremlin"
+
 // --------------------------------------------------------------------------------
 //	Template Parts -- Operations descriptions
 // --------------------------------------------------------------------------------
@@ -291,29 +327,32 @@ BEGIN
 	kStr_CmdSave	"save the file ""%filename"""
 	kStr_CmdSaveBound	"save a bound emulator"
 	kStr_CmdSaveScreen	"save the screen"
+	kStr_CmdSessionInfo	"display session info"
 	kStr_CmdInstall	"install the Palm OS file ""%filename"""
 	kStr_CmdInstallMany	"install the Palm OS files"
 	kStr_CmdExportDatabase	"export the database"
 	kStr_CmdHotSync	"start the HotSync"
 	kStr_CmdReset	"reset the device"
 	kStr_CmdTransferROM	"transfer the ROM"
-	kStr_CmdMinimize	"minimize the emulator window"
 	kStr_CmdQuit	"quit the application"
 
 	kStr_CmdPreferences	"open the Preferences dialog box"
 	kStr_CmdLoggingOptions	"open the Logging Options dialog box"
 	kStr_CmdDebugOptions	"open the Debug Options dialog box"
+	kStr_CmdErrorHandling	"open the Error Handling dialog box"
 	kStr_CmdTracingOptions	"open the Trace Options dialog box"
 	kStr_CmdSkins	"open the Skins dialog box"
 	kStr_CmdBreakpoints	"open the Breakpoints dialog box"
 
 	kStr_CmdGremlinNew	"start the gremlin"
+	kStr_CmdGremlinSuspend	"suspend the gremlin"
 	kStr_CmdGremlinStep	"step the gremlin"
 	kStr_CmdGremlinResume	"resume the gremlin"
 	kStr_CmdGremlinStop	"stop the gremlin"
+	kStr_CmdEventReplay	"replay event file"
+	kStr_CmdEventMinimize	"start event Minimization"
 
 #if HAS_PROFILING
-	kStr_CmdProfileInit	"initialize profiling"
 	kStr_CmdProfileStart	"start profiling"
 	kStr_CmdProfileStop	"stop profiling"
 	kStr_CmdProfileDump	"dump the profiling results"
@@ -389,10 +428,12 @@ BEGIN
 	kStr_BadROM	"it doesn't appear to be a valid ROM file"
 	kStr_UnsupportedROM	"this Debug 2.0 ROM is not supported"
 	kStr_InvalidDevice	"this version of the Palm OS Emulator does not support the device required by this session file"
+	kStr_InvalidSession	"the session file doesn't have the minimum information required to create a new session"
+	kStr_InvalidConfiguration	"the given configuration information is not supported by this version of the Palm OS Emulator"
 
 // PRC, PDB, PQA file errors
 	kStr_NameNotNULLTerminated	"the database name (""%database_name"") is too long"
-	kStr_NameNotPrintable	"the database name (""%database_name"") contains invalid characters"
+	kStr_NameNotPrintable	"the database name (""%database_name"") contains invalid characters. Only standard printable ASCII characters (that is, characters with values in the range 0x20 - 0x7E) are allowed.\n\nIf you need to display a name in the Launcher with additional characters, you can specify that name in the application's 'tAIN' resource. You can set this in the ""Application Icon Name"" field in the ""Project Settings"" section of ""Constructor for Palm OS"", or in the ""APPLICATIONICONNAME"" field of ""pilrc"""
 	kStr_FileTooSmall	"the file is too small to contain all the information it claims to have"
 	kStr_nextRecordListIDNonZero	"the internal header field nextRecordListID is non-zero"
 	kStr_ResourceTooSmall	"the size of resource '%res_type'(%res_id) is zero or negative"
@@ -401,10 +442,13 @@ BEGIN
 	kStr_RecordOutOfRange	"the entry for record #%record_number indicates that the data for the resource is outside the range of the file"
 	kStr_OverlappingResource	"the resource '%res_type'(%res_id) overlaps another resource"
 	kStr_OverlappingRecord	"record #%record_number overlaps another record"
-	kStr_ResourceMemError	"an out of memory error occurred while installing resource '%res_type'(%res_id). It's possible that the size of this resource (%res_size) is larger than the currently allowed maximum of 65505"
-	kStr_RecordMemError	"an out of memory error occurred while installing record #%record_number. It's possible that the size of this record (%res_size) is larger than the currently allowed maximum of 65505"
+	kStr_ResourceMemError	"an out of memory error occurred while installing resource '%res_type'(%res_id). It's possible that the reason for this error is because the size of this resource (%res_size) is larger than the currently allowed maximum of 65505"
+	kStr_RecordMemError	"an out of memory error occurred while installing record #%record_number. It's possible that the reason for this error is because the size of this record (%res_size) is larger than the currently allowed maximum of 65505"
 	kStr_AppInfoMemError	"an out of memory error occurred while installing the app info block. It's possible that the size of this record (%res_size) is larger than the currently allowed maximum of 65505"
 	kStr_DuplicateResource	"a duplicate '%res_type'(%res_id) resource was found"
+
+	kStr_SystemUseOnly	"it is reserved for system use only"
+	kStr_Obsolete	"it is obsolete and will be removed from a future version of the Palm OS"
 
 // --------------------------------------------------------------------------------
 //	Template Parts -- Recovery strings

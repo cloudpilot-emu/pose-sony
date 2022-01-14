@@ -17,11 +17,12 @@
 #include "ChunkFile.h"			// Chunk, EmStreamChunk
 #include "EmErrCodes.h"			// kError_CorruptedHeap_Foo
 #include "EmMemory.h"			// CEnableFullAccess, EmMemGet32, EmMemGet16, EmMemGet8
-#include "ErrorHandling.h"		// Errors::Throw
+#include "ErrorHandling.h"		// Errors::ReportErrCorruptedHeap
 #include "ROMStubs.h"			// MemNumHeaps, MemHeapID, MemHeapPtr
 #include "SessionFile.h"		// SessionFile
 
 #include <stdio.h>				// sprintf
+
 
 // ===========================================================================
 //		¥ EmPalmHeap
@@ -214,7 +215,7 @@ const EmPalmHeap* EmPalmHeap::GetHeapByID (UInt16 heapID)
 	{
 		if (iter->fHeapID == heapID)
 		{
-			return iter;
+			return &*iter;
 		}
 
 		++iter;
@@ -252,7 +253,7 @@ const EmPalmHeap* EmPalmHeap::GetHeapByPtr (MemPtr p)
 	{
 		if (iter->Contains ((emuptr) p))
 		{
-			return iter;
+			return &*iter;
 		}
 
 		++iter;
@@ -527,6 +528,14 @@ void EmPalmHeap::MemPtrUnlock (MemPtr p, EmPalmChunkList* delta)
 		heap->ResyncPtr (p, delta);
 }
 
+void EmPalmHeap::MemPtrSetOwner (MemPtr p, EmPalmChunkList* delta)
+{
+	EmPalmHeap*	heap = const_cast <EmPalmHeap*> (GetHeapByPtr (p));
+
+	if (heap)
+		heap->ResyncPtr (p, delta);
+}
+
 void EmPalmHeap::ValidateAllHeaps (void)
 {
 	EmPalmHeapList::iterator	iter = fgHeapList.begin ();
@@ -617,6 +626,52 @@ MemPtr EmPalmHeap::DerefHandle (MemHandle h)
 
 	emuptr	pp = (emuptr) memHandleUnProtect(h);
 	return (MemPtr) EmMemGet32 (pp);
+}
+
+/***********************************************************************
+ *
+ * FUNCTION:	EmPalmHeap::RecoverHandle	[ STATIC ]
+ *
+ * DESCRIPTION:	Finds a handle given a pointer.
+ *
+ *				Note that MemPtrRecoverHandle calls memHandleProtect on
+ *				the result even if it's NULL; we don't do that here.
+ *
+ * PARAMETERS:	p - the pointer whose handle we want to find
+ *
+ * RETURNED:	The handle associated with the pointer.  NULL if the
+ *				chunk was not allocated as a relocatable chunk or if
+ *				it's a free chunk.
+ *
+ ***********************************************************************/
+
+MemHandle EmPalmHeap::RecoverHandle (MemPtr p)
+{
+	MemHandle	h = NULL;
+
+	if (p)
+	{
+		const EmPalmHeap*	heap = EmPalmHeap::GetHeapByPtr (p);
+
+		if (heap)
+		{
+			const EmPalmChunk*	chunk = heap->GetChunkBodyContaining ((emuptr) p);
+
+			if (chunk && !chunk->Free () && chunk->HOffset ())
+			{
+				h = (MemHandle) (((emuptr) p) - chunk->HOffset () * 2 - chunk->HeaderSize ());
+
+#if _DEBUG
+				CEnableFullAccess	munge;	// Remove blocks on memory access.
+				EmAssert (EmMemGet32 ((emuptr) h) == (emuptr) p);
+#endif
+
+				h = memHandleProtect (h);
+			}
+		}
+	}
+
+	return h;
 }
 
 
@@ -870,7 +925,7 @@ const EmPalmChunk* EmPalmHeap::GetChunkReferencedBy (MemHandle h) const
 	{
 		if (iter->Contains (p))
 		{
-			return iter;
+			return &*iter;
 		}
 
 		++iter;
@@ -903,7 +958,7 @@ const EmPalmChunk* EmPalmHeap::GetChunkContaining (emuptr p) const
 	{
 		if (iter->Contains (p))
 		{
-			return iter;
+			return &*iter;
 		}
 
 		++iter;
@@ -936,7 +991,7 @@ const EmPalmChunk* EmPalmHeap::GetChunkBodyContaining (emuptr p) const
 	{
 		if (iter->BodyContains (p))
 		{
-			return iter;
+			return &*iter;
 		}
 
 		++iter;
@@ -1811,96 +1866,105 @@ EmPalmChunk::~EmPalmChunk (void)
 
 void EmPalmChunk::Validate (const EmPalmHeap& heap) const
 {
-	// Make sure the chunk is in the heap (this should always be true).
-	// !!! It's not...determine why and document.
-
-	if (!heap.Contains (fChunkHdrStart))
+	try
 	{
-		Errors::Throw (kError_CorruptedHeap_ChunkNotInHeap);
-	}
+		// Make sure the chunk is in the heap (this should always be true).
+		// !!! It's not...determine why and document.
 
-	// Check the size.
-
-	if (this->End () > heap.End ())
-	{
-		char	buffer[20];
-
-		// !!! There's a problem here.  These variables are set before the
-		// variable that uses them.  Thus, replacements based on these variables
-		// are made before they're ready.  The result is that %chunk_size and
-		// %chunk_max still appear in the final message.  I'm not sure how, but
-		// this needs to be addressed and fixed...
-
-		sprintf (buffer, "%0x08X", (int) this->Size ());
-		Errors::SetParameter ("%chunk_size", buffer);
-
-		sprintf (buffer, "%0x08X", (int) heap.Size ());
-		Errors::SetParameter ("%chunk_max", buffer);
-
-		Errors::Throw (kError_CorruptedHeap_ChunkTooLarge);
-	}
-
-	// These bits should not be set.
-
-	if (fUnused2 || fUnused3)
-	{
-		Errors::Throw (kError_CorruptedHeap_InvalidFlags);
-	}
-
-	if (!fFree)
-	{
-		// If it's a movable chunk, validate that the handle offset
-		// references the handle that points back to the chunk.
-
-		if (fHOffset)
+		if (!heap.Contains (fChunkHdrStart))
 		{
-			// Get the master pointer to this block.  If hOffset is bogus, then
-			// this pointer may be bogus, too.
+			throw (kError_CorruptedHeap_ChunkNotInHeap);
+		}
 
-			emuptr	h = fChunkHdrStart - fHOffset * 2;
+		// Check the size.
 
-			// Make sure it is in a master pointer block.
+		if (this->End () > heap.End ())
+		{
+			char	buffer[20];
 
-			ITERATE_MPTS(heap, iter, end)
+			// !!! There's a problem here.  These variables are set before the
+			// variable that uses them.  Thus, replacements based on these variables
+			// are made before they're ready.  The result is that %chunk_size and
+			// %chunk_max still appear in the final message.  I'm not sure how, but
+			// this needs to be addressed and fixed...
+
+			sprintf (buffer, "%0x08X", (int) this->Size ());
+			Errors::SetParameter ("%chunk_size", buffer);
+
+			sprintf (buffer, "%0x08X", (int) heap.Size ());
+			Errors::SetParameter ("%chunk_max", buffer);
+
+			throw (kError_CorruptedHeap_ChunkTooLarge);
+		}
+
+		// These bits should not be set.
+
+		if (fUnused2 || fUnused3)
+		{
+			throw (kError_CorruptedHeap_InvalidFlags);
+		}
+
+		if (!fFree)
+		{
+			// If it's a movable chunk, validate that the handle offset
+			// references the handle that points back to the chunk.
+
+			if (fHOffset)
 			{
-				// See if "h" is in this array.  If so, break from the loop.
+				// Get the master pointer to this block.  If hOffset is bogus, then
+				// this pointer may be bogus, too.
 
-				if (iter->TableContains (h))
+				emuptr	h = fChunkHdrStart - fHOffset * 2;
+
+				// Make sure it is in a master pointer block.
+
+				ITERATE_MPTS(heap, iter, end)
 				{
-					break;
+					// See if "h" is in this array.  If so, break from the loop.
+
+					if (iter->TableContains (h))
+					{
+						break;
+					}
+					
+					++iter;
 				}
 				
-				++iter;
+				if (iter == end)
+				{
+					throw (kError_CorruptedHeap_HOffsetNotInMPT);
+				}
+
+				// "h" is in a master pointer table. Make sure "h" points back
+				// to the block it's supposed to.
+
+				CEnableFullAccess	munge;	// Remove blocks on memory access.
+
+				if (EmMemGet32 (h) != this->BodyStart())
+				{
+					throw (kError_CorruptedHeap_HOffsetNotBackPointing);
+				}
 			}
-			
-			if (iter == end)
+
+			// If it's not a movable chunk, it must have a max lock count.
+
+			else
 			{
-				Errors::Throw (kError_CorruptedHeap_HOffsetNotInMPT);
-			}
-
-			// "h" is in a master pointer table. Make sure "h" points back
-			// to the block it's supposed to.
-
-			CEnableFullAccess	munge;	// Remove blocks on memory access.
-
-			if (EmMemGet32 (h) != this->BodyStart())
-			{
-				Errors::Throw (kError_CorruptedHeap_HOffsetNotBackPointing);
+				if (fLockCount != memPtrLockCount)
+				{
+					throw (kError_CorruptedHeap_InvalidLockCount);
+				}
 			}
 		}
 
-		// If it's not a movable chunk, it must have a max lock count.
-
-		else
-		{
-			if (fLockCount != memPtrLockCount)
-			{
-				Errors::Throw (kError_CorruptedHeap_InvalidLockCount);
-			}
-		}
+		// !!! Walk the heap and make sure that fChunkHdrStart is found?
 	}
+	catch (ErrCode err)
+	{
+		// This will throw an EmExceptionReset object.
 
-	// !!! Walk the heap and make sure that fChunkHdrStart is found?
+		Errors::ReportErrCorruptedHeap (err, this->fChunkHdrStart);
+	}
 }
 
 

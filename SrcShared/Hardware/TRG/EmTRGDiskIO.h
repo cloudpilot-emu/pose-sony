@@ -14,77 +14,40 @@
 #ifndef EmTRGDiskIO_h
 #define EmTRGDiskIO_h
 
+/************************************************************************
+ * This class handles the generic low level disk access.
+ ************************************************************************/
 #include "EmTRGCFDefs.h"
 #include "EmTRGDiskType.h"
 
-#include <stdio.h>				// FILE
+#define UNKNOWN_DRIVE 0
+#define CF_DRIVE  1
+#define SD_DRIVE  2
 
-#define DISKFILE_NAME  "trgdrv.dat"
+#define SECTOR_SIZE 512
 
-typedef struct {
-	uint32            DriveNum;
-	LogicalBlockAddr  Lba;
-	uint32            SectorCnt;
-} DiskIOParams; 
-
-typedef enum {
-	DIO_SUCCESS     = 0,
-	DIO_ERROR       = 1
-} DiskIOStatus;
-
-typedef enum {
-	DIO_DATA_COMPLETE   = 0,
-	DIO_MORE_DATA       = 1
-} DiskDataStatus;
-
-typedef enum {
-	DIO_ERR_NONE    = 0,
-	DIO_ERR_GENERIC = 1
-} DiskIOError;
-
-typedef struct {
-	LogicalBlockAddr	Lba;
-	uint32			NumSectorsRequested;
-	uint32			NumSectorsCompleted;
-	EmSector		Sector;
-	int                     SectorIndex;
-	DiskIOStatus		Status;
-	DiskIOError             Error;
-} DiskIOState; 
-
-class EmDiskIO 
+class EmTRGDiskIO 
 {
-	public:
-					EmDiskIO				(void);
-	 virtual			~EmDiskIO				(void);
-
-	// EmRegs overrides
-	void			Initialize(EmDiskTypeID DiskTypeID);
-	void			Dispose(void);
-	void                    Reset(void);
-	void			StartDriveID(void);
-	void			ReadNextDataByte(uint8 * val);
-	void			WriteNextDataByte(uint8 val);
-	uint32			GetSectorCount(void);
-	void			StartRead(DiskIOParams * params);
-	void			StartWrite(DiskIOParams * params);
-	void			GetStatus(DiskIOStatus *   status,
-				          DiskDataStatus * dataStatus);
-	DiskIOError  		GetError(void);
-
 private:
-	FILE *			myFile;
-	char * 			GetFileName(void);
-	EmDiskTypeID		DiskTypeID;
-	EmCurrDiskType		CurrDisk;
-	DiskIOStatus		WriteSector(void);
-	DiskIOStatus		ReadSector(void);
-	void			CloseFile(void);
-	DiskIOState		State;
-	DiskIOStatus		TryToRead(void);
-	DiskIOStatus		TryToWrite(void);
-	DiskIOStatus		TryToFormat(void);
-	DiskIOStatus		Format(void);
+    int             m_driveNo;
+    EmDiskTypeID    m_diskTypeID;
+	EmCurrDiskType	m_currDisk;
+
+    int     Format(void);
+    char   *GetFilePath(int driveNo);
+
+    int     Read(uint32 sectorNum, void *buffer);
+    int     Write(uint32 sectorNum, void *buffer);
+
+public:
+    EmTRGDiskIO(void);
+    ~EmTRGDiskIO();
+
+    void Initialize(EmDiskTypeID DiskTypeID, int driveNo);
+    void Dispose(void);
+
+    int  ReadSector(uint32 sectorNum, void *buffer);
+    int  WriteSector(uint32 sectorNum, void *buffer);
 };
 
 #endif	/* EmTRGDiskIO_h */

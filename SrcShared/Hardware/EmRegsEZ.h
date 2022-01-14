@@ -59,7 +59,7 @@ class EmRegsEZ : public EmRegs, public EmHALHandler
 		virtual void			GetLCDBeginEnd			(emuptr&, emuptr&);
 		virtual void			GetLCDScanlines			(EmScreenUpdateInfo& info);
 
-		virtual Bool			GetSerialPortOn			(int uartNum) = 0;
+		virtual EmUARTDeviceType	GetUARTDevice		(int uartNum);
 		virtual int32			GetDynamicHeapSize		(void);
 		virtual int32			GetROMSize				(void);
 		virtual emuptr			GetROMBaseAddress		(void);
@@ -73,8 +73,6 @@ class EmRegsEZ : public EmRegs, public EmHALHandler
 		virtual void			PortDataChanged			(int, uint8, uint8);
 		virtual void			GetKeyInfo				(int* numRows, int* numCols,
 														 uint16* keyMap, Bool* rows) = 0;
-
-		virtual void			LineDriverChanged		(int uartNum);
 
 	protected:
 		uint32					pllFreqSelRead			(emuptr address, int size);
@@ -131,6 +129,7 @@ class EmRegsEZ : public EmRegs, public EmHALHandler
 		uint16					fKeyBits;
 		uint16					fLastTmr1Status;
 		uint8					fPortDEdge;
+		uint32					fPortDDataCount;
 
 		uint32					fHour;
 		uint32					fMin;

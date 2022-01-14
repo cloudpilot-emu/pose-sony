@@ -67,6 +67,9 @@ typedef enum {
 	tsmConfirmEvent = 35,		// system level
 	tsmFepButtonEvent,			// system level
 	tsmFepModeEvent,				// system level
+//DOLATER - peter: remove this:	frmTitleChangedEvent,		// system level
+	attnIndicatorEnterEvent,	// for attention manager's indicator
+	attnIndicatorSelectEvent,	// for attention manager's indicator
 	
 	// add future UI level events in this numeric space
 	// to save room for new system level events
@@ -123,6 +126,11 @@ typedef struct EventType {
          UInt32            time;
          UInt16				value;		// used for slider controls only
          } ctlRepeat;
+
+      struct ctlExit {
+         UInt16            controlID;
+         struct ControlType *pControl;
+         } ctlExit;
 
       struct fldEnter {
          UInt16            fieldID;
@@ -217,6 +225,14 @@ typedef struct EventType {
       struct frmTitleSelect {
          UInt16            formID;
          } frmTitleSelect;
+
+       struct attnIndicatorEnter {
+         UInt16            formID;
+      	} attnIndicatorEnter;
+
+     struct attnIndicatorSelect {
+         UInt16            formID;
+      	} attnIndicatorSelect;
 
       struct daySelect {
          struct DaySelectorType *pSelector;

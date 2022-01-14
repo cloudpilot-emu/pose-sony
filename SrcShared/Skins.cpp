@@ -15,6 +15,7 @@
 #include "Skins.h"
 
 #include "ChunkFile.h"			// Chunk
+#include "EmApplication.h"		// gApplication
 #include "EmFileRef.h"			// EmFileRef
 #include "EmMapFile.h"			// EmMapFile
 #include "EmSession.h"			// gSession
@@ -67,9 +68,9 @@ static Skinfo			gCurrentSkin;
 
 #ifdef SONY_ROM
 ScaleType				gCurrentScale;
-#else
+#else //!SONY_ROM
 static ScaleType		gCurrentScale;
-#endif
+#endif //SONY_ROM
 
 static void				PrvBuildSkinList	(SkinList&);
 static void				PrvGetSkins			(const EmDevice&, SkinList& results);
@@ -106,6 +107,7 @@ static const char* kElementNames[] =
 
 	"Touchscreen",
 	"LCD",
+	"LED",
 
 #ifdef SONY_ROM
 	// Sony custom button
@@ -117,7 +119,7 @@ static const char* kElementNames[] =
 	"JogESC",				// for Sony & JogDial
 	"MS-In/Out",			// for Sony & MemoryStick
 	"AlermLED",				// for Sony & AlermLED
-#endif	
+#endif //SONY_ROM
 };
 
 
@@ -136,7 +138,8 @@ static ButtonBoundsX	kGenericButtons [] =
 	{ kElement_Antenna,			{ {   0,   0 }, {   0,   0 } } },
 	{ kElement_ContrastButton,	{ {   0,   0 }, {   0,   0 } } },
 	{ kElement_Touchscreen,		{ {  32,  32 }, { 160, 220 } } },
-	{ kElement_LCD,				{ {  32,  32 }, { 160, 160 } } }
+	{ kElement_LCD,				{ {  32,  32 }, { 160, 160 } } },
+	{ kElement_LED,				{ {   1, 274 }, {  16,  24 } } }
 };
 
 static RGBType	kGenericBackgroundColor	(0x7B, 0x8C, 0x5A);
@@ -335,9 +338,9 @@ EmFileRef SkinGetSkinFile (ScaleType scale)
 		return EmFileRef ();
 	}
 
-	EmAssert (!Platform::SkinfoResourcePresent ());
-	EmAssert (!Platform::Skin1xResourcePresent ());
-	EmAssert (!Platform::Skin2xResourcePresent ());
+	EmAssert (!gApplication->SkinfoResourcePresent ());
+	EmAssert (!gApplication->Skin1xResourcePresent ());
+	EmAssert (!gApplication->Skin2xResourcePresent ());
 
 	string			name;
 
@@ -401,7 +404,7 @@ EmStream* SkinGetSkinStream (ScaleType scale)
 	if (gCurrentSkin.fName == kGenericSkinName)
 		return result;
 
-	if (::IsBound ())
+	if (gApplication->IsBound ())
 	{
 		// If we're bound, open up a stream on the resource data.
 
@@ -409,9 +412,9 @@ EmStream* SkinGetSkinStream (ScaleType scale)
 		Chunk*	chunk = new Chunk;
 
 		if (scale == 1)
-			haveRes = Platform::GetSkin1xResource (*chunk);
+			haveRes = gApplication->GetSkin1xResource (*chunk);
 		else
-			haveRes = Platform::GetSkin2xResource (*chunk);
+			haveRes = gApplication->GetSkin2xResource (*chunk);
 
 		if (haveRes)
 			result = new EmStreamChunk (chunk);
@@ -669,6 +672,8 @@ Bool	SkinGetElementInfo	(int index, SkinElementType& type, EmRect& bounds)
 
 EmPoint	SkinScaleDown	(const EmPoint& pt)
 {
+	EmAssert (gCurrentScale > 0);
+
 	EmPoint	result = pt;
 
 	result /= EmPoint (gCurrentScale, gCurrentScale);
@@ -679,6 +684,8 @@ EmPoint	SkinScaleDown	(const EmPoint& pt)
 
 EmRect	SkinScaleDown	(const EmRect& r)
 {
+	EmAssert (gCurrentScale > 0);
+
 	EmRect	result = r;
 
 	result /= EmPoint (gCurrentScale, gCurrentScale);
@@ -702,6 +709,8 @@ EmRect	SkinScaleDown	(const EmRect& r)
 
 EmPoint	SkinScaleUp	(const EmPoint& pt)
 {
+	EmAssert (gCurrentScale > 0);
+
 	EmPoint	result = pt;
 
 	result *= EmPoint (gCurrentScale, gCurrentScale);
@@ -712,6 +721,8 @@ EmPoint	SkinScaleUp	(const EmPoint& pt)
 
 EmRect	SkinScaleUp	(const EmRect& r)
 {
+	EmAssert (gCurrentScale > 0);
+
 	EmRect	result = r;
 
 	result *= EmPoint (gCurrentScale, gCurrentScale);
@@ -1150,10 +1161,10 @@ void PrvBuildSkinList (SkinList& skins)
 	// If we're a "bound" Poser, the skin list consists of the
 	// skin we're bound to.
 
-	if (::IsBound ())
+	if (gApplication->IsBound ())
 	{
 		Chunk	chunk;
-		if (Platform::GetSkinfoResource (chunk))
+		if (gApplication->GetSkinfoResource (chunk))
 		{
 			EmStreamChunk	stream (chunk);
 			::PrvAddSkin (skins, stream);
@@ -1526,4 +1537,4 @@ Bool	SkinGetElementEmRect	(SkinElementType which, EmRect *lprc)
 	}
 	return false;
 }
-#endif
+#endif //SONY_ROM

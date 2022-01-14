@@ -88,11 +88,6 @@ struct EmSuspendCounters
 
 	int	fSuspendBySysCall			: 1;
 
-	// Set when we're leaving because we called Execute in order to spin
-	// the state up to when the system is idle, and that state is reached.
-
-	int	fSuspendByIdle				: 1;
-
 	// Set when we're leaving because we called Execute in order to call
 	// a subroutine, and that subroutine returned.
 
@@ -154,18 +149,10 @@ enum EmStopMethod
 	kStopOnCycle,	// Suspend at the end of a cycle.  This request may
 					// fail if the CPU thread is blocked on the UI.
 
-	kStopOnSysCall,	// Suspend on the next call to a system function.  This
+	kStopOnSysCall	// Suspend on the next call to a system function.  This
 					// request may fail if the CPU thread is block on the
 					// UI.  The request may *hang* if the CPU thread is in
 					// a state such that it never reaches a system call.
-
-	kStopOnIdle		// Suspend the next time the system is idle.  This
-					// request may fail if the CPU thread is block on the
-					// UI.  The request may *hang* if the CPU thread is in
-					// a state such that it never reaches a system call.
-					//
-					// The system is considered idle if a call to
-					// EvtGetEvent results in its calling SysDoze.
 };
 
 
@@ -455,27 +442,17 @@ class EmSession
 		// Called by the CPU thread when it needs to display an error message.
 		// Do NOT call this from any other thread.
 
-		EmDlgItemID				BlockOnDialog		(EmDlgFn fn,
-													 void* userData,
-													 EmDlgID dlgID);
+		EmDlgItemID				BlockOnDialog		(EmDlgThreadFn fn,
+													 const void* parameters);
 
 #if HAS_OMNI_THREAD
-		// Called by the UI thread to get the values it needs to display a
-		// dialog.  Returns false if there's no dialog request.  If it
-		// returns true, the dialog should be displayed with the values
-		// returned in title, message, and buttonOptions.
-
-		Bool					BeginDialog			(EmDlgFn& fn,
-													 void*& userData,
-													 EmDlgID& dlgID);
-
 		// Called by the UI thread when the dialog has been dismissed, or
 		// if a thread blocked on the UI needs to be stopped.  In the
 		// former case, dialogResult should be set to the button that
 		// dismissed the dialog.  In the latter case, dialogResult should
 		// be set to -1.
 
-		void					EndDialog			(EmDlgItemID dialogResult);
+		void					UnblockDialog		(void);
 #endif
 
 		// Methods for interacting with the UI:
@@ -514,6 +491,8 @@ class EmSession
 		EmPenEvent				PeekPenEvent		(void);
 		EmPenEvent				GetPenEvent			(void);
 
+		void					ReleaseBootKeys		(void);
+
 		// Method for getting information on the device we're emulating.
 		// Callable at any time from any thread.
 
@@ -525,7 +504,6 @@ class EmSession
 		// points.  Called inside the CPU thread.
 
 		Bool					GetBreakOnSysCall	(void);
-		Bool					GetBreakOnIdle		(void);
 
 		// Called by the CPU thread to determine if emulation code is being
 		// executed as part of normal emulation, or as part of a subroutine
@@ -548,7 +526,6 @@ class EmSession
 		void					ScheduleSuspendExternal				(void);
 		void					ScheduleSuspendTimeout				(void);
 		void					ScheduleSuspendSysCall				(void);
-		void					ScheduleSuspendIdle					(void);
 		void					ScheduleSuspendSubroutineReturn		(void);
 
 		void					ScheduleResumeExternal				(void);
@@ -564,6 +541,7 @@ class EmSession
 		void					ScheduleLoadRootState					(void);
 		void					ScheduleNextGremlinFromRootState		(void);
 		void					ScheduleNextGremlinFromSuspendedState	(void);
+		void					ScheduleMinimizeLoadState			(void);
 		void					ScheduleDeferredError					(EmDeferredErr*);
 
 		void					ClearDeferredErrors						(void);
@@ -676,23 +654,11 @@ class EmSession
 
 		EmSessionState			fState;
 
-#if HAS_OMNI_THREAD
-		// Values passed between the CPU thread and the UI thread when the
-		// former needs to display a dialog.
-
-		EmDlgFn					fDlgFn;
-		void*					fDlgUserData;
-		EmDlgID					fDlgID;
-		Bool					fReadParameters;
-		EmDlgItemID				fDialogResult;
-#endif
-
 		// These values are read in any thread at any time, but should only
 		// be changed after stopping the CPU thread.  They're set up by the
 		// ExecuteUntilFoo methods.
 
 		Bool					fBreakOnSysCall;
-		Bool					fBreakOnIdle;
 		int						fNestLevel;
 
 		Bool					fNeedPostLoad;
@@ -708,6 +674,7 @@ class EmSession
 		Bool					fHordeLoadRootState;
 		Bool					fHordeNextGremlinFromRootState;
 		Bool					fHordeNextGremlinFromSuspendState;
+		Bool					fMinimizeLoadState;
 
 		EmDeferredErrList		fDeferredErrs;
 
@@ -719,6 +686,7 @@ class EmSession
 		EmPenQueue				fPenQueue;
 
 		EmPenEvent				fLastPenEvent;
+		uint32					fBootKeys;
 
 	private:
 		InstructionBreakFuncList	fInstructionBreakFuncs;

@@ -193,6 +193,7 @@ extern "C" {
 #define hostSelectorImportFile				0x0500
 #define hostSelectorExportFile				0x0501
 #define hostSelectorSaveScreen				0x0502
+#define hostSelectorImportFileWithID		0x0503
 
 #define hostSelectorExgLibOpen				0x0580
 #define hostSelectorExgLibClose				0x0581
@@ -245,6 +246,12 @@ extern "C" {
 #define hostSelectorTraceOutputB			0x0906
 
 
+	// External debugger support
+
+#define hostSelectorDbgSetDataBreak			0x0980		// mcc 13 june 2001
+#define hostSelectorDbgClearDataBreak		0x0981		// mcc 13 june 2001
+
+
 	// Slot support
 
 #define hostSelectorSlotMax					0x0A00
@@ -264,14 +271,14 @@ extern "C" {
 	// * Types
 
 typedef UInt16	HostControlSelectorType;
-typedef long	HostBoolType;
-typedef long	HostClockType;
-typedef long	HostErrType;
-typedef long	HostIDType;
-typedef long	HostPlatformType;
-typedef long	HostSignalType;
-typedef long	HostSizeType;
-typedef long	HostTimeType;
+typedef Int32	HostBoolType;
+typedef Int32	HostClockType;
+typedef Int32	HostErrType;
+typedef Int32	HostIDType;
+typedef Int32	HostPlatformType;
+typedef Int32	HostSignalType;
+typedef Int32	HostSizeType;
+typedef Int32	HostTimeType;
 
 
 	// * HostDIRType
@@ -485,7 +492,7 @@ enum	// HostSignalType values
 	hostSignalGremlinStopped,
 	hostSignalHordeStopped,
 #endif
-	hostSignalUser	= 0x40000000	// User-defined values start here and go up.
+	hostSignalUser	= 0x4000	// User-defined values start here and go up.
 };
 
 enum	// HostGet/SetFileAttr flags, matching EmFileAttr flags
@@ -531,7 +538,7 @@ enum	// HostGet/SetFileAttr flags, matching EmFileAttr flags
 /* Host environment-related calls										*/
 /* ==================================================================== */
 
-long				HostGetHostVersion(void)
+Int32				HostGetHostVersion(void)
 						HOST_TRAP(hostSelectorGetHostVersion);
 
 HostIDType			HostGetHostID(void)
@@ -566,7 +573,7 @@ HostErrType			HostProfileStart(void)
 HostErrType			HostProfileStop(void)
 						HOST_TRAP(hostSelectorProfileStop);
 
-HostErrType			HostProfileDump(const char* filename)
+HostErrType			HostProfileDump(const char* filenameP)
 						HOST_TRAP(hostSelectorProfileDump);
 
 HostErrType			HostProfileCleanup(void)
@@ -584,73 +591,73 @@ long				HostErrNo(void)
 						HOST_TRAP(hostSelectorErrNo);
 
 
-long				HostFClose(HostFILEType* f)
+long				HostFClose(HostFILEType* fileP)
 						HOST_TRAP(hostSelectorFClose);
 
-long				HostFEOF(HostFILEType* f)
+long				HostFEOF(HostFILEType* fileP)
 						HOST_TRAP(hostSelectorFEOF);
 
-long				HostFError(HostFILEType* f)
+long				HostFError(HostFILEType* fileP)
 						HOST_TRAP(hostSelectorFError);
 
-long				HostFFlush(HostFILEType* f)
+long				HostFFlush(HostFILEType* fileP)
 						HOST_TRAP(hostSelectorFFlush);
 
-long				HostFGetC(HostFILEType* f)
+long				HostFGetC(HostFILEType* fileP)
 						HOST_TRAP(hostSelectorFGetC);
 
-long				HostFGetPos(HostFILEType* f, long* posP)
+long				HostFGetPos(HostFILEType* fileP, long* posP)
 						HOST_TRAP(hostSelectorFGetPos);
 
-char*				HostFGetS(char* s, long n, HostFILEType* f)
+char*				HostFGetS(char* s, long n, HostFILEType* fileP)
 						HOST_TRAP(hostSelectorFGetS);
 
 HostFILEType*		HostFOpen(const char* name, const char* mode)
 						HOST_TRAP(hostSelectorFOpen);
 
-long				HostFPrintF(HostFILEType* f, const char* fmt, ...)
+long				HostFPrintF(HostFILEType* fileP, const char* fmt, ...)
 						HOST_TRAP(hostSelectorFPrintF);
 
-long				HostFPutC(long c, HostFILEType* f)
+long				HostFPutC(long c, HostFILEType* fileP)
 						HOST_TRAP(hostSelectorFPutC);
 
-long				HostFPutS(const char* s, HostFILEType* f)
+long				HostFPutS(const char* s, HostFILEType* fileP)
 						HOST_TRAP(hostSelectorFPutS);
 
-long				HostFRead(void* buffer, long size, long count, HostFILEType* f)
+long				HostFRead(void* buffer, long size, long count, HostFILEType* fileP)
 						HOST_TRAP(hostSelectorFRead);
 
-long				HostRemove(const char* name)
-						HOST_TRAP(hostSelectorRemove);
-
-long				HostRename(const char* oldName, const char* newName)
-						HOST_TRAP(hostSelectorRename);
-
-HostFILEType*		HostFReopen(const char* name, const char* mode, HostFILEType* f)
+HostFILEType*		HostFReopen(const char* name, const char* mode, HostFILEType* fileP)
 						HOST_TRAP(hostSelectorFReopen);
 
-long				HostFScanF(HostFILEType* f, const char* fmt, ...)
+long				HostFScanF(HostFILEType* fileP, const char* fmt, ...)
 						HOST_TRAP(hostSelectorFScanF);
 
-long				HostFSeek(HostFILEType* f, long offset, long origin)
+long				HostFSeek(HostFILEType* fileP, long offset, long origin)
 						HOST_TRAP(hostSelectorFSeek);
 
-long				HostFSetPos(HostFILEType* f, long* pos)
+long				HostFSetPos(HostFILEType* fileP, long* pos)
 						HOST_TRAP(hostSelectorFSetPos);
 
-long				HostFTell(HostFILEType* f)
+long				HostFTell(HostFILEType* fileP)
 						HOST_TRAP(hostSelectorFTell);
 
-long				HostFWrite(const void* buffer, long size, long count, HostFILEType* f)
+long				HostFWrite(const void* buffer, long size, long count, HostFILEType* fileP)
 						HOST_TRAP(hostSelectorFWrite);
+
+long				HostRemove(const char* nameP)
+						HOST_TRAP(hostSelectorRemove);
+
+long				HostRename(const char* oldNameP, const char* newNameP)
+						HOST_TRAP(hostSelectorRename);
 
 HostFILEType*		HostTmpFile(void)
 						HOST_TRAP(hostSelectorTmpFile);
 
-char*				HostTmpNam(char* name)
+char*				HostTmpNam(char* nameP)
 						HOST_TRAP(hostSelectorTmpNam);
 
-char*				HostGetEnv(const char*)
+char*				HostGetEnv(const char* nameP)
 						HOST_TRAP(hostSelectorGetEnv);
 
 
@@ -667,11 +674,11 @@ void				HostFree(void* p)
 char*				HostAscTime(const HostTmType*)
 						HOST_TRAP(hostSelectorAscTime);
 
-char*				HostCTime(const HostTimeType*)
-						HOST_TRAP(hostSelectorCTime);
-
 HostClockType		HostClock(void)
 						HOST_TRAP(hostSelectorClock);
+
+char*				HostCTime(const HostTimeType*)
+						HOST_TRAP(hostSelectorCTime);
 
 //double				HostDiffTime(HostTimeType, HostTimeType)
 //						HOST_TRAP(hostSelectorDiffTime);
@@ -751,6 +758,9 @@ HostErrType			HostGremlinNew(const HostGremlinInfoType*)
 
 HostErrType			HostImportFile(const char* fileName, long cardNum)
 						HOST_TRAP(hostSelectorImportFile);
+
+HostErrType			HostImportFileWithID(const char* fileName, long cardNum, LocalID* newIDP)
+						HOST_TRAP(hostSelectorImportFileWithID);
 
 HostErrType			HostExportFile(const char* fileName, long cardNum, const char* dbName)
 						HOST_TRAP(hostSelectorExportFile);
@@ -879,6 +889,17 @@ void				HostTraceOutputVTL(unsigned short, const char*, char* /*va_list*/)
 
 void				HostTraceOutputB(unsigned short, const void*, HostSizeType)
 						HOST_TRAP(hostSelectorTraceOutputB);
+
+
+/* ==================================================================== */
+/* Debugger calls														*/
+/* ==================================================================== */
+
+HostErr				HostDbgSetDataBreak (UInt32 addr, UInt32 size)
+						HOST_TRAP(hostSelectorDbgSetDataBreak);
+
+HostErr				HostDbgClearDataBreak (void)
+						HOST_TRAP(hostSelectorDbgClearDataBreak);
 
 
 /* ==================================================================== */

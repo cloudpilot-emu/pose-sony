@@ -135,7 +135,7 @@ const uint16	kButtonMap[kNumButtonRows][kNumButtonCols] =
 
 
 // ---------------------------------------------------------------------------
-//		¥ EmRegsVZGenericColor::GetLCDScreenOn
+//		¥ EmRegsVZVisorPrism::GetLCDScreenOn
 // ---------------------------------------------------------------------------
 
 Bool EmRegsVZVisorPrism::GetLCDScreenOn (void)
@@ -147,7 +147,7 @@ Bool EmRegsVZVisorPrism::GetLCDScreenOn (void)
 
 
 // ---------------------------------------------------------------------------
-//		¥ EmRegsVZGenericColor::GetLCDBacklightOn
+//		¥ EmRegsVZVisorPrism::GetLCDBacklightOn
 // ---------------------------------------------------------------------------
 
 Bool EmRegsVZVisorPrism::GetLCDBacklightOn (void)
@@ -159,7 +159,7 @@ Bool EmRegsVZVisorPrism::GetLCDBacklightOn (void)
 
 
 // ---------------------------------------------------------------------------
-//		¥ EmRegsVZGenericColor::GetLCDHasFrame
+//		¥ EmRegsVZVisorPrism::GetLCDHasFrame
 // ---------------------------------------------------------------------------
 
 Bool EmRegsVZVisorPrism::GetLCDHasFrame (void)
@@ -171,7 +171,7 @@ Bool EmRegsVZVisorPrism::GetLCDHasFrame (void)
 
 
 // ---------------------------------------------------------------------------
-//		¥ EmRegsVZGenericColor::GetLCDBeginEnd
+//		¥ EmRegsVZVisorPrism::GetLCDBeginEnd
 // ---------------------------------------------------------------------------
 
 void EmRegsVZVisorPrism::GetLCDBeginEnd (emuptr& begin, emuptr& end)
@@ -183,7 +183,7 @@ void EmRegsVZVisorPrism::GetLCDBeginEnd (emuptr& begin, emuptr& end)
 
 
 // ---------------------------------------------------------------------------
-//		¥ EmRegsVZGenericColor::GetLCDScanlines
+//		¥ EmRegsVZVisorPrism::GetLCDScanlines
 // ---------------------------------------------------------------------------
 
 void EmRegsVZVisorPrism::GetLCDScanlines (EmScreenUpdateInfo& info)
@@ -195,15 +195,65 @@ void EmRegsVZVisorPrism::GetLCDScanlines (EmScreenUpdateInfo& info)
 
 
 // ---------------------------------------------------------------------------
-//		¥ EmRegsVZVisorPrism::GetSerialPortOn
+//		¥ EmRegsVZVisorPrism::GetLineDriverState
+// ---------------------------------------------------------------------------
+// Return whether or not the line drivers for the given object are open or
+// closed.
+//
 //	DOLATER BP:  this way of detecting SerialPortOn may be wrong.  
 //	See PalmIIIc or PalmV.  It may impact Visor emulation as well
-// ---------------------------------------------------------------------------
 
-Bool EmRegsVZVisorPrism::GetSerialPortOn (int /*portNum*/)
+Bool EmRegsVZVisorPrism::GetLineDriverState (EmUARTDeviceType type)
 {
-	uint16	uControl = READ_REGISTER (uControl);
-	return (uControl & hwrVZ328UControlUARTEnable) != 0;
+	if (type == kUARTSerial)
+	{
+		uint16	uControl = READ_REGISTER (uControl);
+		uint16	uMisc = READ_REGISTER (uMisc);
+
+		return (uControl & hwrEZ328UControlUARTEnable) != 0 &&
+				(uMisc & hwrEZ328UMiscIRDAEn) == 0;
+	}
+
+	if (type == kUARTIR)
+	{
+		uint16	uControl = READ_REGISTER (uControl);
+		uint16	uMisc = READ_REGISTER (uMisc);
+
+		return (uControl & hwrEZ328UControlUARTEnable) != 0 &&
+			(uMisc & hwrEZ328UMiscIRDAEn) != 0;
+	}
+
+	return false;
+}
+
+
+// ---------------------------------------------------------------------------
+//		¥ EmRegsVZVisorPrism::GetUARTDevice
+// ---------------------------------------------------------------------------
+// Return what sort of device is hooked up to the given UART.
+
+EmUARTDeviceType EmRegsVZVisorPrism::GetUARTDevice (int /*uartNum*/)
+{
+	Bool	serEnabled	= this->GetLineDriverState (kUARTSerial);
+	Bool	irEnabled	= this->GetLineDriverState (kUARTIR);
+
+	// It's probably an error to have them both enabled at the same
+	// time.  !!! TBD: make this an error message.
+
+	EmAssert (!(serEnabled && irEnabled));
+
+	// !!! Which UART are they using?
+
+//	if (uartNum == ???)
+	{
+		if (serEnabled)
+			return kUARTSerial;
+
+		if (irEnabled)
+			return kUARTIR;
+	}
+
+	return kUARTNone;
 }
 
 

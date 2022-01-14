@@ -289,6 +289,9 @@ template <class coord>
 void
 EmRectTempl<coord>::ScaleDown (coord x, coord y)
 {
+	EmAssert (x != 0);
+	EmAssert (y != 0);
+
 	fTop	/= y;
 	fLeft	/= x;
 	fBottom	/= y;
@@ -1042,36 +1045,3 @@ void TestRect()
 	}
 }
 #endif
-
-/*
-	Change History (most recent first):
-	
-		$Log: /DifferDumper/Foundation/EmRect.cpp $
-			
-			8     5/5/97 4:44 PM Keith
-			hasFrames: Use of Refs/RefVars.
-			
-			7     5/01/96 7:18p Keith
-			Fix EOLs and checksums.
-			
-			6     4/18/96 2:18 PM Jeff
-			Conversion from RefArg
-			
-			5     3/19/96 5:51p Keith
-			Updated file names.
-			
-			4     3/12/96 8:12p Keith
-			Added stdafx and DEBUG_NEW support.
-			
-			3     3/12/96 12:44p Keith
-			Removed Mac-only characters.
-			
-			2     3/04/96 9:08a Keith
-			Fixed conflicts between real rect types and psuedo-types. Removed
-			Size() in Win32 (some conflict causes it to not compile).
-			
-			1     2/26/96 4:33 PM Keith
-			First checked in
-
-		<1>		11/27/95	kar		Started
-*/

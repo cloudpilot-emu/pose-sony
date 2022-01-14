@@ -14,6 +14,7 @@
 #include "EmCommon.h"
 #include "EmRegsSED1376.h"
 
+#include "EmMemory.h"			// EmMem_memcpy
 #include "EmScreen.h"			// EmScreen::InvalidateAll
 #include "EmPixMap.h"			// EmPixMap::GetLCDScanlines
 #include "SessionFile.h"		// WriteSED1376RegsType
@@ -305,7 +306,7 @@ Bool EmRegsSED1376::GetLCDScreenOn (void)
 
 Bool EmRegsSED1376::GetLCDBacklightOn (void)
 {
-	return true;
+	return ((fRegs.GPIOStatusControl0) & hwrDisplayGPIOEL_ON) != 0;
 }
 
 
@@ -531,7 +532,7 @@ void EmRegsSED1376VisorPrism::GetLCDScanlines (EmScreenUpdateInfo& info)
 		long	firstLineOffset	= info.fFirstLine * rowBytes;
 		long	lastLineOffset	= info.fLastLine * rowBytes;
 
-		uae_memcpy (
+		EmMem_memcpy (
 			(void*) ((uint8*) info.fImage.GetBits () + firstLineOffset),
 			baseAddr + firstLineOffset,
 			lastLineOffset - firstLineOffset);
@@ -771,7 +772,7 @@ void EmRegsSED1376PalmGeneric::GetLCDScanlines (EmScreenUpdateInfo& info)
 		long	firstLineOffset	= info.fFirstLine * rowBytes;
 		long	lastLineOffset	= info.fLastLine * rowBytes;
 
-		uae_memcpy (
+		EmMem_memcpy (
 			(void*) ((uint8*) info.fImage.GetBits () + firstLineOffset),
 			baseAddr + firstLineOffset,
 			lastLineOffset - firstLineOffset);
@@ -850,5 +851,10 @@ void EmRegsSED1376PalmGeneric::GetLCDScanlines (EmScreenUpdateInfo& info)
 			srcPtr	= srcPtr0 += srcRowBytes;
 			destPtr	= destPtr0 += destRowBytes;
 		}
+	}
+
+	if (!this->GetLCDBacklightOn ())
+	{
+		info.fImage.ChangeTone (-10, info.fFirstLine, info.fLastLine);
 	}
 }

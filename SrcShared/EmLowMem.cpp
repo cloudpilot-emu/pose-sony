@@ -14,9 +14,9 @@
 #include "EmCommon.h"
 #include "EmLowMem.h"
 
-#include "Miscellaneous.h"		// SysTrapIndex
 #include "EmMemory.h"			// CEnableFullAccess
-#include "TrapPatches.h"		// Patches::OSMajorVersion
+#include "EmPalmFunction.h"		// SysTrapIndex
+#include "EmPatchState.h"		// EmPatchState::OSMajorVersion
 
 
 #include "PalmPack.h"
@@ -174,7 +174,7 @@ uint8 EmLowMem::GetEvtMgrIdle (void)
 	// the "idle" field.  Under that version of the OS, we therefore
 	// have to add 4 to get the right offset.
 
-	if (Patches::OSMajorVersion () == 1)
+	if (EmPatchState::OSMajorVersion () == 1)
 	{
 		idleOffset += sizeof (Int32);
 	}
@@ -214,13 +214,13 @@ Bool EmLowMem::TrapExists (uint16 iATrap)
 		gSysDispatchTableSize = EmLowMem_GetGlobal (sysDispatchTableSize);
 	}
 
-	return (SysTrapIndex (iATrap) == SysTrapIndex (sysTrapHostControl)) ||
-			SysTrapIndex (iATrap) < gSysDispatchTableSize;
+	return (::SysTrapIndex (iATrap) == ::SysTrapIndex (sysTrapHostControl)) ||
+			::SysTrapIndex (iATrap) < gSysDispatchTableSize;
 #else
 	CEnableFullAccess	munge;	// Remove blocks on memory access.
 	uint16				sysDispatchTableSize = EmLowMem_GetGlobal (sysDispatchTableSize);
-	return (SysTrapIndex (iATrap) == SysTrapIndex (sysTrapHostControl)) ||
-			SysTrapIndex (iATrap) < sysDispatchTableSize;
+	return (::SysTrapIndex (iATrap) == ::SysTrapIndex (sysTrapHostControl)) ||
+			::SysTrapIndex (iATrap) < sysDispatchTableSize;
 #endif
 }
 
@@ -246,11 +246,18 @@ emuptr EmLowMem::GetTrapAddress (uint16 iATrap)
 	// If the trap number is not in range, just return NULL to signal
 	// that normal process of the TRAP $F should occur.
 
-	if (EmLowMem::TrapExists (iATrap))
+//	uint16	sysDispatchTableSize = EmLowMem_GetGlobal (sysDispatchTableSize);
+	uint16	sysDispatchTableSize = EmMemGet16 (256 + 62);
+
+	iATrap = ::SysTrapIndex (iATrap);
+
+	if ((iATrap == ::SysTrapIndex (sysTrapHostControl)) ||
+		(iATrap < sysDispatchTableSize))
 	{
 		// Get sysDispatchTableP, which is a pointer in low-memory.
 
-		uint32 sysDispatchTableP	= EmLowMem_GetGlobal (sysDispatchTableP);
+//		uint32 sysDispatchTableP	= EmLowMem_GetGlobal (sysDispatchTableP);
+		uint32 sysDispatchTableP	= EmMemGet32 (256 + 34);
 
 		// If it's NULL, return NULL.
 
@@ -258,7 +265,7 @@ emuptr EmLowMem::GetTrapAddress (uint16 iATrap)
 		{
 			// Next, get the right guy from its contents.
 
-			address = EmMemGet32 (sysDispatchTableP + SysTrapIndex (iATrap) * 4);
+			address = EmMemGet32 (sysDispatchTableP + iATrap * 4);
 		}
 	}
 

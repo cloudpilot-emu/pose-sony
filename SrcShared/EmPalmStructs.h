@@ -14,9 +14,9 @@
 #ifndef EmPalmStructs_h
 #define EmPalmStructs_h
 
-#include "UAE_Utils.h"			// uae_memcpy
-#include "EmMemory.h"			// EmMemGet8, EmMemPut8, etc.
+#include "EmMemory.h"			// EmMemGet8, EmMemPut8, EmMem_memcpy, etc.
 #include "EmPalmStructs.i"
+#include "HostControl.h"		// HostControlSelectorType, etc.
 
 #include <stddef.h>				// ptrdiff_t
 
@@ -360,7 +360,7 @@ class PAS
 		inline static void		PutLong (ptr_type p, const uint32 v)	{ EmMemPut32 (p, v); }
 
 		inline static void		BlockCopy (ptr_type d, ptr_type s, size_t len)
-																		{ uae_memcpy (d, s, len); }
+																		{ EmMem_memcpy (d, s, len); }
 
 		inline static ptr_type	add (ptr_type p, ptrdiff_t diff)
 																		{ return (ptr_type)(((size_t)p) + diff); }
@@ -624,21 +624,6 @@ class PAS
 		private:																	\
 								EmAlias##type	(void);								\
 																					\
-			EmAlias##type<A>&	operator= (const bool);								\
-			EmAlias##type<A>&	operator= (const char);								\
-																					\
-			EmAlias##type<A>&	operator= (const unsigned char);					\
-			EmAlias##type<A>&	operator= (const unsigned short);					\
-			EmAlias##type<A>&	operator= (const unsigned int);						\
-			EmAlias##type<A>&	operator= (const unsigned long);					\
-																					\
-			EmAlias##type<A>&	operator= (const signed char);						\
-			EmAlias##type<A>&	operator= (const signed short);						\
-			EmAlias##type<A>&	operator= (const signed int);						\
-			EmAlias##type<A>&	operator= (const signed long);						\
-																					\
-			EmAlias##type<A>&	operator= (const void*);							\
-																					\
 			ptr_type			fPtr;												\
 																					\
 		public:																		\
@@ -665,21 +650,6 @@ class PAS
 			const EmAlias##type<LAS>	operator[] (int) const;						\
 																					\
 		private:																	\
-			EmProxy##type&		operator= (const bool);								\
-			EmProxy##type&		operator= (const char);								\
-																					\
-			EmProxy##type&		operator= (const unsigned char);					\
-			EmProxy##type&		operator= (const unsigned short);					\
-			EmProxy##type&		operator= (const unsigned int);						\
-			EmProxy##type&		operator= (const unsigned long);					\
-																					\
-			EmProxy##type&		operator= (const signed char);						\
-			EmProxy##type&		operator= (const signed short);						\
-			EmProxy##type&		operator= (const signed int);						\
-			EmProxy##type&		operator= (const signed long);						\
-																					\
-			EmProxy##type&		operator= (const void*);							\
-																					\
 			struct {																\
 				char			_bytes[size];										\
 			} fLocalData;															\
@@ -715,18 +685,6 @@ class PAS
 		FOR_EACH_FIELD(MAKE_MEMBER_INITIALIZER_ALIAS)								\
 	{																				\
 	}																				\
-																					\
-	MAKE_ONE_STRUCT_ALIAS_ASSIGNMENT_OPERATOR(type, bool)							\
-	MAKE_ONE_STRUCT_ALIAS_ASSIGNMENT_OPERATOR(type, char)							\
-	MAKE_ONE_STRUCT_ALIAS_ASSIGNMENT_OPERATOR(type, signed char)					\
-	MAKE_ONE_STRUCT_ALIAS_ASSIGNMENT_OPERATOR(type, signed short)					\
-	MAKE_ONE_STRUCT_ALIAS_ASSIGNMENT_OPERATOR(type, signed int)						\
-	MAKE_ONE_STRUCT_ALIAS_ASSIGNMENT_OPERATOR(type, signed long)					\
-	MAKE_ONE_STRUCT_ALIAS_ASSIGNMENT_OPERATOR(type, unsigned char)					\
-	MAKE_ONE_STRUCT_ALIAS_ASSIGNMENT_OPERATOR(type, unsigned short)					\
-	MAKE_ONE_STRUCT_ALIAS_ASSIGNMENT_OPERATOR(type, unsigned int)					\
-	MAKE_ONE_STRUCT_ALIAS_ASSIGNMENT_OPERATOR(type, unsigned long)					\
-	MAKE_ONE_STRUCT_ALIAS_ASSIGNMENT_OPERATOR(type, const void*)					\
 																					\
 	template <class A>																\
 	INLINE_ EmAlias##type<A>& EmAlias##type<A>::operator= (const EmAlias##type<A>& val)	\
@@ -765,18 +723,6 @@ class PAS
 	{																				\
 		*this = that;																\
 	}																				\
-																					\
-	MAKE_ONE_STRUCT_PROXY_ASSIGNMENT_OPERATOR(type, bool)							\
-	MAKE_ONE_STRUCT_PROXY_ASSIGNMENT_OPERATOR(type, char)							\
-	MAKE_ONE_STRUCT_PROXY_ASSIGNMENT_OPERATOR(type, signed char)					\
-	MAKE_ONE_STRUCT_PROXY_ASSIGNMENT_OPERATOR(type, signed short)					\
-	MAKE_ONE_STRUCT_PROXY_ASSIGNMENT_OPERATOR(type, signed int)						\
-	MAKE_ONE_STRUCT_PROXY_ASSIGNMENT_OPERATOR(type, signed long)					\
-	MAKE_ONE_STRUCT_PROXY_ASSIGNMENT_OPERATOR(type, unsigned char)					\
-	MAKE_ONE_STRUCT_PROXY_ASSIGNMENT_OPERATOR(type, unsigned short)					\
-	MAKE_ONE_STRUCT_PROXY_ASSIGNMENT_OPERATOR(type, unsigned int)					\
-	MAKE_ONE_STRUCT_PROXY_ASSIGNMENT_OPERATOR(type, unsigned long)					\
-	MAKE_ONE_STRUCT_PROXY_ASSIGNMENT_OPERATOR(type, const void*)					\
 																					\
 	INLINE_ EmProxy##type& EmProxy##type::operator= (const EmProxy##type& val)		\
 	{																				\
@@ -832,60 +778,55 @@ class PAS
 	, field_name((ptr_type) (((char*) this->GetPtr ()) + field_offset))
 
 
-// Macro that creates the implementation for an assignment operator for aggregate types.
-// Since it doesn't make sense to assign a scalar to a struct, such assignment operators
-// are declared private and this macros defines functions with dummy contents.
-
-#define MAKE_ONE_STRUCT_ALIAS_ASSIGNMENT_OPERATOR(type, rhs_type)					\
-																					\
-	template <class A>																\
-	INLINE_ EmAlias##type<A>& EmAlias##type<A>::operator= (rhs_type)				\
-	{																				\
-		return *this;																\
-	}
-
-#define MAKE_ONE_STRUCT_PROXY_ASSIGNMENT_OPERATOR(type, rhs_type)					\
-																					\
-	INLINE_ EmProxy##type& EmProxy##type::operator= (rhs_type)						\
-	{																				\
-		return *this;																\
-	}
 
 
 typedef uint8	UIOptionsType;
 typedef uint8	ScrOperation;
 
-#define FOR_EACH_SCALAR_1(DO_TO_SCALAR)			\
-	DO_TO_SCALAR (char, char)					\
-	DO_TO_SCALAR (Int8, Int8)					\
-	DO_TO_SCALAR (UInt8, UInt8)					\
-	DO_TO_SCALAR (Int16, Int16)					\
-	DO_TO_SCALAR (UInt16, UInt16)				\
-	DO_TO_SCALAR (Int32, Int32)					\
-	DO_TO_SCALAR (UInt32, UInt32)				\
+#define FOR_EACH_SCALAR_1(DO_TO_SCALAR)				\
+	DO_TO_SCALAR (char, char)						\
+	DO_TO_SCALAR (Int8, Int8)						\
+	DO_TO_SCALAR (UInt8, UInt8)						\
+	DO_TO_SCALAR (Int16, Int16)						\
+	DO_TO_SCALAR (UInt16, UInt16)					\
+	DO_TO_SCALAR (Int32, Int32)						\
+	DO_TO_SCALAR (UInt32, UInt32)					\
 
 
-#define FOR_EACH_SCALAR_2(DO_TO_SCALAR)			\
-	DO_TO_SCALAR (Boolean, uint8)				\
-	DO_TO_SCALAR (Char, uint8)					\
-	DO_TO_SCALAR (ControlStyleType, uint8)		\
-	DO_TO_SCALAR (Coord, uint16)				\
-	DO_TO_SCALAR (DmResID, uint16)				\
-	DO_TO_SCALAR (emuptr, emuptr)				\
-	DO_TO_SCALAR (Err, uint16)					\
-	DO_TO_SCALAR (FontID, uint8)				\
-	DO_TO_SCALAR (FormObjectKind, uint8)		\
-	DO_TO_SCALAR (LocalID, uint32)				\
+#define FOR_EACH_SCALAR_2(DO_TO_SCALAR)				\
+	DO_TO_SCALAR (Boolean, uint8)					\
+	DO_TO_SCALAR (Char, uint8)						\
+	DO_TO_SCALAR (ControlStyleType, uint8)			\
+	DO_TO_SCALAR (Coord, uint16)					\
+	DO_TO_SCALAR (DmResID, uint16)					\
+	DO_TO_SCALAR (emuptr, emuptr)					\
+	DO_TO_SCALAR (Err, uint16)						\
+	DO_TO_SCALAR (FontID, uint8)					\
+	DO_TO_SCALAR (FormObjectKind, uint8)			\
+	DO_TO_SCALAR (LocalID, uint32)					\
 
 
-#define FOR_EACH_SCALAR_3(DO_TO_SCALAR)			\
-	DO_TO_SCALAR (PatternType, uint8)			\
-	DO_TO_SCALAR (ScrOperation, uint8)			\
-	DO_TO_SCALAR (SlkPktHeaderChecksum, uint8)	\
-	DO_TO_SCALAR (UnderlineModeType, uint8)		\
-	DO_TO_SCALAR (UndoMode, uint8)				\
-	DO_TO_SCALAR (UIOptionsType, uint8)			\
-	DO_TO_SCALAR (WChar, uint16)				\
+#define FOR_EACH_SCALAR_3(DO_TO_SCALAR)				\
+	DO_TO_SCALAR (NetIPAddr, uint32)				\
+	DO_TO_SCALAR (PatternType, uint8)				\
+	DO_TO_SCALAR (ScrOperation, uint8)				\
+	DO_TO_SCALAR (SlkPktHeaderChecksum, uint8)		\
+	DO_TO_SCALAR (UnderlineModeType, uint8)			\
+	DO_TO_SCALAR (UndoMode, uint8)					\
+	DO_TO_SCALAR (UIOptionsType, uint8)				\
+	DO_TO_SCALAR (WChar, uint16)					\
+
+
+#define FOR_EACH_SCALAR_4(DO_TO_SCALAR)				\
+	DO_TO_SCALAR (HostControlSelectorType, uint16)	\
+	DO_TO_SCALAR (HostBoolType, int32)				\
+	DO_TO_SCALAR (HostClockType, int32)				\
+	DO_TO_SCALAR (HostErrType, int32)				\
+	DO_TO_SCALAR (HostIDType, int32)				\
+	DO_TO_SCALAR (HostPlatformType, int32)			\
+	DO_TO_SCALAR (HostSignalType, int32)			\
+	DO_TO_SCALAR (HostSizeType, int32)				\
+	DO_TO_SCALAR (HostTimeType, int32)				\
 
 
 #define FOR_EACH_STRUCT_1(DO_TO_STRUCT)							\
@@ -900,16 +841,20 @@ typedef uint8	ScrOperation;
 	FOR_M68KRegsType_STRUCT (DO_TO_STRUCT)						\
 																\
 	FOR_UsbHwrType_STRUCT (DO_TO_STRUCT)						\
+	FOR_HwrBatCmdReadType_STRUCT (DO_TO_STRUCT)					\
 	FOR_HwrJerryPLDType_STRUCT (DO_TO_STRUCT)					\
+	FOR_HwrLAPType_STRUCT (DO_TO_STRUCT)						\
+	FOR_HwrMediaQ11xxType_STRUCT (DO_TO_STRUCT)					\
 	FOR_HwrSkywalkerPLDType_STRUCT (DO_TO_STRUCT)				\
 	FOR_HwrSymbolASICType_STRUCT (DO_TO_STRUCT)					\
 	FOR_SED1375RegsType_STRUCT (DO_TO_STRUCT)					\
 	FOR_SED1376RegsType_STRUCT (DO_TO_STRUCT)					\
-	FOR_HwrLAPType_STRUCT (DO_TO_STRUCT)						\
 																\
 	FOR_SysBatteryDataStructV1_STRUCT (DO_TO_STRUCT)			\
 	FOR_SysBatteryDataStructV2_STRUCT (DO_TO_STRUCT)			\
 	FOR_SysBatteryDataStructV3_STRUCT (DO_TO_STRUCT)			\
+																\
+	FOR_SysNVParamsType_STRUCT (DO_TO_STRUCT)					\
 
 
 #define FOR_EACH_STRUCT_3(DO_TO_STRUCT)							\
@@ -919,14 +864,35 @@ typedef uint8	ScrOperation;
 	FOR_GraphicStateTypeV2_STRUCT (DO_TO_STRUCT)				\
 	FOR_GraphicStateTypeV3_STRUCT (DO_TO_STRUCT)				\
 	FOR_UIColorStateType_STRUCT (DO_TO_STRUCT)					\
+
+  
+#define FOR_EACH_STRUCT_4(DO_TO_STRUCT)							\
 	FOR_UIGlobalsType_STRUCT (DO_TO_STRUCT)						\
+	FOR_UIGlobalsTypeCommon_STRUCT (DO_TO_STRUCT)				\
+	FOR_UIGlobalsTypeV1_STRUCT (DO_TO_STRUCT)					\
+	FOR_UIGlobalsTypeV2_STRUCT (DO_TO_STRUCT)					\
+	FOR_UIGlobalsTypeV3_STRUCT (DO_TO_STRUCT)					\
+	FOR_UIGlobalsTypeV31_STRUCT (DO_TO_STRUCT)					\
+	FOR_UIGlobalsTypeV32_STRUCT (DO_TO_STRUCT)					\
+	FOR_UIGlobalsTypeV35_STRUCT (DO_TO_STRUCT)					\
+
+
+#define FOR_EACH_STRUCT_5(DO_TO_STRUCT)							\
 	FOR_M68KExcTableType_STRUCT (DO_TO_STRUCT)					\
 	FOR_FixedGlobalsType_STRUCT (DO_TO_STRUCT)					\
 	FOR_LowMemHdrType_STRUCT (DO_TO_STRUCT)						\
+	FOR_SysAppInfoType_STRUCT (DO_TO_STRUCT)					\
 	FOR_SysLibTblEntryType_STRUCT (DO_TO_STRUCT)				\
+	FOR_PenBtnInfoType_STRUCT (DO_TO_STRUCT)					\
+	FOR_SndCommandType_STRUCT (DO_TO_STRUCT)					\
+																\
+	FOR_kernel_info_task_STRUCT (DO_TO_STRUCT)					\
+	FOR_kernel_info_semaphore_STRUCT (DO_TO_STRUCT)				\
+	FOR_kernel_info_timer_STRUCT (DO_TO_STRUCT)					\
+	FOR_SysKernelInfoType_STRUCT (DO_TO_STRUCT)					\
 
 
-#define FOR_EACH_STRUCT_4(DO_TO_STRUCT)							\
+#define FOR_EACH_STRUCT_6(DO_TO_STRUCT)							\
 	FOR_SlkPktFooterType_STRUCT (DO_TO_STRUCT)					\
 	FOR_SlkPktHeaderType_STRUCT (DO_TO_STRUCT)					\
 																\
@@ -943,7 +909,7 @@ typedef uint8	ScrOperation;
 	FOR_SysPktGetBreakpointsRspType_STRUCT (DO_TO_STRUCT)		\
 
 
-#define FOR_EACH_STRUCT_5(DO_TO_STRUCT)							\
+#define FOR_EACH_STRUCT_7(DO_TO_STRUCT)							\
 	FOR_SysPktGetTrapBreaksCmdType_STRUCT (DO_TO_STRUCT)		\
 	FOR_SysPktGetTrapBreaksRspType_STRUCT (DO_TO_STRUCT)		\
 	FOR_SysPktGetTrapConditionsCmdType_STRUCT (DO_TO_STRUCT)	\
@@ -957,7 +923,7 @@ typedef uint8	ScrOperation;
 	FOR_SysPktRtnNameCmdType_STRUCT (DO_TO_STRUCT)				\
 
 
-#define FOR_EACH_STRUCT_6(DO_TO_STRUCT)							\
+#define FOR_EACH_STRUCT_8(DO_TO_STRUCT)							\
 	FOR_SysPktRtnNameRspType_STRUCT (DO_TO_STRUCT)				\
 	FOR_SysPktSetBreakpointsCmdType_STRUCT (DO_TO_STRUCT)		\
 	FOR_SysPktSetBreakpointsRspType_STRUCT (DO_TO_STRUCT)		\
@@ -972,7 +938,7 @@ typedef uint8	ScrOperation;
 	FOR_SysPktWriteRegsRspType_STRUCT (DO_TO_STRUCT)			\
 
 
-#define FOR_EACH_STRUCT_7(DO_TO_STRUCT)							\
+#define FOR_EACH_STRUCT_9(DO_TO_STRUCT)							\
 	FOR_RecordEntryType_STRUCT (DO_TO_STRUCT)					\
 	FOR_RsrcEntryType_STRUCT (DO_TO_STRUCT)						\
 	FOR_RecordListType_STRUCT (DO_TO_STRUCT)					\
@@ -981,6 +947,7 @@ typedef uint8	ScrOperation;
 	FOR_DatabaseDirType_STRUCT (DO_TO_STRUCT)					\
 	FOR_DmOpenInfoType_STRUCT(DO_TO_STRUCT)						\
 	FOR_DmAccessType_STRUCT(DO_TO_STRUCT)						\
+	FOR_DmSearchStateType_STRUCT(DO_TO_STRUCT)					\
 																\
 	FOR_CardHeaderType_STRUCT(DO_TO_STRUCT)						\
 	FOR_CardInfoType_STRUCT(DO_TO_STRUCT)						\
@@ -988,9 +955,12 @@ typedef uint8	ScrOperation;
 																\
 	FOR_ExgGoToType_STRUCT (DO_TO_STRUCT)						\
 	FOR_ExgSocketType_STRUCT (DO_TO_STRUCT)						\
+																\
+	FOR_DlkDBCreatorList_STRUCT (DO_TO_STRUCT)					\
+	FOR_DlkServerSessionType_STRUCT (DO_TO_STRUCT)				\
 
 
-#define FOR_EACH_STRUCT_8(DO_TO_STRUCT)							\
+#define FOR_EACH_STRUCT_10(DO_TO_STRUCT)						\
 	FOR_generic_STRUCT (DO_TO_STRUCT)							\
 	FOR_penUp_STRUCT (DO_TO_STRUCT)								\
 	FOR_keyDown_STRUCT (DO_TO_STRUCT)							\
@@ -1000,11 +970,44 @@ typedef uint8	ScrOperation;
 	FOR_tsmFepButton_STRUCT (DO_TO_STRUCT)						\
 	FOR_tsmFepMode_STRUCT (DO_TO_STRUCT)						\
 	FOR_ctlEnter_STRUCT (DO_TO_STRUCT)							\
+	FOR_ctlSelect_STRUCT (DO_TO_STRUCT)							\
+	FOR_ctlRepeat_STRUCT (DO_TO_STRUCT)							\
+	FOR_ctlExit_STRUCT (DO_TO_STRUCT)							\
+	FOR_fldEnter_STRUCT (DO_TO_STRUCT)							\
+	FOR_fldHeightChanged_STRUCT (DO_TO_STRUCT)					\
+	FOR_fldChanged_STRUCT (DO_TO_STRUCT)						\
+	FOR_fldExit_STRUCT (DO_TO_STRUCT)							\
+	FOR_lstEnter_STRUCT (DO_TO_STRUCT)							\
+	FOR_lstExit_STRUCT (DO_TO_STRUCT)							\
+	FOR_lstSelect_STRUCT (DO_TO_STRUCT)							\
+	FOR_tblEnter_STRUCT (DO_TO_STRUCT)							\
+	FOR_tblExit_STRUCT (DO_TO_STRUCT)							\
+	FOR_tblSelect_STRUCT (DO_TO_STRUCT)							\
+	FOR_frmLoad_STRUCT (DO_TO_STRUCT)							\
+	FOR_frmOpen_STRUCT (DO_TO_STRUCT)							\
+	FOR_frmGoto_STRUCT (DO_TO_STRUCT)							\
+	FOR_frmClose_STRUCT (DO_TO_STRUCT)							\
+	FOR_frmUpdate_STRUCT (DO_TO_STRUCT)							\
+	FOR_frmTitleEnter_STRUCT (DO_TO_STRUCT)						\
+	FOR_frmTitleSelect_STRUCT (DO_TO_STRUCT)					\
+	FOR_attnIndicatorEnter_STRUCT (DO_TO_STRUCT)				\
+	FOR_attnIndicatorSelect_STRUCT (DO_TO_STRUCT)				\
+	FOR_daySelect_STRUCT (DO_TO_STRUCT)							\
+	FOR_menu_STRUCT (DO_TO_STRUCT)								\
+	FOR_popSelect_STRUCT (DO_TO_STRUCT)							\
+	FOR_sclEnter_STRUCT (DO_TO_STRUCT)							\
+	FOR_sclExit_STRUCT (DO_TO_STRUCT)							\
+	FOR_sclRepeat_STRUCT (DO_TO_STRUCT)							\
+	FOR_menuCmdBarOpen_STRUCT (DO_TO_STRUCT)					\
+	FOR_menuOpen_STRUCT (DO_TO_STRUCT)							\
+	FOR_gadgetEnter_STRUCT (DO_TO_STRUCT)						\
+	FOR_gadgetMisc_STRUCT (DO_TO_STRUCT)						\
+																\
 	FOR_EventTypeData_STRUCT (DO_TO_STRUCT)						\
 	FOR_EventType_STRUCT (DO_TO_STRUCT)							\
 
 
-#define FOR_EACH_STRUCT_9(DO_TO_STRUCT)							\
+#define FOR_EACH_STRUCT_11(DO_TO_STRUCT)						\
 	FOR_ROMDBRecordHeader1Type_STRUCT (DO_TO_STRUCT)			\
 	FOR_ROMDBResourceHeader1Type_STRUCT (DO_TO_STRUCT)			\
 	FOR_ROMDBHeader1Type_STRUCT (DO_TO_STRUCT)					\
@@ -1021,12 +1024,13 @@ typedef uint8	ScrOperation;
 	FOR_ROMFtrTableType_STRUCT (DO_TO_STRUCT)					\
 
 
-#define FOR_EACH_STRUCT_10(DO_TO_STRUCT)						\
+#define FOR_EACH_STRUCT_12(DO_TO_STRUCT)						\
 	FOR_ControlAttrType_STRUCT (DO_TO_STRUCT)					\
 	FOR_ControlType_STRUCT (DO_TO_STRUCT)						\
 	FOR_GraphicControlType_STRUCT (DO_TO_STRUCT)				\
 	FOR_SliderControlType_STRUCT (DO_TO_STRUCT)					\
-	FOR_BitmapType_STRUCT (DO_TO_STRUCT)						\
+	FOR_BitmapTypeV2_STRUCT (DO_TO_STRUCT)						\
+	FOR_BitmapTypeV3_STRUCT (DO_TO_STRUCT)						\
 	FOR_FrameBitsType_STRUCT (DO_TO_STRUCT)						\
 	FOR_WindowFlagsType_STRUCT (DO_TO_STRUCT)					\
 	FOR_WindowType_STRUCT (DO_TO_STRUCT)						\
@@ -1039,7 +1043,7 @@ typedef uint8	ScrOperation;
 	FOR_cj_xsmb_STRUCT (DO_TO_STRUCT)							\
 
 
-#define FOR_EACH_STRUCT_11(DO_TO_STRUCT)						\
+#define FOR_EACH_STRUCT_13(DO_TO_STRUCT)						\
 	FOR_TimGlobalsType_STRUCT (DO_TO_STRUCT)					\
 																\
 	FOR_FormObjAttrType_STRUCT (DO_TO_STRUCT)					\
@@ -1070,6 +1074,24 @@ typedef uint8	ScrOperation;
 	FOR_TableType_STRUCT (DO_TO_STRUCT)							\
 
 
+#define FOR_EACH_STRUCT_14(DO_TO_STRUCT)						\
+	FOR_HostDirEntType_STRUCT (DO_TO_STRUCT)					\
+	FOR_HostGremlinInfoType_STRUCT (DO_TO_STRUCT)				\
+	FOR_HostStatType_STRUCT (DO_TO_STRUCT)						\
+	FOR_HostTmType_STRUCT (DO_TO_STRUCT)						\
+	FOR_HostUTimeType_STRUCT (DO_TO_STRUCT)						\
+																\
+	FOR_NetHostInfoType_STRUCT (DO_TO_STRUCT)					\
+	FOR_NetHostInfoBufType_STRUCT (DO_TO_STRUCT)				\
+	FOR_NetIOParamType_STRUCT (DO_TO_STRUCT)					\
+	FOR_NetIOVecType_STRUCT (DO_TO_STRUCT)						\
+	FOR_NetServInfoType_STRUCT (DO_TO_STRUCT)					\
+	FOR_NetServInfoBufType_STRUCT (DO_TO_STRUCT)				\
+	FOR_NetSocketAddrINType_STRUCT (DO_TO_STRUCT)				\
+	FOR_NetSocketAddrRawType_STRUCT (DO_TO_STRUCT)				\
+	FOR_NetSocketAddrType_STRUCT (DO_TO_STRUCT)					\
+
+
 #if PLATFORM_MAC
 	#define INLINE_SCALAR_IMPLEMENTATION	1
 #else
@@ -1079,6 +1101,7 @@ typedef uint8	ScrOperation;
 FOR_EACH_SCALAR_1 (DECLARE_SCALAR_CLASSES)
 FOR_EACH_SCALAR_2 (DECLARE_SCALAR_CLASSES)
 FOR_EACH_SCALAR_3 (DECLARE_SCALAR_CLASSES)
+FOR_EACH_SCALAR_4 (DECLARE_SCALAR_CLASSES)
 
 #if INLINE_SCALAR_IMPLEMENTATION
 
@@ -1088,6 +1111,7 @@ FOR_EACH_SCALAR_3 (DECLARE_SCALAR_CLASSES)
 FOR_EACH_SCALAR_1 (DEFINE_SCALAR_CLASSES)
 FOR_EACH_SCALAR_2 (DEFINE_SCALAR_CLASSES)
 FOR_EACH_SCALAR_3 (DEFINE_SCALAR_CLASSES)
+FOR_EACH_SCALAR_4 (DEFINE_SCALAR_CLASSES)
 
 #undef INLINE_
 #define INLINE_
@@ -1105,5 +1129,8 @@ FOR_EACH_STRUCT_8 (DECLARE_STRUCT_CLASSES)
 FOR_EACH_STRUCT_9 (DECLARE_STRUCT_CLASSES)
 FOR_EACH_STRUCT_10 (DECLARE_STRUCT_CLASSES)
 FOR_EACH_STRUCT_11 (DECLARE_STRUCT_CLASSES)
+FOR_EACH_STRUCT_12 (DECLARE_STRUCT_CLASSES)
+FOR_EACH_STRUCT_13 (DECLARE_STRUCT_CLASSES)
+FOR_EACH_STRUCT_14 (DECLARE_STRUCT_CLASSES)
 
 #endif	// EmPalmStructs_h

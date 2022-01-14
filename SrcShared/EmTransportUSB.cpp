@@ -50,6 +50,31 @@ EmTransportUSB::EmTransportUSB (void) :
  *
  * DESCRIPTION:	Constructor.  Initialize our data members.
  *
+ * PARAMETERS:	desc - descriptor information used when opening
+ *					the USB port.
+ *
+ * RETURNED:	Nothing
+ *
+ ***********************************************************************/
+
+EmTransportUSB::EmTransportUSB (const EmTransportDescriptor& /* desc */) :
+	fHost (NULL),
+	fConfig (),
+	fCommEstablished (false)
+{
+	ConfigUSB	config;
+
+	this->HostConstruct ();
+	this->SetConfig (config);
+}
+
+
+/***********************************************************************
+ *
+ * FUNCTION:	EmTransportUSB c'tor
+ *
+ * DESCRIPTION:	Constructor.  Initialize our data members.
+ *
  * PARAMETERS:	config - configuration information used when opening
  *					the USB port.
  *
@@ -301,19 +326,40 @@ Bool EmTransportUSB::CanWrite (void)
  *				of the former is not guaranteed to fetch all received
  *				and buffered bytes.
  *
- * PARAMETERS:	None
+ * PARAMETERS:	minBytes - try to buffer at least this many bytes.
+ *					Return when we have this many bytes buffered, or
+ *					until some small timeout has occurred.
  *
  * RETURNED:	Number of bytes that can be read.
  *
  ***********************************************************************/
 
-long EmTransportUSB::BytesInBuffer (void)
+long EmTransportUSB::BytesInBuffer (long minBytes)
 {
 	if (!fCommEstablished)
 		return 0;
 
-	return this->HostBytesInBuffer ();
+	return this->HostBytesInBuffer (minBytes);
 }
+
+
+/***********************************************************************
+ *
+ * FUNCTION:	EmTransportUSB::GetSpecificName
+ *
+ * DESCRIPTION:	Returns the port name, or host address, depending on the
+ *				transport in question.
+ *
+ * PARAMETERS:	
+ *
+ * RETURNED:	string, appropriate to the transport in question.
+ *
+ ***********************************************************************/
+ 
+ string EmTransportUSB::GetSpecificName (void)
+ {
+ 	return "USB";
+ }
 
 
 /***********************************************************************
@@ -411,7 +457,7 @@ EmTransportUSB* EmTransportUSB::GetTransport (const ConfigUSB& /*config*/)
 
 /***********************************************************************
  *
- * FUNCTION:	EmTransportUSB:: GetPortNameList
+ * FUNCTION:	EmTransportUSB::GetDescriptorList
  *
  * DESCRIPTION:	Return the list of USB ports on this computer.  Used
  *				to prepare a menu of USB port choices.
@@ -422,11 +468,14 @@ EmTransportUSB* EmTransportUSB::GetTransport (const ConfigUSB& /*config*/)
  *
  ***********************************************************************/
 
-void EmTransportUSB:: GetPortNameList (PortNameList& nameList)
+void EmTransportUSB::GetDescriptorList (EmTransportDescriptorList& descList)
 {
-	string portName = "USB";
-		
-	nameList.push_back (portName);
+	descList.clear ();
+
+	if (EmTransportUSB::HostHasUSB ())
+	{
+		descList.push_back (EmTransportDescriptor (kTransportUSB));
+	}
 }
 
 

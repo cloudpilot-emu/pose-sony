@@ -56,24 +56,43 @@ typedef struct EmAddressBank
 	 * It checks not only that the memory bank can do xlateaddr, but also
 	 * that the pointer points to an area of at least the specified size.
 	 * This is used for example to translate bitplane pointers in custom.c */
-	EmMemCheckFunc			check;
+	EmMemCheckFunc			checkaddr;
 
 	EmMemTranslateMetaFunc	xlatemetaaddr;
 	EmMemCycleFunc			EmMemAddOpcodeCycles;
 } EmAddressBank;
 
 
-extern EmAddressBank*	gEmMemBanks[65536];
+#ifndef ECM_DYNAMIC_PATCH
+
+	extern EmAddressBank*	gEmMemBanks[65536];
+
+#else // ECM_DYNAMIC_PATCH
+
+	extern EmAddressBank**	gDynEmMemBanksP;
+
+#endif // ECM_DYNAMIC_PATCH
 
 
 // ---------------------------------------------------------------------------
 //		¥ Support macros
 // ---------------------------------------------------------------------------
 
-#define EmMemBankIndex(addr)			(((emuptr)(addr)) >> 16)
+#ifndef ECM_DYNAMIC_PATCH
 
-#define EmMemGetBank(addr)				(*gEmMemBanks[EmMemBankIndex(addr)])
-#define EmMemPutBank(addr, b)			(gEmMemBanks[EmMemBankIndex(addr)] = (b))
+	#define EmMemBankIndex(addr)			(((emuptr)(addr)) >> 16)
+
+	#define EmMemGetBank(addr)				(*gEmMemBanks[EmMemBankIndex(addr)])
+	#define EmMemPutBank(addr, b)			(gEmMemBanks[EmMemBankIndex(addr)] = (b))
+
+#else // ECM_DYNAMIC_PATCH
+
+	#define EmMemBankIndex(addr)			(((unsigned long)(addr)) >> 16)
+
+	#define EmMemGetBank(addr)				(*((gDynEmMemBanksP)[EmMemBankIndex(addr)]))
+	#define EmMemPutBank(addr, b)			((gDynEmMemBanksP)[EmMemBankIndex(addr)] = (b))
+
+#endif // ECM_DYNAMIC_PATCH
 
 #define EmMemCallGetFunc(func, addr)	((*EmMemGetBank(addr).func)(addr))
 #define EmMemCallPutFunc(func, addr, v)	((*EmMemGetBank(addr).func)(addr, v))
@@ -148,7 +167,7 @@ STATIC_INLINE uint8* EmMemGetRealAddress(emuptr addr)
 
 STATIC_INLINE int EmMemCheckAddress(emuptr addr, uint32 size)
 {
-    return EmMemGetBank(addr).check(addr, size);
+    return EmMemGetBank(addr).checkaddr(addr, size);
 }
 
 // ---------------------------------------------------------------------------
@@ -311,6 +330,8 @@ struct MemAccessFlags
 // Globals.
 
 extern MemAccessFlags	gMemAccessFlags;
+extern Bool				gPCInRAM;
+extern Bool				gPCInROM;
 
 #if PROFILE_MEMORY
 enum
@@ -356,7 +377,13 @@ class Memory
 		static void				MapPhysicalMemory	(const void*, uint32);
 		static void				UnmapPhysicalMemory	(const void*);
 		static void				GetMappingInfo		(emuptr, void**, uint32*);
+
+		static void				CheckNewPC			(emuptr newPC);
+		static int				IsPCInRAM			(void) { return gPCInRAM; }
+		static int				IsPCInROM			(void) { return gPCInROM; }
 };
+
+typedef Memory EmMemory;
 
 
 // There are places within the emulator where we'd like to access low-memory
@@ -387,6 +414,43 @@ class CEnableFullAccess
 
 		static long				fgAccessCount;
 };
+
+
+// Std C Library-ish routines for manipulating data
+// in emulated memory.
+
+emuptr	EmMem_memset(emuptr dst, int val, size_t len);
+
+emuptr	EmMem_memchr(emuptr src, int val, size_t len);
+
+template <class T1, class T2>
+int		EmMem_memcmp(T1 src1, T2 src2, size_t len);
+
+template <class T1, class T2>
+T1		EmMem_memcpy (T1 dst, T2 src, size_t len);
+
+template <class T1, class T2>
+T1		EmMem_memmove (T1 dst, T2 src, size_t len);
+
+size_t	EmMem_strlen(emuptr str);
+
+template <class T1, class T2>
+T1		EmMem_strcpy(T1 dst, T2 src);
+
+template <class T1, class T2>
+T1		EmMem_strncpy(T1 dst, T2 src, size_t len);
+
+template <class T1, class T2>
+T1		EmMem_strcat(T1 dst, T2 src);
+
+template <class T1, class T2>
+T1		EmMem_strncat(T1 dst, T2 src, size_t len);
+
+template <class T1, class T2>
+int		EmMem_strcmp(T1 dst, T2 src);
+
+template <class T1, class T2>
+int		EmMem_strncmp(T1 dst, T2 src, size_t len);
 
 #endif	// __cplusplus
 

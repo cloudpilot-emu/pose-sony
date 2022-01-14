@@ -2,9 +2,10 @@
 #include "EmWindow.h"
 #include "EmWindowWin.h"
 #include "EmRegion.h"			// EmRegion
-#include "Emulator.h"			// ::gInstance
+#include "EmApplicationWin.h"
 #include "EmSession.h"			// EmSessionStopper
 
+#include "EmSubroutine.h"
 
 #include <ROMStubs.h>
 #include "resource.h"			// IDI_EMULATOR
@@ -17,6 +18,11 @@ static	CPrvBrush		gbrsHatch;
 static	UINT			gidJogKeyRepeat = NULL;		// タイマーID
 static  Bool			gButtonTracking = false;
 static	SkinElementType	gCurrentButton;
+
+#ifdef SONY_ROM
+static	UINT			gIdPublicKeyUp = NULL;		// タイマーID
+static	UINT			gIdPublicKeyDown = NULL;	// タイマーID
+#endif //SONY_ROM
 
 JogButtonState	gJogButtonState[BUTTON_NUM] = 
 {
@@ -36,7 +42,8 @@ void	LCD_DrawButtonForPEG(HDC hDC, SkinElementType witch)
 	HWND	hwnd = NULL;
 	if (!hDC)
 	{
-		hwnd = EmWindow::GetWindow()->GetHostData()->GetHostWindow();
+
+		hwnd = gHostWindow->GetHwnd();
 		if (!hwnd)
 			return ;
 
@@ -150,6 +157,38 @@ void CALLBACK JogKeyRepeatStarterProc(HWND hwnd, UINT uMsg, UINT idEvent, DWORD 
 	gidJogKeyRepeat = ::SetTimer(hwnd, TIMERID_JOGKEY_REPAETER, JOGKEY_REPAET_STEPTIME, JogKeyRepeatProc);
 }
 
+#ifdef SONY_ROM
+/////////////////////////////////////////////////////////////////
+//  pageUpChr&pageDownChrの繰り返し発行
+static void CALLBACK PublicKeyUpProc(HWND hwnd, UINT uMsg, UINT idEvent, DWORD dwTime)
+{
+	EmSessionStopper	stopper (gSession, kStopOnSysCall);
+	if (stopper.Stopped ()) {
+			::EvtEnqueueKey(pageUpChr, 0, commandKeyMask);	
+	}
+}
+
+void CALLBACK PublicKeyUpStarterProc(HWND hwnd, UINT uMsg, UINT idEvent, DWORD dwTime)
+{
+	::KillTimer(hwnd, gIdPublicKeyUp);
+	gIdPublicKeyUp = ::SetTimer(hwnd, TIMERID_JOGKEY_REPAETER, JOGKEY_REPAET_STEPTIME, PublicKeyUpProc);
+}
+
+static void CALLBACK PublicKeyDownProc(HWND hwnd, UINT uMsg, UINT idEvent, DWORD dwTime)
+{
+	EmSessionStopper	stopper (gSession, kStopOnSysCall);
+	if (stopper.Stopped ()) {
+			::EvtEnqueueKey(pageDownChr, 0, commandKeyMask);	
+	}
+}
+
+void CALLBACK PublicKeyDownStarterProc(HWND hwnd, UINT uMsg, UINT idEvent, DWORD dwTime)
+{
+	::KillTimer(hwnd, gIdPublicKeyDown);
+	gIdPublicKeyDown = ::SetTimer(hwnd, TIMERID_JOGKEY_REPAETER, JOGKEY_REPAET_STEPTIME, PublicKeyDownProc);
+}
+#endif //SONY_ROM
+
 
 BOOL ControlButtonForCLIE(const EmPoint& where, Bool down)
 {
@@ -171,7 +210,7 @@ BOOL ControlButtonForCLIE(const EmPoint& where, Bool down)
 					{
 						if (gidJogKeyRepeat) 
 						{
-							::KillTimer(EmWindow::GetWindow()->GetHostData()->GetHostWindow(), gidJogKeyRepeat);
+							::KillTimer(gHostWindow->GetHwnd(), gidJogKeyRepeat);
 							gidJogKeyRepeat = NULL;
 						}
 						::LCD_SetStateJogButton(gCurrentButton, false, true);
@@ -200,14 +239,14 @@ BOOL ControlButtonForCLIE(const EmPoint& where, Bool down)
 				if (what == kElement_JogRepeat && !::LCD_IsEnabledJogButton(what))
 					return true;
 
-				::SetCapture (EmWindow::GetWindow()->GetHostData()->GetHostWindow());
+				::SetCapture (gHostWindow->GetHwnd());
 				if (what == kElement_JogRepeat)
 				{
 					EmSessionStopper	stopper (gSession, kStopOnSysCall);
 					if (stopper.Stopped ())
 						::EvtEnqueueKey(vchrJogPressRepeat, 0, commandKeyMask);	// for Sony & JogDial
 
-					gidJogKeyRepeat = ::SetTimer(EmWindow::GetWindow()->GetHostData()->GetHostWindow(), TIMERID_JOGKEY_REPAET_STARTER, JOGKEY_REPAET_STARTTIME, JogKeyRepeatStarterProc);
+					gidJogKeyRepeat = ::SetTimer(gHostWindow->GetHwnd(), TIMERID_JOGKEY_REPAET_STARTER, JOGKEY_REPAET_STARTTIME, JogKeyRepeatStarterProc);
 					::LCD_SetStateJogButton(what, true, true);
 				}
 				else if (what == kElement_JogPush)
@@ -264,7 +303,7 @@ BOOL ControlButtonForCLIE(const EmPoint& where, Bool down)
 				// Power On/Off状態のチェック
 				Bool lcdOn = EmHAL::GetLCDScreenOn ();
 
-				::SetCapture (EmWindow::GetWindow()->GetHostData()->GetHostWindow());	// for Sony & MemoryStick
+				::SetCapture (gHostWindow->GetHwnd());	// for Sony & MemoryStick
 
 				gCurrentButton = what;	// for Sony & MemoryStick
 				gButtonTracking = TRUE;	// for Sony & MemoryStick
@@ -302,9 +341,172 @@ BOOL ControlButtonForCLIE(const EmPoint& where, Bool down)
 	else if ((down && what == kElement_JogESC) || (!down && gCurrentButton == kElement_JogESC))
 	{
 		gCurrentButton = what;	// for Sony & JogDial
-		gButtonTracking = down;	// for Sony & JogDial
+		gButtonTracking = down;	// for Sony & JogDial/
 		::LCD_SetStateJogButton(kElement_JogESC, down, true);
 		::LCD_DrawButtonForPEG(NULL, kElement_JogESC);
 	}
 	return false;
 }
+
+#ifdef SONY_ROM
+//
+//	For Redwood & Naples
+//
+#include "EmCPU68K.h"
+PublicControlButtonForCLIE(const EmPoint& where, Bool down)
+{
+	SkinElementType	what;
+
+	what = ::SkinTestPoint (where);
+
+	if ((down && IsPublicControlButton(what)) || (!down && IsPublicControlButton(gCurrentButton)))
+	{
+		if (gButtonTracking)
+		{
+			gButtonTracking = down;
+
+			if (!gButtonTracking)
+			{
+				::ReleaseCapture ();
+
+				if (gCurrentButton == kElement_JogESC)
+				{
+					::LCD_SetStateJogButton(gCurrentButton, false, true);
+					::LCD_DrawButtonForPEG(NULL, gCurrentButton);
+
+					EmSessionStopper	stopper (gSession, kStopOnSysCall);
+					if (stopper.Stopped ())
+						::EvtEnqueueKey(alarmChr, 0, commandKeyMask);
+						::EvtEnqueueKey(vchrJogBack, 0, commandKeyMask);
+//					if (stopper.Stopped ())
+//						::EvtEnqueueKey(alarmChr, 0, commandKeyMask);
+//						::EvtEnqueueKey(launchChr, 0, commandKeyMask);
+				}
+				else if (gCurrentButton == kElement_UpButton)
+				{
+					if (gIdPublicKeyUp)
+					{
+						::KillTimer(gHostWindow->GetHwnd(), gIdPublicKeyUp);
+						gIdPublicKeyUp = NULL;
+					}
+				}
+				else if(gCurrentButton == kElement_DownButton)
+				{
+					if(gIdPublicKeyDown)
+					{
+						::KillTimer(gHostWindow->GetHwnd(), gIdPublicKeyDown);
+						gIdPublicKeyDown = NULL;
+					}
+				}
+			}
+			return false;
+		}
+		else if (down)
+		{
+			gButtonTracking = down;
+
+			// Power On/Off状態のチェック
+			Bool lcdOn = EmHAL::GetLCDScreenOn ();
+			if (!lcdOn && what != kElement_PowerButton)
+				return true;		// Power Off 状態
+
+			::SetCapture (gHostWindow->GetHwnd());
+
+			if( what == kElement_PowerButton )
+			{
+				if(lcdOn)
+				{
+					EmSessionStopper	stopper (gSession, kStopOnSysCall);
+					if (stopper.Stopped ())
+						::SysTaskSleep(false,false);
+//						::EvtEnqueueKey(alarmChr, 0, commandKeyMask);
+//						::EvtEnqueueKey(vchrAutoOff, 0, commandKeyMask);
+//						::EvtEnqueueKey(hardPowerChr, 0, commandKeyMask);
+//						::EvtEnqueueKey(vchrLateWakeup, 0, commandKeyMask);
+
+					return false;
+				}
+				else
+				{
+//					gSession->Reset(kResetSoft);
+//					::EvtWakeup();
+//					EmSessionStopper	stopper (gSession, kStopNow);
+//					if (stopper.Stopped ())
+//					::EvtEnqueueKey(hardPowerChr, 0, poweredOnKeyMask);
+//					UInt32 taskid = SysGetTaskID();
+//					::EvtEnqueueKey(vchrLateWakeup, 0, commandKeyMask);
+//					::SysTaskWakeup();
+//					::EvtWakeup();
+					return false;
+				}
+			}
+			else if( what ==  kElement_UpButton )
+			{
+				EmSessionStopper	stopper (gSession, kStopOnSysCall);
+				if (stopper.Stopped ())
+					::EvtEnqueueKey(pageUpChr, 0, commandKeyMask);
+
+				gIdPublicKeyUp = ::SetTimer(
+									gHostWindow->GetHwnd()
+									, TIMERID_JOGKEY_REPAET_STARTER
+									, JOGKEY_REPAET_STARTTIME
+									, PublicKeyUpStarterProc
+								);
+			}
+			else if( what == kElement_DownButton )
+			{
+				EmSessionStopper	stopper (gSession, kStopOnSysCall);
+				if (stopper.Stopped ())
+					::EvtEnqueueKey(pageDownChr, 0, commandKeyMask);
+
+				gIdPublicKeyDown = ::SetTimer(
+										gHostWindow->GetHwnd()
+										, TIMERID_JOGKEY_REPAET_STARTER
+										, JOGKEY_REPAET_STARTTIME
+										, PublicKeyDownStarterProc
+									);
+			}
+			else if( what ==  kElement_App1Button )
+			{
+				EmSessionStopper	stopper (gSession, kStopOnSysCall);
+				if (stopper.Stopped ())
+					::EvtEnqueueKey(hard1Chr, 0, commandKeyMask);
+			}
+			else if( what == kElement_App2Button ) 
+			{
+				EmSessionStopper	stopper (gSession, kStopOnSysCall);
+				if (stopper.Stopped ())
+					::EvtEnqueueKey(hard2Chr, 0, commandKeyMask);
+			}	
+			else if( what == kElement_App3Button ) 
+			{
+				EmSessionStopper	stopper (gSession, kStopOnSysCall);
+				if (stopper.Stopped ())
+					::EvtEnqueueKey(hard3Chr, 0, commandKeyMask);
+			}
+			else if( what == kElement_App4Button ) 
+			{
+				EmSessionStopper	stopper (gSession, kStopOnSysCall);
+				if (stopper.Stopped ())
+					::EvtEnqueueKey(hard4Chr, 0, commandKeyMask);
+			}
+			else if( what ==  kElement_JogESC ) 
+			{
+				::LCD_SetStateJogButton(kElement_JogESC, down, true);
+				::LCD_DrawButtonForPEG(NULL, kElement_JogESC);
+			}
+			else 
+			{
+				return false;
+			}
+			
+			gCurrentButton = what;
+			gButtonTracking = TRUE;
+
+			return true;
+		}
+	}
+
+	return false;
+}
+#endif //SONY_ROM
