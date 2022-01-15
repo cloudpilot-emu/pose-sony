@@ -1,0 +1,28 @@
+# This is a skin file for the Palm OS Emulator.  See the ReadMe.txt
+# file in this directory for a description of its contents.
+
+Name			= Color-English
+File1x			= PEGN600CE_16.jpg
+File2x			= PEGN600CE_32.jpg
+BackgroundColor	= 0x00, 0x00, 0x00
+HighlightColor	= 0x64, 0xF0, 0xDC
+Devices			= PEG-N600C/N610C
+
+#						  x    y    w    h
+#						---- ---- ---- ----
+Element1		= PowerButton,		143, 323,  38,   8
+Element2		= UpButton,		152, 276,  20,  11
+Element3		= DownButton,		152, 294,  20,  11
+Element4		= App1Button,		 89, 281,  20,  16
+Element5		= App2Button,		120, 281,  20,  16
+Element6		= App3Button,		182, 281,  20,  16
+Element7		= App4Button,		215, 281,  20,  16
+Element10		= ContrastButton,	 87, 244,   5,   5
+Element11		= Touchscreen,		 82,  31, 160, 221
+Element12		= LCD,			 82,  31, 160, 160
+Element20		= JogPush,		 11, 109,  40,  13
+Element22		= JogRepeat,		 11, 126,  40,  13
+Element23		= JogUp,		 11, 143,  40,  13
+Element24		= JogDown,		 11, 160,  40,  13
+Element25		= MS-In/Out,		 11,  77,  40,  13
+Element26		= JogESC,		 11, 180,  40,  13

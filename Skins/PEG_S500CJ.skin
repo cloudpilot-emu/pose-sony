@@ -1,0 +1,27 @@
+# This is a skin file for the Palm OS Emulator.  See the ReadMe.txt
+# file in this directory for a description of its contents.
+
+Name			= Color-Japanese
+File1x			= PEGS500CJ_16.jpg
+File2x			= PEGS500CJ_32.jpg
+BackgroundColor	= 0x7B, 0x8C, 0x5A
+HighlightColor	= 0x64, 0xF0, 0xDC
+Devices			= PEG-S500C
+
+#						  x    y    w    h
+#						---- ---- ---- ----
+Element1		= PowerButton,		 10,  20,  40,  13
+Element2		= UpButton,		153, 290,  20,  20
+Element3		= DownButton,		153, 315,  20,  20
+Element4		= App1Button,		 90, 300,  20,  20
+Element5		= App2Button,		120, 300,  20,  20
+Element6		= App3Button,		184, 300,  20,  20
+Element7		= App4Button,		215, 300,  20,  20
+Element10		= ContrastButton,	 83, 276,   5,   5
+Element11		= Touchscreen,		 85,  37, 160, 230
+Element12		= LCD,			 85,  37, 160, 160
+Element20		= JogPush,		 10,  87,  40,  13
+Element22		= JogRepeat,		 10, 104,  40,  13
+Element23		= JogUp,		 10, 121,  40,  13
+Element24		= JogDown,		 10, 138,  40,  13
+Element25		= MS-In/Out,		 10,  52,  40,  13
